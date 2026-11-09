@@ -1,0 +1,245 @@
+PROJETO DE REESTRUTURAÇÃO MASTER — SAAS LOJINHA DO CAMPUS
+Prompt refinado · 178 tópicos em 17 blocos · foco em UI e funções
+DIRETRIZ CENTRAL
+Você é o arquiteto-chefe, o designer de produto e o engenheiro financeiro desta aplicação. Sua missão é reestruturar por completo o SaaS de gestão da Lojinha do Campus, que hoje sofre com interface inconsistente, lógica contraditória, geração de faturas instável, módulos que não conversam, pagamentos pouco confiáveis, estoque divergente e uso difícil para administradores, operadores, alunos e responsáveis.
+Proibido: remendos isolados, correções cosméticas, telas bonitas sobre lógica quebrada, mensagens de sucesso sem persistência real.
+Obrigatório: investigar a causa raiz de cada problema e reconstruir os componentes frágeis. O resultado deve ter nível de SaaS comercial: arquitetura limpa, interface premium, operações atômicas, números financeiros auditáveis e fluxos rápidos para quem usa o sistema todos os dias.
+Princípios inegociáveis:
+1. O dinheiro é calculado e validado no backend, em centavos.
+2. Cada fato financeiro tem uma única origem.
+3. Toda ação visível na interface corresponde a uma operação real e verificada.
+4. Nenhum dado existente é perdido.
+BLOCO 1 — PRESERVAÇÃO DO PROJETO E DIAGNÓSTICO
+1. Preservar a aplicação existente — Trabalhe somente no projeto atual. Não crie aplicação paralela, não reinicie do zero, não troque por template genérico. Evolua rotas, entidades e componentes já existentes e reaproveite o que estiver sólido.
+2. Preservar os dados existentes — Alunos, responsáveis, usuários, produtos, categorias, vendas, faturas, pagamentos, estoque, configurações e históricos são intocáveis. Toda mudança estrutural deve ser aditiva e reversível, com script de migração, validação pré e pós e contagem de registros antes e depois.
+3. Backup e ponto de recuperação — Antes de qualquer alteração relevante, registre o ponto de restauração do código e exporte o banco (dump ou snapshot). Documente como restaurar. Uma cópia do frontend não é backup. Repita o checkpoint antes de cada módulo crítico.
+4. Auditar toda a aplicação — Percorra páginas, componentes, rotas, hooks, funções de backend, entidades, consultas, formulários, integrações e regras de negócio, lendo o código e não apenas as telas. Construa um mapa de arquivos, com o que cada um lê e escreve.
+5. Classificar problemas por gravidade — Crie a tabela Crítico / Alto / Médio / Baixo, com descrição, causa raiz, módulo afetado, impacto e correção proposta. Cobrança errada, pagamento duplicado, perda de registro e vazamento de dados são sempre críticos.
+6. Inventário de funcionalidades — Liste cada módulo e funcionalidade com um status: funciona, funciona parcialmente ou quebrado. Inclua dependências, entradas, saídas e quem pode usar cada recurso.
+7. Rastrear a origem de cada dado — Para cada número e lista exibidos, identifique se vem do banco, de localStorage, de estado temporário ou de valor fictício. Remova dados demonstrativos de qualquer área financeira. Nenhum valor real pode depender de localStorage.
+8. Caçar erros silenciosos — Encontre operações que mostram "sucesso" mas só alteram a interface, falham no backend sem aviso, engolem exceções ou ignoram o retorno do servidor. Toda confirmação visual só aparece após resposta positiva e releitura do registro gravado.
+9. Mapear dependências entre módulos — Desenhe o fluxo completo: Venda → Aluno → Consumo → Fatura → Pagamento → Indicadores → Notificação. Elimine dependências circulares e regras duplicadas em mais de um lugar.
+10. Diagnóstico antes de alterações destrutivas — Entregue o diagnóstico completo (problemas, causas, plano) antes de modificar qualquer dado ou estrutura. Peça confirmação explícita antes de qualquer decisão que altere o significado de valores financeiros existentes.
+BLOCO 2 — ARQUITETURA E ORGANIZAÇÃO INTERNA
+11. Arquitetura modular — Organize em módulos isolados com fronteiras claras: dashboard, PDV, vendas, produtos, estoque, alunos, responsáveis, consumo, faturas, pagamentos, Stripe, WhatsApp, relatórios, usuários, configurações e auditoria. Cada módulo expõe uma API interna e não acessa as tabelas dos outros diretamente.
+12. Fonte única de verdade — Cada informação financeira nasce de um único registro autoritativo. Saldos, totais e status são derivados por consultas ou funções centrais, nunca mantidos em campos paralelos que possam divergir.
+13. Regras de negócio centralizadas — Faturas, pagamentos, descontos, créditos, consumo e estoque são processados por serviços centrais reutilizáveis e testáveis. O frontend exibe resultados e nunca decide valores.
+14. Backend como autoridade — Valores, permissões, confirmação de pagamento e disponibilidade de estoque são validados no servidor. O navegador envia intenções (o que fazer) e recebe resultados (o que foi feito).
+15. Camada única de acesso a dados — Crie um cliente de dados padronizado com tratamento uniforme de erros, tentativas, tempo limite e logs. Use a persistência já existente, sem conexões paralelas ou módulos duplicados.
+16. Quatro estados em toda tela — Carregando (skeleton), conteúdo, vazio (com ação sugerida) e erro (com botão "Tentar novamente"). Após falha de atualização, avise que os dados podem estar desatualizados em vez de exibi-los como atuais.
+17. Biblioteca de componentes reutilizáveis — Construa uma única versão de DataTable, FormField, Modal, Drawer, StatCard, Badge de status, FilterBar, EmptyState, ConfirmDialog, Toast e MoneyInput. Proíba variações paralelas sem justificativa funcional.
+18. Nomenclatura padronizada — Padronize nomes de tabelas, campos, funções, eventos e componentes. Preserve nomes existentes quando isso evitar migração, mas elimine ambiguidades como "total", "valor" e "saldo" usados com significados diferentes.
+19. Validação em três camadas — Valide no formulário (feedback imediato), no backend (regra de negócio) e no banco (constraints, checks, chaves estrangeiras, unicidade). Valores, quantidades, datas, identificadores e relacionamentos nunca são gravados sem passar pelas três.
+20. Desempenho — Paginação, ordenação e filtros no servidor, índices nas colunas de busca e junção, cache com invalidação correta, debounce em buscas, listas virtualizadas para grandes volumes e ausência de consultas N+1 ou recarregamentos desnecessários.
+BLOCO 3 — DESIGN SYSTEM E IDENTIDADE VISUAL
+21. Preservar o tema escuro premium — Mantenha a identidade escura, moderna e sofisticada já estabelecida. Refine, não substitua. Nada de dashboard genérico ou template reconhecível.
+22. Tokens de design oficiais — Defina variáveis centrais e use-as em todo o sistema: fundo #101010, sidebar #151515, cartões #1B1B1B, superfícies elevadas #222222, bordas #303030, texto principal #F5F5F5, texto secundário #A1A1AA, destaque #8B7CFF. Estados: verde (sucesso), amarelo (atenção), vermelho (erro/crítico), cada um com versão de fundo suave e de texto. Garanta contraste mínimo AA.
+23. Identidade correta — Remova "Base44 Campus", "CMS Admin Dashboard" e quaisquer nomes genéricos. Use o nome da loja configurado nas configurações, com "Lojinha do Campus" como padrão. Aplique em título da aba, sidebar, login, e-mails, faturas e rodapés.
+24. Hierarquia tipográfica — Escala fixa: título de página, título de seção, rótulo, corpo e legenda. Números financeiros em fonte com algarismos tabulares, alinhados à direita, com formatação monetária brasileira (R$ 1.234,56) idêntica em todo o sistema. Grade de espaçamento múltipla de 4 ou 8 px.
+25. Sidebar reconstruída — Ícones de um único conjunto, grupos com rótulo, item ativo com destaque de cor e barra lateral, submenus expansíveis com animação suave, modo recolhido (apenas ícones com tooltip), estado lembrado entre sessões, menu como gaveta no celular e itens filtrados por perfil. Cabeçalho com logo e nome da loja; rodapé com usuário, perfil e sair.
+26. Navegação sem defeitos — Elimine menus cortados, itens sobrepostos, rotas quebradas, links mortos e páginas inacessíveis. Cada item leva a uma tela real. Inclua breadcrumbs, título dinâmico, página 404 útil e redirecionamento seguro após login.
+27. Cartões padronizados — Cartões compactos com rótulo, valor em destaque, variação opcional e ação contextual. Alturas e paddings idênticos, hover discreto, clique levando à listagem filtrada correspondente. Sem cartões gigantes sem função operacional.
+28. Tabelas profissionais — Busca instantânea, filtros combináveis com chips removíveis, ordenação por coluna, paginação no servidor, seleção múltipla, ações em lote, menu de ações por linha, colunas configuráveis, cabeçalho fixo, linhas clicáveis, skeleton de carregamento, estado vazio e exportação respeitando filtros.
+29. Formulários e modais refinados — Rótulos claros, indicação de obrigatórios, máscaras (CPF, telefone, moeda), validação em tempo real, mensagens de erro específicas ao lado do campo, botão de envio com estado de carregamento e proteção contra duplo clique, foco automático, tecla Esc para fechar, aviso de alterações não salvas e confirmação com resumo para ações destrutivas.
+30. Responsividade real — Reorganize layouts por breakpoint: tabelas viram cartões empilhados no celular, filtros viram painel deslizante, modais viram bottom sheets, alvos de toque de pelo menos 44 px, PDV e pagamentos totalmente utilizáveis com uma mão. Teste em desktop, notebook, tablet e celular.
+BLOCO 4 — DASHBOARD ADMINISTRATIVO
+31. Dashboard reconstruído — Página inicial orientada à decisão: saudação com nome da loja, seletor de período no topo, faixa de alertas, indicadores, gráficos, atalhos e atividade recente. Organização por prioridade operacional, sem enfeites.
+32. Indicadores financeiros — Cartões com vendas do período, consumo lançado em faturas, pagamentos confirmados, saldo em aberto, faturas vencidas e pagamentos pendentes. Cada cartão mostra valor, quantidade de registros e comparação com o período anterior, e abre a listagem correspondente.
+33. Indicadores operacionais — Quantidade de vendas, produtos ativos, alunos cadastrados, itens com estoque baixo e últimas movimentações, com atualização automática periódica e botão de atualizar manual.
+34. Definições financeiras distintas — Faturamento, vendas, consumo, pagamentos recebidos e saldo devedor são conceitos separados, cada um com definição em tooltip (ícone de ajuda) e uma consulta única compartilhada com os relatórios.
+35. Filtro de período global — Hoje, 7 dias, 30 dias, mês atual, mês anterior e personalizado, com seletor de intervalo. O filtro vale para todos os cartões e gráficos da página, persiste na URL e respeita o fuso horário local.
+36. Gráficos funcionais — Gráficos de vendas, consumo faturado e pagamentos confirmados por dia ou mês, com dados reais, tooltip com valores, legenda clicável, alternância de série e estado vazio. Sem gráficos decorativos.
+37. Atividades recentes — Linha do tempo com vendas, pagamentos, alterações de produto, ajustes de estoque e ações administrativas, cada item com ícone, usuário, horário relativo e link para o registro. Filtrada por permissão do perfil.
+38. Alertas operacionais — Painel com severidade para pagamentos pendentes de confirmação, faturas vencidas, estoque baixo, falhas de webhook, falhas de WhatsApp e erros de fechamento. Cada alerta tem botão de resolução direta.
+39. Atalhos rápidos — Botões grandes e consistentes para Abrir PDV, Novo produto, Novo aluno, Central de Faturamento, Pagamentos pendentes e Relatórios. Inclua paleta de comandos (Ctrl+K) para navegação e ações por teclado.
+40. Zero indicadores inventados — Nenhum valor fixo, percentual simulado ou dado fictício. Sem dados, mostre estado vazio explicativo com ação sugerida. Cada número deve ser rastreável a uma consulta.
+BLOCO 5 — ALUNOS E RESPONSÁVEIS
+41. Módulo de alunos — Tabela com avatar, nome, matrícula/identificação, turma, status (badge), consumo do mês, saldo em aberto (destacado em vermelho quando devedor) e ações rápidas (ver, editar, lançar venda, gerar fatura). Busca instantânea, filtros por status, turma e inadimplência.
+42. Módulo de responsáveis — Listagem com contato, alunos vinculados (chips), permissões financeiras por vínculo e situação. Detalhe com todos os vínculos e histórico de acessos e pagamentos.
+43. Cadastro de alunos — Formulário em seções (dados pessoais, contato, financeiro, status), preservando campos e dados existentes. Evite campos supérfluos, valide duplicidade por identificação e exiba feedback imediato.
+44. Cadastro de responsáveis — Cadastro e edição com busca prévia para impedir duplicação de pessoas, vínculo com um ou mais alunos e definição de parentesco e permissões no mesmo fluxo.
+45. Controle de relacionamentos — Cada responsável enxerga somente os alunos vinculados e autorizados. A regra é aplicada no backend e verificada em todas as consultas, exportações e notificações.
+46. Configuração de pagador por aluno — Opções claras: aluno, responsável ou ambos, com seletor visual na ficha do aluno. A regra altera quem pode pagar e visualizar, nunca duplica a obrigação.
+47. Destinatários de relatórios — Controles independentes para definir se aluno, responsável ou ambos recebem relatórios financeiros, com pré-visualização de quem receberá.
+48. Destinatários de lembretes — Configuração separada para lembretes de vencimento, cobranças e notificações, por canal (WhatsApp, e-mail) e por destinatário.
+49. Obrigação financeira compartilhada — Aluno e responsável autorizados veem a mesma fatura, o mesmo saldo e o mesmo histórico. Uma fatura por aluno e período, sempre.
+50. Página detalhada do aluno — Cabeçalho com resumo (saldo, consumo do mês, status) e abas: Visão geral, Consumo, Faturas, Pagamentos, Responsáveis e Histórico. Cada aba carrega sob demanda, com filtros e links cruzados para os registros.
+BLOCO 6 — PONTO DE VENDA E VENDAS
+51. PDV rápido — Layout em duas colunas: catálogo à esquerda e carrinho fixo à direita (no celular, barra inferior expansível). Seleção de aluno no topo, total em destaque, botão principal de finalizar e atalhos de teclado.
+52. Busca de produtos — Busca instantânea por nome, código e leitor de código de barras, abas ou chips de categoria, cartões com preço, imagem e disponibilidade. Produtos sem estoque ficam indicados e bloqueados.
+53. Carrinho funcional — Adicionar, remover e alterar quantidade com botões e teclado, pré-visualização local do total e recálculo definitivo pelo backend antes da confirmação. Divergências são sinalizadas ao operador.
+54. Identificação do comprador — Seletor de aluno com busca por nome ou identificação e exibição de foto e saldo. Venda faturada exige aluno válido e elegível. O sistema impede concluir sem identificação.
+55. Formas de lançamento — Pagamento imediato (dinheiro, Pix, cartão) ou lançamento no consumo mensal, conforme as opções autorizadas e realmente implementadas. Apresente apenas o que está habilitado.
+56. Preços históricos — Cada item vendido grava preço unitário, nome e custo vigentes no momento. Mudanças futuras de preço jamais alteram vendas anteriores.
+57. Itens individualizados — Cada venda possui itens com produto, quantidade, preço unitário, desconto autorizado e subtotal, além de total, operador, data e origem.
+58. Idempotência e proteção contra duplicidade — Cada tentativa de venda carrega uma chave única. Botão desabilita ao enviar, o backend ignora reenvios e falhas de rede podem ser repetidas com segurança, sem gerar venda duplicada.
+59. Cancelamento seguro — Exige justificativa, registra usuário e horário, reverte estoque e lançamento financeiro uma única vez e preserva a venda original com status cancelada. Faturas já emitidas seguem a regra de estorno ou ajuste.
+60. Histórico de vendas — Tabela com filtros por período, aluno, operador, produto, forma de lançamento e status, drawer de detalhes com itens e movimentações relacionadas, e exportação filtrada.
+BLOCO 7 — PRODUTOS E ESTOQUE
+61. Cadastro de produtos — Formulário completo com nome, descrição, categoria, preço (centavos), código, imagem, status, estoque atual e mínimo. Visualização em tabela e em grade, edição rápida inline e duplicação de produto.
+62. Categorias — Criação, edição, ordenação e arquivamento de categorias, com bloqueio de nomes duplicados e contagem de produtos por categoria.
+63. Controle de estoque — Toda venda confirmada baixa o estoque em operação atômica, respeitando as regras definidas e sem permitir condições de corrida entre operadores.
+64. Movimentações de estoque — Livro-razão com entrada, saída, ajuste, perda e reversão, cada uma com quantidade, saldo resultante, data, motivo, responsável e referência de origem. Tela de movimentação com filtros e ação rápida de entrada de mercadoria.
+65. Estoque mínimo e alertas — Badge de estoque baixo na listagem, alerta no dashboard e filtro "abaixo do mínimo" com sugestão de reposição.
+66. Sem estoque negativo — Bloqueio por padrão no backend e no banco. Exceções exigem autorização, justificativa e registro de auditoria.
+67. Preservar histórico — Ajustar a quantidade atual gera uma movimentação e nunca apaga ou reescreve registros anteriores.
+68. Reversão correta no cancelamento — A reposição ocorre exatamente uma vez, via movimentação de reversão rastreável e ligada à venda cancelada, protegida contra reprocessamento.
+BLOCO 8 — MOTOR FINANCEIRO CENTRALIZADO
+69. Motor financeiro único — Um serviço central processa vendas faturadas, consumo, faturas, pagamentos, créditos, débitos e estornos. Nenhuma tela ou módulo calcula dinheiro por conta própria.
+70. Eventos financeiros distintos — Venda, consumo, fatura, pagamento iniciado, pagamento confirmado, estorno e crédito são entidades ou eventos separados, imutáveis e encadeados por referências.
+71. Cálculos em centavos — Valores armazenados e calculados como inteiros em centavos no backend, com arredondamento definido e documentado. Conversão para reais só na apresentação.
+72. Fórmula financeira oficial — Total da fatura = saldo anterior aplicável + mensalidade fixa + consumo do período + débitos adicionais − créditos e descontos. Saldo a pagar = total da fatura − pagamentos confirmados e alocados. Implemente em uma única função, coberta por testes com exemplos conhecidos.
+73. Sem dupla contabilização — Uma venda faturada alimenta o consumo e entra em uma única fatura. Marque a venda como faturada, referencie a fatura e impeça nova inclusão por qualquer outra consulta.
+74. Pagamentos pendentes não abatem — Pagamentos iniciados, enviados ou aguardando confirmação aparecem como "em análise" e não reduzem o saldo até a confirmação efetiva.
+75. Ajustes financeiros auditáveis — Créditos, débitos, descontos e correções exigem valor, justificativa, responsável, data e permissão, com tela própria e histórico visível na ficha do aluno.
+76. Histórico imutável — Nunca apague registros para corrigir saldos. Use estornos, reversões e ajustes referenciando a operação original.
+77. Alocação de pagamentos — Cada pagamento é distribuído entre faturas por regra explícita (mais antiga primeiro ou fatura escolhida), com tabela de alocações que impede abater o mesmo valor duas vezes.
+78. Controle de concorrência — Use transações, bloqueios de linha ou versionamento para impedir que pagamentos, vendas e fechamentos simultâneos corrompam o mesmo saldo.
+BLOCO 9 — CENTRAL DE FATURAMENTO
+79. Central de Faturamento — Área dedicada, acessível pelo dashboard de Alunos e Responsáveis e pelo módulo financeiro, com visão do mês, status do fechamento e histórico de execuções.
+80. Botão principal em destaque — No topo da página, botão grande e inconfundível "GERAR FATURAS DO MÊS", na cor de destaque, com estado de carregamento e bloqueio contra clique duplo. Nunca escondido em menu secundário.
+81. Período de referência — Seletor de mês e ano com validação de período futuro, fechamento existente e duplicidade, mostrando claramente o que será faturado.
+82. Alunos elegíveis — Aplique regras de cobrança, situação do aluno, data de entrada e configuração individual. Alunos inelegíveis aparecem listados com o motivo da exclusão.
+83. Consumo do período — Busque somente vendas faturadas válidas dentro do intervalo, excluindo canceladas e as já vinculadas a outra fatura. Exiba contagem e soma de conferência.
+84. Mensalidades fixas — Consulte a regra de mensalidade vigente para aluno e período, mantendo histórico de versões das regras para que mudanças futuras não afetem faturas passadas.
+85. Ajustes e créditos — Inclua apenas ajustes e créditos válidos, aprovados e aplicáveis ao período, listados item a item na prévia.
+86. Saldos anteriores — Transporte saldo somente conforme a regra definida e uma única vez. Evite replicar valor já incorporado em fatura anterior ou atual.
+87. Prévia de faturamento — Tabela completa por aluno com mensalidade, consumo, quantidade de compras, ajustes, créditos, saldo anterior e total final, com totais consolidados no rodapé e destaque para anomalias (total zero, valor muito acima da média, aluno sem responsável).
+88. Conferência individual — Cada linha abre um drawer com todos os itens que compõem o valor: vendas, mensalidade, ajustes e saldo anterior, com links para os registros originais e possibilidade de excluir o aluno da geração.
+89. Gerar apenas pendentes — Detecte faturas já existentes, marque como "já emitida" e gere somente as faltantes, sem alterar as emitidas.
+90. Restrição contra duplicidade no banco — Índice único por aluno e período (ou chave de negócio equivalente), além da verificação no backend. A barreira existe no banco e não depende do frontend.
+91. Geração transacional — Cada fatura é criada com seus itens e a marcação das vendas em uma única transação. Falhas não deixam faturas parciais, itens órfãos ou vendas marcadas sem fatura.
+92. Registro de fechamento — Grave período, responsável, data e hora, quantidade de faturas, valores totais, falhas e resultado da execução, em log consultável.
+93. Reprocessamento controlado — Botão "Reprocessar pendentes" que atua somente nos registros não concluídos, de forma idempotente, mostrando o resultado por aluno.
+94. Faturas congeladas — Fatura emitida preserva itens, preços, regras e valores históricos como imagem fiel do momento. Mudanças de preço ou configuração não recalculam documentos antigos.
+95. Estados das faturas — Rascunho, emitida, aberta, parcialmente paga, paga, vencida, cancelada e estornada, com transições permitidas definidas em uma máquina de estados central e badges visuais consistentes.
+96. Visão de fechamento mensal — Painel com barra de progresso, processadas, pendentes, falhas, valores consolidados e lista de erros acionáveis por aluno.
+97. Fechamento no último dia do mês — Preserve o fechamento no último dia do mês, com data de vencimento configurável nas configurações administrativas e aplicada automaticamente.
+98. Datas e fusos — Armazene em UTC, defina o fuso da loja, calcule limites de mês no fuso configurado e teste vendas e pagamentos próximos da meia-noite e da virada do mês.
+BLOCO 10 — ÁREA DO ALUNO E RESPONSÁVEL
+99. Página financeira intuitiva — Primeira tela mostra saldo em aberto, próximas faturas, vencimentos e últimos pagamentos, sem navegação adicional. Layout limpo, pensado primeiro para celular.
+100. Saldo em destaque — Cartão principal com valor devido em tipografia grande, status (em dia, a vencer, vencida) e botão de pagamento direto. Nada importante escondido em abas.
+101. Área de faturas — Lista com período, valor original, valor pago, saldo, vencimento e status, com detalhamento expansível dos itens consumidos e download em PDF.
+102. Botão "PAGAR AGORA" — Presente em cada fatura em aberto, claro, em destaque, abrindo o fluxo de pagamento com valor sugerido e opção de valor parcial.
+103. Métodos de pagamento simples — Mostre apenas métodos realmente habilitados, com ícone, descrição curta e instruções objetivas. Esconda o que não estiver ativo.
+104. Acesso do responsável — Responsável autorizado vê e paga as mesmas faturas dos alunos vinculados, com seletor de aluno quando houver mais de um e respeito às permissões do vínculo.
+105. Identificação do pagador — Cada pagamento registra quem iniciou (aluno, responsável ou operador), com nome e papel visíveis no histórico.
+106. Histórico de pagamentos — Tabela com data, valor, método, status e referência da transação, com recibo disponível para pagamentos confirmados.
+107. Pagamentos parciais — Quando habilitado, campo de valor com validação de mínimo e máximo, exibição clara do saldo restante antes e depois do pagamento.
+108. Sem cobrança duplicada — Aluno e responsável compartilham a mesma obrigação. Se um paga, o saldo muda para ambos. Nunca existem duas faturas para a mesma dívida.
+BLOCO 11 — STRIPE E PROCESSAMENTO DE PAGAMENTOS
+109. Preservar a integração existente — Inspecione a conexão Stripe de teste já associada e complete-a. Não crie integração paralela nem substitua credenciais válidas.
+110. Ambiente de testes — Confirme que chaves e recursos são de teste (prefixos de teste) e bloqueie qualquer cobrança real. Exiba um selo "MODO TESTE" visível para administradores.
+111. Pagamentos criados no backend — Crie Checkout Sessions ou Payment Intents no servidor, recalculando valor e validando a fatura, o saldo e o usuário. O cliente nunca informa o valor final.
+112. Checkout hospedado — Prefira Stripe Checkout hospedado para reduzir exposição de dados de cartão, com URLs de sucesso e cancelamento que apenas exibem o estado e nunca confirmam o pagamento.
+113. Vínculo transação–fatura — Registre internamente a referência da fatura, do pagador e da tentativa, com metadados controlados pelo backend e conferidos na volta do evento.
+114. Webhooks seguros — Endpoint dedicado que valida a assinatura com o segredo guardado só no backend, rejeita eventos inválidos e responde rapidamente.
+115. Eventos tratados — Checkout concluído, pagamento assíncrono confirmado ou recusado, Payment Intent aprovado ou falho e estornos, cada um com ação definida e logs claros.
+116. Idempotência de eventos — Armazene o identificador de cada evento processado. Reentregas de webhook são reconhecidas e ignoradas sem criar novo pagamento ou crédito.
+117. Confirmação somente pelo backend — A página de sucesso apenas consulta o estado. O financeiro só muda após validação do evento e do estado real da transação.
+118. Cartões de teste — Documente e teste o cartão aprovado 4242 4242 4242 4242 (validade futura, CVC qualquer), além dos cartões oficiais de recusa, fundos insuficientes e autenticação adicional (3D Secure).
+119. Pagamentos recusados — Mensagem clara ao usuário, saldo intacto, tentativa registrada no histórico e opção de tentar novamente.
+120. Pagamentos pendentes — Fatura permanece no estado apropriado com selo "Aguardando confirmação" até evento efetivo, com expiração e limpeza de tentativas abandonadas.
+121. Pagamentos parciais — Cada transação é registrada individualmente e alocada ao saldo, com recálculo e atualização do status da fatura.
+122. Prevenção de excedentes — Valide saldo e bloqueie concorrência no backend para que tentativas simultâneas nunca ultrapassem o valor devido. Excedentes inevitáveis viram crédito rastreável.
+123. Estornos — Estorno confirmado gera movimentação referenciando o pagamento original, recalcula o saldo e atualiza o status da fatura com registro de auditoria.
+124. Proteção de credenciais — Chaves secretas e segredos de webhook só no backend. Nada em frontend, logs públicos, respostas de API ou código versionado.
+125. Histórico Stripe — Tela administrativa com identificador externo, valor, data, fatura, pagador e estado, filtros e distinção visual entre teste e produção.
+126. Sem assinaturas desnecessárias — Utilize pagamentos únicos por fatura. Assinaturas recorrentes só com necessidade específica e aprovação.
+BLOCO 12 — PIX E MÉTODOS ALTERNATIVOS
+127. Preservar o fluxo Pix existente — Descubra se o Pix é automático ou manual e preserve o que existe. Nunca apresente como disponível uma função inexistente.
+128. Instruções claras — Com integração real: QR Code, copia e cola com botão de copiar e confirmação visual. Fluxo manual: chave, valor exato, referência da fatura e envio de comprovante em passos numerados.
+129. Sem confirmação automática de comprovante — No fluxo manual, o comprovante enviado coloca o pagamento em "aguardando validação" e nunca abate saldo antes da aprovação.
+130. Fila de confirmação — Tela com pendentes, visualização segura do comprovante, dados da fatura e botões Confirmar e Rejeitar (com justificativa obrigatória), além de filtros e contador no menu.
+131. Responsável pela decisão — Registre usuário, data, hora, valor e decisão de cada confirmação ou rejeição, visível no histórico da fatura.
+132. Status padronizados — Mapeie estados técnicos de cada provedor para estados financeiros únicos, com mesmos rótulos e cores para Stripe, Pix e demais métodos.
+BLOCO 13 — WHATSAPP E NOTIFICAÇÕES
+133. Preservar a integração existente — Inspecione o provedor, as configurações e o fluxo atual antes de modificar qualquer coisa.
+134. Notificações mensais — Envio de relatório de consumo e fatura conforme as preferências de cada aluno e responsável, com pré-visualização da mensagem e do destinatário.
+135. Lembretes de vencimento — Antes de enviar, o sistema consulta saldo e status atuais. Fatura paga ou cancelada nunca gera cobrança. Agende lembretes antes e depois do vencimento.
+136. Confirmação de pagamento — Mensagem enviada somente após a confirmação financeira efetiva, com valor, fatura e saldo restante.
+137. Sem mensagens duplicadas — Chave única por fatura, evento, destinatário e tipo de notificação, com tela de reenvio manual controlado.
+138. Registro de entregas e falhas — Histórico com destinatário, tipo, horário, status e retorno do provedor, filtros, e botão de reenviar mensagens com falha.
+139. Permissões e consentimento — Envie apenas a contatos autorizados e respeite preferências. Inclua opção de cancelar o recebimento e valide números antes do envio.
+140. Credenciais protegidas — Tokens e segredos de comunicação permanecem no backend e fora de logs e respostas.
+BLOCO 14 — RELATÓRIOS E INDICADORES
+141. Relatórios de vendas — Por período, produto, categoria, operador e aluno, com totais, ticket médio, gráficos e detalhamento em drill-down.
+142. Relatórios de consumo — Consumo por aluno e período, separando itens faturados e não faturados, com conferência contra faturas emitidas.
+143. Relatórios de faturas — Emitidas, pagas, parcialmente pagas, abertas, vencidas e canceladas, com aging de inadimplência e totais por status.
+144. Relatórios de pagamentos — Separados por método, data, status, pagador e fatura, com conciliação entre Stripe, Pix e registros internos.
+145. Relatórios de estoque — Entradas, saídas, ajustes, perdas, giro e produtos abaixo do mínimo, com valor de estoque.
+146. Exportações padronizadas — CSV, Excel e PDF com cabeçalho, período, filtros aplicados e valores formatados, respeitando permissões e sem expor dados de outros usuários.
+147. Indicadores consistentes — Dashboard e relatórios usam as mesmas funções financeiras centrais. Crie testes que comparem os totais entre eles e com o banco.
+BLOCO 15 — SEGURANÇA, PERMISSÕES E AUDITORIA
+148. Perfis preservados e revisados — Administrador, operador de caixa, aluno e responsável, com matriz de permissões documentada por módulo e ação (ver, criar, editar, excluir, aprovar).
+149. Rotas protegidas — Sessão válida obrigatória, redirecionamento ao login, expiração de sessão tratada com mensagem clara e retorno à página anterior.
+150. Proteção no backend — Permissões verificadas em cada consulta e operação. Esconder botões é conveniência de interface, nunca segurança.
+151. Proteção de relacionamentos — Consultas filtradas por vínculo autorizado. Tentar acessar aluno não vinculado retorna negação, mesmo manipulando identificadores.
+152. Proteção de operações financeiras — Apenas perfis autorizados confirmam pagamentos, fazem ajustes, cancelam faturas e executam fechamentos, com confirmação reforçada nas ações sensíveis.
+153. Auditoria completa — Log imutável com usuário, data, ação, registro afetado, valores antes e depois e justificativa, com tela de consulta filtrável por usuário, módulo e período.
+154. Arquivos protegidos — Comprovantes e documentos em armazenamento privado, com políticas de acesso por perfil e URLs temporárias assinadas.
+155. Políticas de banco — Se houver Supabase, revise RLS, políticas de select, insert, update e delete, relacionamentos e exposição de tabelas. Nenhuma tabela sensível fica acessível sem política.
+156. Sem elevação de privilégios — Usuários não alteram o próprio papel nem concedem privilégios. Mudanças de papel só por administrador, com auditoria.
+BLOCO 16 — TESTES E VALIDAÇÃO DE PONTA A PONTA
+157. Testar criação e edição — Cadastro, edição, consulta e exclusão autorizada de produtos, alunos e responsáveis, incluindo validações e casos de erro.
+158. Testar venda completa — Realize uma venda de teste e verifique itens, preços históricos, consumo, baixa de estoque, movimentação e histórico.
+159. Testar faturamento completo — Escolha um período, gere a prévia, confira cálculos manualmente e confirme a criação das faturas.
+160. Testar geração duplicada — Execute o processo novamente para o mesmo período, inclusive com requisições simultâneas, e confirme que nenhuma fatura é duplicada.
+161. Testar geração parcial — Monte um cenário com parte das faturas existentes e confirme que apenas as pendentes são criadas.
+162. Testar cálculo de saldo — Valide mensalidade, consumo, créditos, débitos, pagamentos e saldo anterior com exemplos de resultado conhecido.
+163. Testar pagamento Stripe — Complete um pagamento de teste e verifique Checkout, webhook, registro financeiro e atualização da fatura.
+164. Testar pagamento recusado — Use cartão de recusa, confirme que o saldo permanece e que a tentativa fica registrada.
+165. Testar pagamento parcial — Primeiro pagamento reduz o saldo, o segundo quita, sem duplicação nem excedente.
+166. Testar concorrência — Simule pagamentos, vendas e gerações simultâneas e verifique idempotência, bloqueios e integridade.
+167. Testar permissões — Entre como administrador, operador, aluno e responsável e confirme dados visíveis e ações permitidas em cada perfil, incluindo tentativas de acesso indevido.
+168. Testar persistência — Atualize a página, encerre e reabra a sessão e confirme que tudo permanece salvo e coerente.
+169. Testar responsividade — Teste PDV, menus, modais, formulários, tabelas e fluxos de pagamento em telas pequenas, médias e grandes.
+170. Testar falhas externas — Simule Stripe indisponível, webhook falho, erro de banco e perda de conexão. Mensagens claras, operações preservadas e nada de estado inconsistente.
+BLOCO 17 — CRITÉRIOS DE ENTREGA
+171. Relatório técnico — Problemas identificados, causas, correções e módulos afetados, organizados por gravidade.
+172. Alterações de banco — Liste tabelas, colunas, índices, constraints, funções, políticas, triggers e migrações, com script de reversão.
+173. Arquivos alterados — Liste arquivos e componentes criados, modificados ou removidos, com o motivo de cada alteração.
+174. Testes executados — Para cada teste, informe o resultado real: aprovado, reprovado ou bloqueado, com evidência (dados usados e resultado obtido).
+175. Sem simulações — Nenhuma integração é declarada funcional sem operação real de teste e validação do resultado.
+176. Sem esconder problemas — Se algo depender de credencial, configuração externa, permissão ou serviço indisponível, aponte exatamente o bloqueio e o que é necessário para destravar.
+177. Histórico e dados preservados — Confirme, com contagens antes e depois, que registros anteriores continuam acessíveis e que nenhuma migração apagou informações.
+178. Sistema consistente — O sistema só está pronto quando vendas, estoque, consumo, faturas, pagamentos, usuários e indicadores estão conectados e conferem entre si.
+DIRETRIZES FINAIS DE EXECUÇÃO
+Execute uma reestruturação planejada e controlada, nunca uma maquiagem em todas as páginas.
+Ordem obrigatória:
+1. Diagnóstico completo
+2. Integridade e arquitetura do banco
+3. Regras financeiras
+4. Motor de faturamento
+5. PDV e estoque
+6. Pagamentos e Stripe
+7. Alunos e responsáveis
+8. Dashboard e relatórios
+9. Identidade visual e experiência de uso
+10. Segurança e permissões
+11. Testes completos
+12. Relatório final
+Regras de execução:
+• Após o diagnóstico, separe o que pode ser feito com segurança do que depende de aprovação, e aguarde minha confirmação nos itens sensíveis.
+• Faça um checkpoint após cada módulo crítico, com resumo do que foi feito, testado e pendente.
+• Se não couber tudo em uma única operação, divida em etapas e mantenha um registro vivo de concluído, em andamento e pendente.
+• Nunca sacrifique a integridade dos dados pela velocidade.
+• Ao final de cada etapa, informe somente o que foi efetivamente validado.
+RESULTADO FINAL DESEJADO:
+• Interface premium, moderna e intuitiva, com identidade escura consistente
+• Navegação limpa e responsiva
+• PDV rápido e funcional
+• Estoque confiável e rastreável
+• Cadastro organizado de alunos e responsáveis
+• Consumo corretamente registrado
+• Geração de faturas simples, rápida e segura
+• Cálculos financeiros consistentes e auditáveis
+• Pagamentos Stripe funcionais, com pagamentos parciais
+• Pix com confirmação adequada
+• Relatórios confiáveis
+• WhatsApp corretamente integrado
+• Segurança por perfil
+• Histórico completo e dados íntegros
+Prioridade absoluta: geração de faturas e integridade financeira.
+Não quero um sistema que apenas pareça profissional. Quero um sistema que funcione profissionalmente.
+Execute diretamente na aplicação existente, sem criar outro projeto, sem apagar dados e sem declarar concluído aquilo que não foi efetivamente validado.

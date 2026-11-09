@@ -1,0 +1,6 @@
+{
+  "name": "Lojinha do Campus — Gestão Comercial & Financeira",
+  "description": "SaaS completo para gestão da lojinha do campus: PDV rápido, controle de estoque automático, faturamento mensal integrado, pagamentos Pix, portais do aluno e responsável, e auditoria.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

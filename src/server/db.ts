@@ -1,0 +1,1060 @@
+import fs from 'fs';
+import path from 'path';
+import { 
+  User, 
+  Student, 
+  Guardian, 
+  Product, 
+  Sale, 
+  Invoice, 
+  PixPayment, 
+  StockMovement, 
+  FinancialTransaction, 
+  WhatsAppNotification, 
+  AuditLog, 
+  SystemSettings,
+  MonthlyClosingPreview 
+} from '../types/index.ts';
+import { generateBacenPixPayload } from '../utils/pix.ts';
+import { 
+  initialUsers, 
+  initialGuardians, 
+  initialStudents, 
+  initialProducts, 
+  initialStockMovements, 
+  initialSales, 
+  initialFinancialLedger, 
+  initialInvoices, 
+  initialPixPayments, 
+  initialWhatsAppNotifications, 
+  initialAuditLogs, 
+  initialSettings 
+} from './seedData.ts';
+
+export interface DatabaseSchema {
+  settings: SystemSettings;
+  users: User[];
+  guardians: Guardian[];
+  students: Student[];
+  products: Product[];
+  stockMovements: StockMovement[];
+  sales: Sale[];
+  financialLedger: FinancialTransaction[];
+  invoices: Invoice[];
+  pixPayments: PixPayment[];
+  whatsappNotifications: WhatsAppNotification[];
+  auditLogs: AuditLog[];
+}
+
+const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DB_FILE = path.join(DATA_DIR, 'base44_db.json');
+
+class DatabaseService {
+  private data: DatabaseSchema;
+
+  constructor() {
+    this.data = this.loadDatabase();
+  }
+
+  private loadDatabase(): DatabaseSchema {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+
+      if (fs.existsSync(DB_FILE)) {
+        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        return {
+          settings: parsed.settings || initialSettings,
+          users: parsed.users || initialUsers,
+          guardians: parsed.guardians || initialGuardians,
+          students: parsed.students || initialStudents,
+          products: parsed.products || initialProducts,
+          stockMovements: parsed.stockMovements || initialStockMovements,
+          sales: parsed.sales || initialSales,
+          financialLedger: parsed.financialLedger || initialFinancialLedger,
+          invoices: parsed.invoices || initialInvoices,
+          pixPayments: parsed.pixPayments || initialPixPayments,
+          whatsappNotifications: parsed.whatsappNotifications || initialWhatsAppNotifications,
+          auditLogs: parsed.auditLogs || initialAuditLogs,
+        };
+      }
+    } catch (err) {
+      console.error('Erro ao ler base de dados JSON, iniciando com dados semente:', err);
+    }
+
+    const defaultData: DatabaseSchema = {
+      settings: initialSettings,
+      users: initialUsers,
+      guardians: initialGuardians,
+      students: initialStudents,
+      products: initialProducts,
+      stockMovements: initialStockMovements,
+      sales: initialSales,
+      financialLedger: initialFinancialLedger,
+      invoices: initialInvoices,
+      pixPayments: initialPixPayments,
+      whatsappNotifications: initialWhatsAppNotifications,
+      auditLogs: initialAuditLogs,
+    };
+
+    this.saveDatabase(defaultData);
+    return defaultData;
+  }
+
+  private saveDatabase(dataToSave: DatabaseSchema = this.data) {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      // Atomic write via temp file
+      const tempPath = `${DB_FILE}.tmp.${Date.now()}`;
+      fs.writeFileSync(tempPath, JSON.stringify(dataToSave, null, 2), 'utf-8');
+      fs.renameSync(tempPath, DB_FILE);
+    } catch (err) {
+      console.error('Falha ao persistir base de dados:', err);
+    }
+  }
+
+  // Helper de auditoria
+  public logAudit(
+    userId: string, 
+    userName: string, 
+    userRole: any, 
+    action: string, 
+    module: any, 
+    details: string, 
+    status: 'SUCESSO' | 'FALHA' = 'SUCESSO'
+  ) {
+    const log: AuditLog = {
+      id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+      userId,
+      userName,
+      userRole,
+      action,
+      module,
+      details,
+      status
+    };
+    this.data.auditLogs.unshift(log);
+    // Keep max 500 audit logs
+    if (this.data.auditLogs.length > 500) {
+      this.data.auditLogs = this.data.auditLogs.slice(0, 500);
+    }
+    this.saveDatabase();
+    this.triggerSupabaseSync('audit_logs', log, 'mapAuditLogToSupabase');
+  }
+
+  public triggerSupabaseSync(table: string, record: any, mapperName: string) {
+    setTimeout(async () => {
+      try {
+        const supabaseMod = await import('./supabase.ts');
+        const mapper = (supabaseMod as any)[mapperName];
+        await supabaseMod.syncRecordToSupabase(table, record, mapper);
+      } catch (e) {
+        // quiet background auto-sync
+      }
+    }, 0);
+  }
+
+  // --- GETTERS ---
+  public getSettings(): SystemSettings {
+    return this.data.settings;
+  }
+
+  public getUsers(): User[] {
+    return this.data.users;
+  }
+
+  public getStudents(): Student[] {
+    return this.data.students;
+  }
+
+  public getGuardians(): Guardian[] {
+    return this.data.guardians;
+  }
+
+  public getProducts(): Product[] {
+    return this.data.products;
+  }
+
+  public getSales(): Sale[] {
+    return this.data.sales;
+  }
+
+  public getStockMovements(): StockMovement[] {
+    return this.data.stockMovements;
+  }
+
+  public getInvoices(): Invoice[] {
+    return this.data.invoices;
+  }
+
+  public getPixPayments(): PixPayment[] {
+    return this.data.pixPayments;
+  }
+
+  public getWhatsAppNotifications(): WhatsAppNotification[] {
+    return this.data.whatsappNotifications;
+  }
+
+  public getAuditLogs(): AuditLog[] {
+    return this.data.auditLogs;
+  }
+
+  public getFinancialLedger(): FinancialTransaction[] {
+    return this.data.financialLedger;
+  }
+
+  // --- REGRAS DE NEGÓCIO ---
+
+  // 1. Atualizar configurações
+  public updateSettings(newSettings: Partial<SystemSettings>, user: { id: string; name: string; role: any }) {
+    this.data.settings = {
+      ...this.data.settings,
+      ...newSettings,
+      updatedAt: new Date().toISOString(),
+      updatedByUserName: user.name
+    };
+    this.logAudit(user.id, user.name, user.role, 'ATUALIZAR_CONFIGURACOES', 'CONFIGURACOES', 'Parâmetros de fechamento e sistema atualizados');
+    this.saveDatabase();
+    this.triggerSupabaseSync('settings', this.data.settings, 'mapSettingsToSupabase');
+    return this.data.settings;
+  }
+
+  // 2. Operação de Venda no PDV (Caixa Rápido)
+  public registerSale(params: {
+    studentId: string;
+    items: { productId: string; quantity: number }[];
+    operatorUser: { id: string; name: string; role: any };
+    idempotencyKey?: string;
+  }): { sale: Sale; student: Student } {
+    const { studentId, items, operatorUser, idempotencyKey } = params;
+
+    // Idempotency check
+    if (idempotencyKey) {
+      const existingSale = this.data.sales.find(s => s.idempotencyKey === idempotencyKey);
+      if (existingSale) {
+        const student = this.data.students.find(s => s.id === studentId)!;
+        return { sale: existingSale, student };
+      }
+    }
+
+    const student = this.data.students.find(s => s.id === studentId);
+    if (!student) {
+      throw new Error(`Aluno com ID ${studentId} não encontrado.`);
+    }
+
+    if (student.status !== 'ACTIVE') {
+      throw new Error(`O aluno ${student.name} está inativo e não pode realizar compras.`);
+    }
+
+    if (!items || items.length === 0) {
+      throw new Error('A venda deve conter pelo menos 1 item.');
+    }
+
+    // Conferência e bloqueio de estoque
+    const saleItems: Sale['items'] = [];
+    let saleTotal = 0;
+
+    for (const item of items) {
+      const product = this.data.products.find(p => p.id === item.productId);
+      if (!product) {
+        throw new Error(`Produto ID ${item.productId} não encontrado.`);
+      }
+
+      if (this.data.settings.stockControlActive && this.data.settings.blockSaleWithoutStock) {
+        if (product.currentStock < item.quantity) {
+          throw new Error(`Estoque insuficiente para o produto "${product.name}". Disponível: ${product.currentStock}, Solicitado: ${item.quantity}`);
+        }
+      }
+
+      const subtotal = Math.round((product.price * item.quantity) * 100) / 100;
+      saleTotal += subtotal;
+
+      saleItems.push({
+        productId: product.id,
+        name: product.name,
+        category: product.category,
+        unitPrice: product.price, // PRESERVA PREÇO HISTÓRICO
+        quantity: item.quantity,
+        subtotal
+      });
+    }
+
+    saleTotal = Math.round(saleTotal * 100) / 100;
+
+    const currentPeriod = new Date().toISOString().substring(0, 7); // e.g. '2026-10'
+    const saleId = `VEN-${Date.now().toString().slice(-6)}`;
+
+    // Criar registro de venda
+    const newSale: Sale = {
+      id: saleId,
+      studentId: student.id,
+      studentName: student.name,
+      registrationNumber: student.registrationNumber,
+      items: saleItems,
+      total: saleTotal,
+      operatorUserId: operatorUser.id,
+      operatorUserName: operatorUser.name,
+      status: 'COMPLETED',
+      billingPeriod: currentPeriod,
+      idempotencyKey,
+      createdAt: new Date().toISOString()
+    };
+
+    // Atualizar estoque e gerar movimentações
+    for (const item of saleItems) {
+      const product = this.data.products.find(p => p.id === item.productId)!;
+      const prevStock = product.currentStock;
+      product.currentStock = Math.max(0, product.currentStock - item.quantity);
+      product.updatedAt = new Date().toISOString();
+
+      const movement: StockMovement = {
+        id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        productId: product.id,
+        productName: product.name,
+        type: 'SAIDA_VENDA',
+        quantity: -item.quantity,
+        previousStock: prevStock,
+        newStock: product.currentStock,
+        reason: `Venda ${newSale.id} - Aluno: ${student.name}`,
+        performedByUserId: operatorUser.id,
+        performedByUserName: operatorUser.name,
+        referenceId: newSale.id,
+        timestamp: new Date().toISOString()
+      };
+      this.data.stockMovements.unshift(movement);
+
+      // Checar se disparar alerta de estoque baixo
+      if (product.currentStock <= product.minStock) {
+        this.data.whatsappNotifications.unshift({
+          id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+          type: 'ALERTA_ESTOQUE',
+          recipientName: 'Coordenação Lojinha',
+          recipientPhone: '(11) 98765-4321',
+          recipientRole: 'ADMIN',
+          studentName: 'Estoque da Lojinha',
+          messageText: `⚠️ Atenção: O item "${product.name}" atingiu ${product.currentStock} ${product.unit} (estoque mínimo: ${product.minStock}).`,
+          status: 'ENTREGUE',
+          scheduledFor: new Date().toISOString(),
+          sentAt: new Date().toISOString(),
+          attemptsCount: 1
+        });
+      }
+    }
+
+    // Atualizar saldo do aluno (Todo consumo vai para a conta mensal)
+    student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance + saleTotal) * 100) / 100;
+    student.totalOpenDebt = Math.round((student.totalOpenDebt + saleTotal) * 100) / 100;
+
+    // Criar lançamento no livro financeiro
+    this.data.financialLedger.unshift({
+      id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+      timestamp: new Date().toISOString(),
+      studentId: student.id,
+      type: 'DEBITO',
+      category: 'CONSUMO_LOJINHA',
+      amount: saleTotal,
+      description: `Consumo Lojinha - Venda ${newSale.id} (${saleItems.length} itens)`,
+      documentRef: newSale.id,
+      performedByUserName: operatorUser.name
+    });
+
+    this.data.sales.unshift(newSale);
+
+    this.logAudit(
+      operatorUser.id,
+      operatorUser.name,
+      operatorUser.role,
+      'REGISTRO_VENDA_PDV',
+      'VENDAS',
+      `Venda ${newSale.id} (R$ ${saleTotal.toFixed(2)}) para o aluno ${student.name} registrada na conta mensal.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('sales', newSale, 'mapSaleToSupabase');
+    this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    return { sale: newSale, student };
+  }
+
+  // 3. Estorno de Venda no PDV
+  public reverseSale(saleId: string, reason: string, user: { id: string; name: string; role: any }) {
+    const sale = this.data.sales.find(s => s.id === saleId);
+    if (!sale) {
+      throw new Error(`Venda ${saleId} não encontrada.`);
+    }
+
+    if (sale.status === 'REVERSED') {
+      throw new Error(`A venda ${saleId} já foi estornada anteriormente.`);
+    }
+
+    const student = this.data.students.find(s => s.id === sale.studentId);
+    if (!student) {
+      throw new Error(`Aluno associado à venda não encontrado.`);
+    }
+
+    // Reverter estoque
+    for (const item of sale.items) {
+      const product = this.data.products.find(p => p.id === item.productId);
+      if (product) {
+        const prevStock = product.currentStock;
+        product.currentStock += item.quantity;
+        product.updatedAt = new Date().toISOString();
+
+        this.data.stockMovements.unshift({
+          id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          productId: product.id,
+          productName: product.name,
+          type: 'ESTORNO_VENDA',
+          quantity: item.quantity,
+          previousStock: prevStock,
+          newStock: product.currentStock,
+          reason: `Estorno de venda ${sale.id}: ${reason}`,
+          performedByUserId: user.id,
+          performedByUserName: user.name,
+          referenceId: sale.id,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    // Abater do consumo acumulado
+    student.currentConsumptionBalance = Math.max(0, Math.round((student.currentConsumptionBalance - sale.total) * 100) / 100);
+    student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - sale.total) * 100) / 100);
+
+    // Registro no livro financeiro
+    this.data.financialLedger.unshift({
+      id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+      timestamp: new Date().toISOString(),
+      studentId: student.id,
+      type: 'CREDITO',
+      category: 'ESTORNO_VENDA',
+      amount: sale.total,
+      description: `Estorno de venda ${sale.id} - Motivo: ${reason}`,
+      documentRef: sale.id,
+      performedByUserName: user.name
+    });
+
+    sale.status = 'REVERSED';
+    sale.reversedReason = reason;
+    sale.reversedByUserName = user.name;
+    sale.reversedAt = new Date().toISOString();
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'ESTORNO_VENDA_PDV',
+      'VENDAS',
+      `Estorno da venda ${sale.id} (R$ ${sale.total.toFixed(2)}) de ${student.name}. Motivo: ${reason}`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+    this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    return { sale, student };
+  }
+
+  // 4. Ajuste manual de estoque (Entrada/Saída/Ajuste)
+  public adjustStock(params: {
+    productId: string;
+    type: 'ENTRADA' | 'AJUSTE_MANUAL';
+    quantity: number; // For ENTRADA: amount to add. For AJUSTE_MANUAL: absolute new stock
+    reason: string;
+    user: { id: string; name: string; role: any };
+  }) {
+    const { productId, type, quantity, reason, user } = params;
+    const product = this.data.products.find(p => p.id === productId);
+    if (!product) {
+      throw new Error(`Produto não encontrado.`);
+    }
+
+    const prevStock = product.currentStock;
+    let newStock = prevStock;
+    let diff = 0;
+
+    if (type === 'ENTRADA') {
+      if (quantity <= 0) throw new Error('Quantidade de entrada deve ser maior que zero.');
+      newStock = prevStock + quantity;
+      diff = quantity;
+    } else {
+      if (quantity < 0) throw new Error('Estoque não pode ser negativo.');
+      newStock = quantity;
+      diff = newStock - prevStock;
+    }
+
+    product.currentStock = newStock;
+    product.updatedAt = new Date().toISOString();
+
+    this.data.stockMovements.unshift({
+      id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      productId: product.id,
+      productName: product.name,
+      type: type,
+      quantity: diff,
+      previousStock: prevStock,
+      newStock: newStock,
+      reason,
+      performedByUserId: user.id,
+      performedByUserName: user.name,
+      timestamp: new Date().toISOString()
+    });
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'AJUSTE_ESTOQUE',
+      'ESTOQUE',
+      `Ajuste manual de estoque no produto ${product.name}: ${prevStock} -> ${newStock} (${diff >= 0 ? '+' : ''}${diff}). Motivo: ${reason}`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+    return product;
+  }
+
+  // 5. Salvar / Editar produto (garante que preços de vendas passadas não se alteram)
+  public saveProduct(productData: Partial<Product>, user: { id: string; name: string; role: any }) {
+    if (productData.id) {
+      const idx = this.data.products.findIndex(p => p.id === productData.id);
+      if (idx === -1) throw new Error('Produto não encontrado');
+      
+      const oldPrice = this.data.products[idx].price;
+      this.data.products[idx] = {
+        ...this.data.products[idx],
+        ...productData,
+        updatedAt: new Date().toISOString()
+      };
+
+      this.logAudit(
+        user.id,
+        user.name,
+        user.role,
+        'EDITAR_PRODUTO',
+        'ESTOQUE',
+        `Produto ${this.data.products[idx].name} editado. Preço anterior: R$ ${oldPrice.toFixed(2)}, Novo preço: R$ ${this.data.products[idx].price.toFixed(2)}`
+      );
+
+      this.saveDatabase();
+      this.triggerSupabaseSync('products', this.data.products[idx], 'mapProductToSupabase');
+      return this.data.products[idx];
+    } else {
+      const newProduct: Product = {
+        id: `prod-${Date.now().toString().slice(-4)}`,
+        name: productData.name || 'Novo Produto',
+        category: productData.category || 'Salgados & Lanches',
+        price: Number(productData.price) || 0,
+        internalCode: productData.internalCode || `INT-${Math.floor(Math.random() * 9000 + 1000)}`,
+        barcode: productData.barcode || undefined,
+        currentStock: Number(productData.currentStock) || 0,
+        minStock: Number(productData.minStock) || 5,
+        status: productData.status || 'ACTIVE',
+        unit: productData.unit || 'un',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      this.data.products.push(newProduct);
+      this.logAudit(
+        user.id,
+        user.name,
+        user.role,
+        'CRIAR_PRODUTO',
+        'ESTOQUE',
+        `Novo produto cadastrado: ${newProduct.name} (R$ ${newProduct.price.toFixed(2)}) com estoque inicial de ${newProduct.currentStock}`
+      );
+
+      this.saveDatabase();
+      this.triggerSupabaseSync('products', newProduct, 'mapProductToSupabase');
+      return newProduct;
+    }
+  }
+
+  // 6. Prévia de Fechamento Mensal
+  public getMonthlyClosingPreview(period: string): MonthlyClosingPreview {
+    // period e.g. '2026-10'
+    const eligibleStudents = this.data.students.filter(s => s.status === 'ACTIVE');
+    const existingInvoices = this.data.invoices.filter(i => i.billingPeriod === period && i.status !== 'CANCELADA');
+
+    let totalTuitions = 0;
+    let totalConsumptions = 0;
+    let pendingUnpaidSalesCount = 0;
+    const inconsistencies: MonthlyClosingPreview['inconsistencies'] = [];
+
+    // Checar vendas do período
+    const periodSales = this.data.sales.filter(s => s.billingPeriod === period && s.status === 'COMPLETED');
+    pendingUnpaidSalesCount = periodSales.length;
+
+    for (const student of eligibleStudents) {
+      totalTuitions += student.defaultTuition;
+
+      // Calcular consumo do aluno no período
+      const studentSales = periodSales.filter(s => s.studentId === student.id);
+      const studentConsumption = studentSales.reduce((acc, sale) => acc + sale.total, 0);
+      totalConsumptions += studentConsumption;
+
+      // Inconsistências
+      const alreadyHasInvoice = existingInvoices.some(i => i.studentId === student.id);
+      if (alreadyHasInvoice) {
+        inconsistencies.push({
+          studentId: student.id,
+          studentName: student.name,
+          severity: 'WARNING',
+          message: `O aluno já possui fatura gerada para ${period}. Não será duplicada.`
+        });
+      }
+
+      if (student.guardians.length === 0 && (student.payerRule === 'GUARDIAN' || student.payerRule === 'GUARDIAN_ONLY')) {
+        inconsistencies.push({
+          studentId: student.id,
+          studentName: student.name,
+          severity: 'BLOCKER',
+          message: `Aluno configurado como 'Pagamento Exclusivo pelo Responsável', mas não possui responsável vinculado.`
+        });
+      }
+    }
+
+    const totalGrossToBill = Math.round((totalTuitions + totalConsumptions) * 100) / 100;
+
+    return {
+      period,
+      studentsCount: eligibleStudents.length,
+      totalTuitions: Math.round(totalTuitions * 100) / 100,
+      totalConsumptions: Math.round(totalConsumptions * 100) / 100,
+      totalPreviousBalances: 0,
+      totalGrossToBill,
+      pendingUnpaidSalesCount,
+      existingInvoicesCount: existingInvoices.length,
+      inconsistencies,
+      canProceed: !inconsistencies.some(inc => inc.severity === 'BLOCKER')
+    };
+  }
+
+  // 7. Executar Fechamento Mensal e Publicar Faturas
+  public executeMonthlyClosing(period: string, user: { id: string; name: string; role: any }) {
+    const preview = this.getMonthlyClosingPreview(period);
+    if (!preview.canProceed) {
+      throw new Error('Não é possível fechar o mês devido a inconsistências impeditivas.');
+    }
+
+    const eligibleStudents = this.data.students.filter(s => s.status === 'ACTIVE');
+    const createdInvoices: Invoice[] = [];
+    const now = new Date();
+
+    // Data de vencimento baseada no offset de configurações
+    const [yearStr, monthStr] = period.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10); // 1-12
+    
+    // Mês seguinte para vencimento
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const dueDay = this.data.settings.dueDayOffset;
+    const dueDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
+    const closingDate = `${year}-${String(month).padStart(2, '0')}-28`;
+
+    for (const student of eligibleStudents) {
+      // PREVENÇÃO DE DUPLICIDADE (Idempotência estrita)
+      const existing = this.data.invoices.find(
+        i => i.studentId === student.id && i.billingPeriod === period && i.status !== 'CANCELADA'
+      );
+      if (existing) {
+        continue; // Não gerar faturas duplicadas!
+      }
+
+      // Vendas do período para este aluno
+      const studentSales = this.data.sales.filter(
+        s => s.studentId === student.id && s.billingPeriod === period && s.status === 'COMPLETED'
+      );
+
+      const consumptionTotal = studentSales.reduce((acc, s) => acc + s.total, 0);
+
+      // Agrupar itens de consumo para o extrato da fatura
+      const itemMap = new Map<string, { product: Product | undefined; name: string; category: any; qty: number; total: number }>();
+      for (const sale of studentSales) {
+        for (const item of sale.items) {
+          const key = item.productId;
+          const current = itemMap.get(key) || {
+            product: this.data.products.find(p => p.id === item.productId),
+            name: item.name,
+            category: item.category,
+            qty: 0,
+            total: 0
+          };
+          current.qty += item.quantity;
+          current.total += item.subtotal;
+          itemMap.set(key, current);
+        }
+      }
+
+      const consumptionItems = Array.from(itemMap.entries()).map(([productId, data]) => ({
+        productId,
+        productName: data.name,
+        category: data.category,
+        quantity: data.qty,
+        averageUnitPrice: data.qty > 0 ? Math.round((data.total / data.qty) * 100) / 100 : 0,
+        totalAmount: Math.round(data.total * 100) / 100
+      }));
+
+      const tuitionAmount = student.defaultTuition;
+      const grossTotal = Math.round((tuitionAmount + consumptionTotal) * 100) / 100;
+      const invoiceId = `FAT-${period.replace('-', '')}-${student.registrationNumber.replace('-', '')}`;
+
+      // Montar código Pix Copia e Cola no padrão oficial Bacen EMV
+      const pixCode = generateBacenPixPayload({
+        pixKey: this.data.settings.pixKey,
+        receiverName: this.data.settings.pixReceiverName,
+        city: this.data.settings.pixCity,
+        amount: grossTotal,
+        txId: invoiceId
+      });
+
+      const invoice: Invoice = {
+        id: invoiceId,
+        studentId: student.id,
+        studentName: student.name,
+        registrationNumber: student.registrationNumber,
+        billingPeriod: period,
+        tuitionAmount,
+        canteenConsumptionTotal: Math.round(consumptionTotal * 100) / 100,
+        previousBalance: 0,
+        adjustmentsTotal: 0,
+        grossTotal,
+        paidTotal: 0,
+        remainingBalance: grossTotal,
+        closingDate,
+        dueDate,
+        status: 'PUBLICADA',
+        salesIds: studentSales.map(s => s.id),
+        consumptionItems,
+        paymentAllocations: [],
+        pixCopyPasteCode: pixCode,
+        pixQrCodePayload: pixCode,
+        approvedByUserName: user.name,
+        approvedAt: now.toISOString(),
+        publishedAt: now.toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+      };
+
+      createdInvoices.push(invoice);
+      this.data.invoices.unshift(invoice);
+
+      // Zerar o saldo de consumo acumulado do aluno pois agora está faturado nesta fatura oficial
+      student.currentConsumptionBalance = 0;
+      student.totalOpenDebt = grossTotal;
+
+      // Disparar Notificações WhatsApp conforme preferências do Aluno
+      this.scheduleInvoiceNotifications(invoice, student);
+    }
+
+    if (createdInvoices.length === 0) {
+      throw new Error(`Todas as faturas para a competência ${period} já foram geradas e publicadas anteriormente para todos os alunos ativos.`);
+    }
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'FECHAMENTO_MENSAL_EXECUTADO',
+      'FECHAMENTO',
+      `Fechamento de ${period} concluído com sucesso. ${createdInvoices.length} faturas geradas e publicadas.`
+    );
+
+    this.saveDatabase();
+    createdInvoices.forEach(inv => this.triggerSupabaseSync('invoices', inv, 'mapInvoiceToSupabase'));
+    return {
+      period,
+      invoicesCreated: createdInvoices.length,
+      invoices: createdInvoices
+    };
+  }
+
+  // Programar notificações WhatsApp respeitando quem deve receber
+  private scheduleInvoiceNotifications(invoice: Invoice, student: Student) {
+    if (!this.data.settings.whatsappAutoEnabled) return;
+
+    const sendToStudent = student.reportRecipientRule === 'STUDENT' || student.reportRecipientRule === 'STUDENT_ONLY' || student.reportRecipientRule === 'BOTH';
+    const sendToGuardian = student.reportRecipientRule === 'GUARDIAN' || student.reportRecipientRule === 'GUARDIAN_ONLY' || student.reportRecipientRule === 'BOTH';
+
+    if (sendToStudent && student.phone) {
+      this.data.whatsappNotifications.unshift({
+        id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        type: 'NOVA_FATURA',
+        recipientName: student.name,
+        recipientPhone: student.phone,
+        recipientRole: 'ALUNO',
+        studentName: student.name,
+        studentId: student.id,
+        invoiceId: invoice.id,
+        messageText: `Olá, ${student.name}! Sua fatura do Campus ref. a ${invoice.billingPeriod} foi emitida. Valor Total: R$ ${invoice.grossTotal.toFixed(2)} (Mensalidade: R$ ${invoice.tuitionAmount.toFixed(2)} + Lojinha: R$ ${invoice.canteenConsumptionTotal.toFixed(2)}). Vencimento: ${invoice.dueDate}.`,
+        status: 'ENTREGUE',
+        scheduledFor: new Date().toISOString(),
+        sentAt: new Date().toISOString(),
+        attemptsCount: 1
+      });
+    }
+
+    if (sendToGuardian) {
+      for (const link of student.guardians) {
+        const guardian = this.data.guardians.find(g => g.id === link.guardianId);
+        if (guardian && guardian.phone) {
+          this.data.whatsappNotifications.unshift({
+            id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            type: 'NOVA_FATURA',
+            recipientName: guardian.name,
+            recipientPhone: guardian.phone,
+            recipientRole: 'RESPONSAVEL',
+            studentName: student.name,
+            studentId: student.id,
+            invoiceId: invoice.id,
+            messageText: `Prezado(a) ${guardian.name}, a fatura de ${student.name} referente a ${invoice.billingPeriod} está disponível. Total: R$ ${invoice.grossTotal.toFixed(2)}. Vencimento: ${invoice.dueDate}. Código Pix Copia e Cola disponível no portal da família.`,
+            status: 'ENTREGUE',
+            scheduledFor: new Date().toISOString(),
+            sentAt: new Date().toISOString(),
+            attemptsCount: 1
+          });
+        }
+      }
+    }
+  }
+
+  // 8. Registro de Intenção de Pagamento via Pix (Aluno ou Responsável envia comprovante)
+  public submitPixPayment(params: {
+    invoiceId: string;
+    amount: number;
+    transactionReference: string;
+    receiptAttachment?: string;
+    receiptNotes?: string;
+    user: { id: string; name: string; role: any };
+  }) {
+    const { invoiceId, amount, transactionReference, receiptAttachment, receiptNotes, user } = params;
+
+    const invoice = this.data.invoices.find(i => i.id === invoiceId);
+    if (!invoice) throw new Error('Fatura não encontrada.');
+
+    if (amount <= 0) throw new Error('Valor do pagamento deve ser positivo.');
+    if (amount > invoice.remainingBalance) {
+      throw new Error(`Valor informado (R$ ${amount.toFixed(2)}) é maior que o saldo restante da fatura (R$ ${invoice.remainingBalance.toFixed(2)}).`);
+    }
+
+    const payerRole = user.role === 'GUARDIAN' ? 'RESPONSAVEL' : 'ALUNO';
+
+    const pixPayment: PixPayment = {
+      id: `PIX-${Date.now().toString().slice(-6)}`,
+      invoiceId: invoice.id,
+      invoiceCode: invoice.id,
+      studentId: invoice.studentId,
+      studentName: invoice.studentName,
+      payerName: user.name,
+      payerRole: payerRole as any,
+      amount: Math.round(amount * 100) / 100,
+      transactionReference,
+      receiptAttachment: receiptAttachment || 'Comprovante_Pix_Enviado.pdf',
+      receiptNotes,
+      status: 'AGUARDANDO_CONFERENCIA',
+      registeredByUserId: user.id,
+      registeredByUserName: user.name,
+      registeredAt: new Date().toISOString()
+    };
+
+    this.data.pixPayments.unshift(pixPayment);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'ENVIO_COMPROVANTE_PIX',
+      'PAGAMENTOS',
+      `Comprovante de pagamento Pix ${pixPayment.id} enviado para fatura ${invoice.id} (R$ ${amount.toFixed(2)}) aguardando conferência administrativa.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('pix_payments', pixPayment, 'mapPixPaymentToSupabase');
+    return pixPayment;
+  }
+
+  // 9. Conferência e Aprovação de Pagamento Pix (Administrador)
+  public reviewPixPayment(params: {
+    paymentId: string;
+    decision: 'APROVADO' | 'REJEITADO';
+    reason: string;
+    reviewerUser: { id: string; name: string; role: any };
+  }) {
+    const { paymentId, decision, reason, reviewerUser } = params;
+    const payment = this.data.pixPayments.find(p => p.id === paymentId);
+    if (!payment) throw new Error('Pagamento não encontrado.');
+
+    if (payment.status !== 'AGUARDANDO_CONFERENCIA') {
+      throw new Error(`Este pagamento já foi ${payment.status.toLowerCase()} anteriormente.`);
+    }
+
+    const invoice = this.data.invoices.find(i => i.id === payment.invoiceId);
+    if (!invoice) throw new Error('Fatura relacionada não encontrada.');
+
+    payment.reviewedByUserId = reviewerUser.id;
+    payment.reviewedByUserName = reviewerUser.name;
+    payment.reviewedAt = new Date().toISOString();
+    payment.reviewDecisionReason = reason;
+
+    if (decision === 'APROVADO') {
+      payment.status = 'CONFIRMADO';
+
+      // Atualizar fatura
+      invoice.paidTotal = Math.round((invoice.paidTotal + payment.amount) * 100) / 100;
+      invoice.remainingBalance = Math.max(0, Math.round((invoice.grossTotal - invoice.paidTotal) * 100) / 100);
+
+      if (invoice.remainingBalance <= 0) {
+        invoice.status = 'PAGA';
+      } else {
+        invoice.status = 'PARCIALMENTE_PAGA';
+      }
+      invoice.updatedAt = new Date().toISOString();
+
+      // Registrar alocação na fatura
+      invoice.paymentAllocations.push({
+        paymentId: payment.id,
+        amount: payment.amount,
+        payerName: payment.payerName,
+        payerType: payment.payerRole,
+        date: new Date().toISOString()
+      });
+
+      // Atualizar saldo total do aluno
+      const student = this.data.students.find(s => s.id === invoice.studentId);
+      if (student) {
+        student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - payment.amount) * 100) / 100);
+      }
+
+      // Registro no livro financeiro
+      this.data.financialLedger.unshift({
+        id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+        timestamp: new Date().toISOString(),
+        studentId: invoice.studentId,
+        type: 'CREDITO',
+        category: 'PAGAMENTO_PIX',
+        amount: payment.amount,
+        description: `Recebimento Pix ${payment.id} confirmado para fatura ${invoice.id}`,
+        invoiceId: invoice.id,
+        documentRef: payment.transactionReference,
+        performedByUserName: reviewerUser.name
+      });
+
+      // Programar confirmação WhatsApp
+      if (this.data.settings.whatsappAutoEnabled) {
+        this.data.whatsappNotifications.unshift({
+          id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          type: 'CONFIRMACAO_PAGAMENTO',
+          recipientName: payment.payerName,
+          recipientPhone: '(11) 98111-2233',
+          recipientRole: payment.payerRole,
+          studentName: invoice.studentName,
+          studentId: invoice.studentId,
+          invoiceId: invoice.id,
+          messageText: `Recebimento confirmado! O valor de R$ ${payment.amount.toFixed(2)} foi processado na fatura ${invoice.id}. Saldo restante da fatura: R$ ${invoice.remainingBalance.toFixed(2)}. Obrigado!`,
+          status: 'ENTREGUE',
+          scheduledFor: new Date().toISOString(),
+          sentAt: new Date().toISOString(),
+          attemptsCount: 1
+        });
+      }
+
+      this.logAudit(
+        reviewerUser.id,
+        reviewerUser.name,
+        reviewerUser.role,
+        'APROVACAO_PIX',
+        'PAGAMENTOS',
+        `Pagamento Pix ${payment.id} de R$ ${payment.amount.toFixed(2)} aprovado para a fatura ${invoice.id}. Novo saldo da fatura: R$ ${invoice.remainingBalance.toFixed(2)}`
+      );
+    } else {
+      payment.status = 'REJEITADO';
+
+      this.logAudit(
+        reviewerUser.id,
+        reviewerUser.name,
+        reviewerUser.role,
+        'REJEICAO_PIX',
+        'PAGAMENTOS',
+        `Pagamento Pix ${payment.id} de R$ ${payment.amount.toFixed(2)} REJEITADO. Motivo: ${reason}`
+      );
+    }
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('pix_payments', payment, 'mapPixPaymentToSupabase');
+    if (invoice) this.triggerSupabaseSync('invoices', invoice, 'mapInvoiceToSupabase');
+    return { payment, invoice };
+  }
+
+  // 10. Atualização de Vínculos e Regras de Aluno / Responsável
+  public updateStudentSettings(studentId: string, updates: Partial<Student>, user: { id: string; name: string; role: any }) {
+    const student = this.data.students.find(s => s.id === studentId);
+    if (!student) throw new Error('Aluno não encontrado.');
+
+    Object.assign(student, updates);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'ATUALIZAR_REGRAS_ALUNO',
+      'CONFIGURACOES',
+      `Configurações individuais e regras de cobrança do aluno ${student.name} foram atualizadas.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    return student;
+  }
+
+  // 11. Simulação e reprocessamento da fila de WhatsApp
+  public retryWhatsAppNotification(notificationId: string) {
+    const notif = this.data.whatsappNotifications.find(n => n.id === notificationId);
+    if (!notif) throw new Error('Notificação não encontrada.');
+
+    // Regra crítica de negócio: Se a fatura relacionada já estiver quitada, não envia cobrança!
+    if (notif.invoiceId) {
+      const invoice = this.data.invoices.find(i => i.id === notif.invoiceId);
+      if (invoice && (invoice.status === 'PAGA' || invoice.status === 'CANCELADA' || invoice.remainingBalance <= 0)) {
+        notif.status = 'CANCELADO_FATURA_QUITADA';
+        notif.lastErrorMessage = 'Envio cancelado: fatura já se encontra quitada no sistema.';
+        this.saveDatabase();
+        return notif;
+      }
+    }
+
+    notif.status = 'ENTREGUE';
+    notif.sentAt = new Date().toISOString();
+    notif.attemptsCount += 1;
+    notif.lastErrorMessage = undefined;
+
+    this.saveDatabase();
+    return notif;
+  }
+
+  public resetToSeed(user: { id: string; name: string; role: any }) {
+    this.data = {
+      settings: initialSettings,
+      users: initialUsers,
+      guardians: initialGuardians,
+      students: initialStudents,
+      products: initialProducts,
+      stockMovements: initialStockMovements,
+      sales: initialSales,
+      financialLedger: initialFinancialLedger,
+      invoices: initialInvoices,
+      pixPayments: initialPixPayments,
+      whatsappNotifications: initialWhatsAppNotifications,
+      auditLogs: initialAuditLogs,
+    };
+    this.logAudit(user.id, user.name, user.role, 'RESET_BASE_DE_DADOS', 'SISTEMA', 'Base de dados resetada para estado semente.');
+    this.saveDatabase();
+    return { success: true };
+  }
+}
+
+export const db = new DatabaseService();
