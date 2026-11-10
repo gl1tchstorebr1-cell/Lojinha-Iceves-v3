@@ -1,18 +1,20 @@
 {
   "settings": {
     "id": "settings-1",
-    "institutionName": "Campus University School",
+    "institutionName": "Lojinha Iceves",
     "cnpj": "18.423.891/0001-44",
-    "storeName": "Lojinha do Campus",
+    "storeName": "Lojinha Iceves",
     "closingDay": "LAST_DAY",
     "closingHour": "23:59",
     "dueDayOffset": 10,
     "allowDirectCashPayment": false,
     "stockControlActive": true,
     "blockSaleWithoutStock": true,
-    "pixKey": "financeiro@campus.edu.br",
+    "tuitionBillingActive": false,
+    "defaultTuitionAmount": 0,
+    "pixKey": "",
     "pixKeyType": "EMAIL",
-    "pixReceiverName": "CAMPUS EDUCACIONAL",
+    "pixReceiverName": "LOJINHA ICEVES",
     "pixCity": "SAO PAULO",
     "whatsappAutoEnabled": true,
     "whatsappProviderName": "WhatsApp Business Cloud API",
@@ -27,7 +29,7 @@
     {
       "id": "user-admin",
       "name": "Mariana Vasconcelos",
-      "email": "admin@campus.edu",
+      "email": "admin.lojinha@gmail.com",
       "role": "ADMIN",
       "phone": "(11) 98765-4321",
       "avatar": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
@@ -36,7 +38,7 @@
     {
       "id": "user-cashier",
       "name": "Roberto Silveira",
-      "email": "caixa@campus.edu",
+      "email": "caixa.lojinha@gmail.com",
       "role": "CASHIER",
       "phone": "(11) 97654-3210",
       "avatar": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
@@ -45,7 +47,7 @@
     {
       "id": "user-student-lucas",
       "name": "Lucas Andrade",
-      "email": "aluno.lucas@campus.edu",
+      "email": "lucas.andrade@gmail.com",
       "role": "STUDENT",
       "studentId": "student-1",
       "phone": "(11) 99123-4567",
@@ -55,7 +57,7 @@
     {
       "id": "user-student-sofia",
       "name": "Sofia Andrade",
-      "email": "aluna.sofia@campus.edu",
+      "email": "sofia.andrade@gmail.com",
       "role": "STUDENT",
       "studentId": "student-2",
       "phone": "(11) 99345-6789",
@@ -116,13 +118,13 @@
       "name": "Lucas Andrade",
       "registrationNumber": "2024-0412",
       "classGroup": "3º Ano E.M. - Turma A",
-      "email": "aluno.lucas@campus.edu",
+      "email": "lucas.andrade@gmail.com",
       "phone": "(11) 99123-4567",
       "avatar": "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
       "status": "ACTIVE",
-      "defaultTuition": 750,
+      "defaultTuition": 0,
       "currentConsumptionBalance": 68,
-      "totalOpenDebt": 818,
+      "totalOpenDebt": 68,
       "payerRule": "BOTH",
       "reportRecipientRule": "BOTH",
       "dueReminderRecipientRule": "BOTH",
@@ -139,7 +141,7 @@
           "canAccessPortal": true
         }
       ],
-      "notes": "Aluno autorizado a consumir na cantina até R$ 250,00 por quinzena.",
+      "notes": "Cliente autorizado a consumir na lojinha até R$ 250,00 por quinzena.",
       "createdAt": "2026-02-10T08:00:00Z"
     },
     {
@@ -147,13 +149,13 @@
       "name": "Sofia Andrade",
       "registrationNumber": "2024-0413",
       "classGroup": "1º Ano E.M. - Turma B",
-      "email": "aluna.sofia@campus.edu",
+      "email": "sofia.andrade@gmail.com",
       "phone": "(11) 99345-6789",
       "avatar": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80",
       "status": "ACTIVE",
-      "defaultTuition": 750,
+      "defaultTuition": 0,
       "currentConsumptionBalance": 58.5,
-      "totalOpenDebt": 808.5,
+      "totalOpenDebt": 58.5,
       "payerRule": "GUARDIAN_ONLY",
       "reportRecipientRule": "BOTH",
       "dueReminderRecipientRule": "GUARDIAN_ONLY",
@@ -178,11 +180,11 @@
       "name": "Matheus Lima",
       "registrationNumber": "2024-0589",
       "classGroup": "2º Ano E.M. - Turma A",
-      "email": "aluno.matheus@campus.edu",
+      "email": "matheus.lima@gmail.com",
       "phone": "(11) 99777-8899",
       "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
       "status": "ACTIVE",
-      "defaultTuition": 750,
+      "defaultTuition": 0,
       "currentConsumptionBalance": 15.5,
       "totalOpenDebt": 15.5,
       "payerRule": "STUDENT_ONLY",
@@ -207,11 +209,11 @@
       "name": "Beatriz Costa",
       "registrationNumber": "2024-0610",
       "classGroup": "3º Ano E.M. - Turma B",
-      "email": "aluna.beatriz@campus.edu",
+      "email": "beatriz.costa@gmail.com",
       "phone": "(11) 99888-1122",
       "avatar": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
       "status": "ACTIVE",
-      "defaultTuition": 750,
+      "defaultTuition": 0,
       "currentConsumptionBalance": 64,
       "totalOpenDebt": 64,
       "payerRule": "BOTH",
@@ -712,16 +714,6 @@
       "performedByUserName": "Roberto Silveira"
     },
     {
-      "id": "LED-001",
-      "timestamp": "2026-10-01T00:00:00Z",
-      "studentId": "student-1",
-      "type": "DEBITO",
-      "category": "MENSALIDADE",
-      "amount": 750,
-      "description": "Mensalidade escolar Outubro/2026",
-      "performedByUserName": "Sistema Automático"
-    },
-    {
       "id": "LED-002",
       "timestamp": "2026-10-27T10:15:00Z",
       "studentId": "student-1",
@@ -755,125 +747,9 @@
       "performedByUserName": "Roberto Silveira"
     }
   ],
-  "invoices": [
-    {
-      "id": "FAT-2026-09-001",
-      "studentId": "student-1",
-      "studentName": "Lucas Andrade",
-      "registrationNumber": "2024-0412",
-      "billingPeriod": "2026-09",
-      "tuitionAmount": 750,
-      "canteenConsumptionTotal": 84.5,
-      "previousBalance": 0,
-      "adjustmentsTotal": 0,
-      "grossTotal": 834.5,
-      "paidTotal": 834.5,
-      "remainingBalance": 0,
-      "closingDate": "2026-09-30",
-      "dueDate": "2026-10-10",
-      "status": "PAGA",
-      "salesIds": [
-        "VEN-2026-0941",
-        "VEN-2026-0955"
-      ],
-      "consumptionItems": [
-        {
-          "productId": "prod-1",
-          "productName": "Suco Natural de Laranja 300ml",
-          "category": "Bebidas",
-          "quantity": 6,
-          "averageUnitPrice": 7.5,
-          "totalAmount": 45
-        },
-        {
-          "productId": "prod-2",
-          "productName": "Pão de Queijo Mineiro Artesanal",
-          "category": "Salgados & Lanches",
-          "quantity": 5,
-          "averageUnitPrice": 6,
-          "totalAmount": 30
-        },
-        {
-          "productId": "prod-5",
-          "productName": "Brownie Artesanal Chocolate Belga",
-          "category": "Doces & Sobremesas",
-          "quantity": 1,
-          "averageUnitPrice": 8.5,
-          "totalAmount": 9.5
-        }
-      ],
-      "paymentAllocations": [
-        {
-          "paymentId": "PIX-2026-0701",
-          "amount": 834.5,
-          "payerName": "Dra. Cláudia Andrade",
-          "payerType": "RESPONSAVEL",
-          "date": "2026-10-08T11:20:00Z"
-        }
-      ],
-      "pixCopyPasteCode": "00020126580014br.gov.bcb.pix0136financeiro@campus.edu.br5204000053039865406834.505802BR5925CAMPUS EDUCACIONAL6009SAO PAULO62070503***6304D1A4",
-      "pixQrCodePayload": "00020126580014br.gov.bcb.pix0136financeiro@campus.edu.br5204000053039865406834.505802BR5925CAMPUS EDUCACIONAL6009SAO PAULO62070503***6304D1A4",
-      "approvedByUserName": "Mariana Vasconcelos",
-      "approvedAt": "2026-09-30T18:00:00Z",
-      "publishedAt": "2026-09-30T18:30:00Z",
-      "createdAt": "2026-09-30T17:00:00Z",
-      "updatedAt": "2026-10-08T11:25:00Z"
-    }
-  ],
-  "pixPayments": [
-    {
-      "id": "PIX-2026-0901",
-      "invoiceId": "FAT-2026-09-001",
-      "invoiceCode": "FAT-2026-09-001",
-      "studentId": "student-1",
-      "studentName": "Lucas Andrade",
-      "payerName": "Dra. Cláudia Andrade",
-      "payerRole": "RESPONSAVEL",
-      "amount": 834.5,
-      "transactionReference": "E18423891202610081120KLP834",
-      "receiptAttachment": "Comprovante_PIX_BancoDoBrasil_834_50.pdf",
-      "receiptNotes": "Transferência Pix liquidada via App BB com chave e-mail da escola.",
-      "status": "CONFIRMADO",
-      "registeredByUserId": "user-guardian-claudia",
-      "registeredByUserName": "Dra. Cláudia Andrade",
-      "registeredAt": "2026-10-08T11:20:00Z",
-      "reviewedByUserId": "user-admin",
-      "reviewedByUserName": "Mariana Vasconcelos",
-      "reviewedAt": "2026-10-08T11:25:00Z",
-      "reviewDecisionReason": "Crédito de R$ 834,50 localizado no extrato bancário oficial."
-    }
-  ],
+  "invoices": [],
+  "pixPayments": [],
   "whatsappNotifications": [
-    {
-      "id": "WPP-001",
-      "type": "NOVA_FATURA",
-      "recipientName": "Dra. Cláudia Andrade",
-      "recipientPhone": "(11) 98111-2233",
-      "recipientRole": "RESPONSAVEL",
-      "studentName": "Lucas Andrade",
-      "studentId": "student-1",
-      "invoiceId": "FAT-2026-09-001",
-      "messageText": "Olá Cláudia! A fatura de Setembro/2026 do aluno Lucas Andrade já está disponível para conferência. Valor: R$ 834,50 (Mensalidade + Consumo Lojinha). Vencimento: 10/10/2026. Acesse o portal: https://campus.edu.br/portal",
-      "status": "ENTREGUE",
-      "scheduledFor": "2026-09-30T19:00:00Z",
-      "sentAt": "2026-09-30T19:01:14Z",
-      "attemptsCount": 1
-    },
-    {
-      "id": "WPP-002",
-      "type": "CONFIRMACAO_PAGAMENTO",
-      "recipientName": "Dra. Cláudia Andrade",
-      "recipientPhone": "(11) 98111-2233",
-      "recipientRole": "RESPONSAVEL",
-      "studentName": "Lucas Andrade",
-      "studentId": "student-1",
-      "invoiceId": "FAT-2026-09-001",
-      "messageText": "Recebimento Pix confirmado! Recebemos com sucesso o pagamento de R$ 834,50 ref. à fatura FAT-2026-09-001 de Lucas Andrade. A fatura foi liquidada. Obrigado!",
-      "status": "ENTREGUE",
-      "scheduledFor": "2026-10-08T11:25:00Z",
-      "sentAt": "2026-10-08T11:25:30Z",
-      "attemptsCount": 1
-    },
     {
       "id": "WPP-003",
       "type": "ALERTA_ESTOQUE",
@@ -889,6 +765,72 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "AUD-1794250119443-242",
+      "timestamp": "2026-11-09T18:48:39.443Z",
+      "userId": "user-admin",
+      "userName": "Mariana Vasconcelos",
+      "userRole": "ADMIN",
+      "action": "LIMPAR_TODAS_FATURAS",
+      "module": "FATURAMENTO",
+      "details": "Todas as 4 faturas foram excluídas de todos os estudantes com sucesso. Histórico limpo.",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794250104409-474",
+      "timestamp": "2026-11-09T18:48:24.409Z",
+      "userId": "user-admin",
+      "userName": "Mariana Vasconcelos",
+      "userRole": "ADMIN",
+      "action": "FECHAMENTO_MENSAL_EXECUTADO",
+      "module": "FECHAMENTO",
+      "details": "Fechamento de 2026-03 concluído com sucesso. 4 faturas geradas e publicadas.",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794249346132-738",
+      "timestamp": "2026-11-09T18:35:46.132Z",
+      "userId": "user-admin",
+      "userName": "Mariana Vasconcelos",
+      "userRole": "ADMIN",
+      "action": "LIMPAR_TODAS_FATURAS",
+      "module": "FATURAMENTO",
+      "details": "Todas as 4 faturas foram excluídas de todos os estudantes com sucesso. Histórico limpo.",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794249330759-201",
+      "timestamp": "2026-11-09T18:35:30.759Z",
+      "userId": "user-admin",
+      "userName": "Mariana Vasconcelos",
+      "userRole": "ADMIN",
+      "action": "FECHAMENTO_MENSAL_EXECUTADO",
+      "module": "FECHAMENTO",
+      "details": "Fechamento de 2026-03 concluído com sucesso. 4 faturas geradas e publicadas.",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794247504870-315",
+      "timestamp": "2026-11-09T18:05:04.870Z",
+      "userId": "user-admin",
+      "userName": "Mariana Vasconcelos",
+      "userRole": "ADMIN",
+      "action": "AJUSTAR_MENSALIDADE_FATURA",
+      "module": "FATURAMENTO",
+      "details": "Fatura FAT-2026-09-001 (Lucas Andrade) teve sua mensalidade ajustada para R$ 750.00 e ajustes para R$ 0.00. Novo total: R$ 834.50.",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794247500647-780",
+      "timestamp": "2026-11-09T18:05:00.647Z",
+      "userId": "user-admin",
+      "userName": "Mariana Vasconcelos",
+      "userRole": "ADMIN",
+      "action": "AJUSTAR_MENSALIDADE_FATURA",
+      "module": "FATURAMENTO",
+      "details": "Fatura FAT-2026-09-001 (Lucas Andrade) teve sua mensalidade ajustada para R$ 0.00 e ajustes para R$ 0.00. Novo total: R$ 84.50.",
+      "status": "SUCESSO"
+    },
     {
       "id": "AUD-1793301392524-735",
       "timestamp": "2026-10-29T19:16:32.524Z",

@@ -156,6 +156,25 @@ export const api = {
     });
   },
 
+  async updateInvoice(id: string, updates: { tuitionAmount?: number; adjustmentsTotal?: number; notes?: string }) {
+    return request<Invoice>(`/api/invoices/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates)
+    });
+  },
+
+  async deleteInvoice(id: string) {
+    return request<{ success: boolean; deletedId: string }>(`/api/invoices/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async clearAllInvoices() {
+    return request<{ success: boolean; totalDeleted: number }>('/api/invoices/clear-all', {
+      method: 'POST'
+    });
+  },
+
   // Pix Payments
   async getPixPayments() {
     return request<PixPayment[]>('/api/pix');
@@ -229,6 +248,7 @@ export const api = {
       configured: boolean;
       isProduction: boolean;
       publicKeyAvailable: boolean;
+      publicKey?: string;
       webhookUrl: string;
       maskedToken?: string;
     }>('/api/mercadopago/status');
@@ -269,12 +289,16 @@ export const api = {
     invoiceId: string;
     amount: number;
     token?: string;
+    cardNumber?: string;
+    cardExpiry?: string;
+    cardCvv?: string;
     installments: number;
     paymentMethodId: string;
     payerEmail?: string;
     payerCpf?: string;
     cardHolderName?: string;
     description?: string;
+    deviceId?: string;
   }) {
     return request<{
       success: boolean;
@@ -286,6 +310,7 @@ export const api = {
       paymentMethodId: string;
       invoiceId: string;
       amount: number;
+      error?: string;
     }>('/api/mercadopago/create-card', {
       method: 'POST',
       body: JSON.stringify(params)

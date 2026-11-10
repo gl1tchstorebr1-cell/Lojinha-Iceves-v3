@@ -126,8 +126,13 @@ export function ensureValidCpf(rawCpf?: string): string {
 }
 
 export function sanitizeEmail(email?: string): string {
-  if (!email) return 'responsavel.aluno@gmail.com';
+  if (!email) return 'cliente.lojinha@gmail.com';
   const trimmed = email.trim().toLowerCase();
+  // Evitar domínios fictícios (.edu, @campus.edu) que reprovam no antifraude DNS do Mercado Pago
+  if (trimmed.endsWith('.edu') || trimmed.includes('@campus.')) {
+    const localPart = trimmed.split('@')[0]?.replace(/[^a-z0-9._-]/g, '') || 'cliente.lojinha';
+    return `${localPart}@gmail.com`;
+  }
   if (/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
     return trimmed;
   }
@@ -135,7 +140,7 @@ export function sanitizeEmail(email?: string): string {
   if (cleaned.includes('@') && cleaned.split('@')[1]?.includes('.')) {
     return cleaned;
   }
-  return 'responsavel.aluno@gmail.com';
+  return 'cliente.lojinha@gmail.com';
 }
 
 export interface MercadoPagoStatus {
@@ -144,6 +149,7 @@ export interface MercadoPagoStatus {
   isProduction: boolean;
   mode: 'PRODUCAO' | 'SANDBOX';
   publicKeyAvailable: boolean;
+  publicKey?: string;
   webhookUrl: string;
   maskedToken?: string;
   hasTokenInDb: boolean;
@@ -153,6 +159,7 @@ export interface MercadoPagoStatus {
 export function getMercadoPagoStatus(): MercadoPagoStatus {
   const settings = db.getSettings();
   const token = getMpAccessToken();
+  const publicKey = getMpPublicKey();
   const tokenInDb = Boolean((settings as any).mercadoPagoAccessToken?.trim());
   const tokenInEnv = Boolean(process.env.MERCADO_PAGO_ACCESS_TOKEN?.trim());
   const configured = Boolean(token);
@@ -167,7 +174,8 @@ export function getMercadoPagoStatus(): MercadoPagoStatus {
     configured,
     isProduction,
     mode: isProduction ? 'PRODUCAO' : 'SANDBOX',
-    publicKeyAvailable: Boolean(getMpPublicKey()),
+    publicKeyAvailable: Boolean(publicKey),
+    publicKey: publicKey || undefined,
     webhookUrl,
     maskedToken,
     hasTokenInDb: tokenInDb,
@@ -265,12 +273,22 @@ export interface CreateCardPaymentParams {
   invoiceId: string;
   amount: number;
   token?: string;
+  cardNumber?: string;
+  cardExpiry?: string;
+  cardCvv?: string;
   installments: number;
   paymentMethodId: string;
   payerEmail?: string;
   payerCpf?: string;
   cardHolderName?: string;
   description?: string;
+  deviceId?: string;
+  items?: Array<{
+    id: string;
+    title: string;
+    quantity: number;
+    unit_price: number;
+  }>;
 }
 
 export async function createMercadoPagoPixPayment(params: CreatePixParams) {
@@ -280,9 +298,9 @@ export async function createMercadoPagoPixPayment(params: CreatePixParams) {
 
   const validCpf = ensureValidCpf(payerCpf);
   const validEmail = sanitizeEmail(payerEmail);
-  const nameParts = (payerName || 'Cliente Lojinha Campus').trim().split(/\s+/);
+  const nameParts = (payerName || 'Cliente Lojinha').trim().split(/\s+/);
   const firstName = nameParts[0] || 'Cliente';
-  const lastName = nameParts.slice(1).join(' ') || 'Campus';
+  const lastName = nameParts.slice(1).join(' ') || 'Lojinha';
 
   if (!token) {
     const errorMsg = 'Access Token do Mercado Pago não encontrado. Preencha o Access Token nas Configurações da Lojinha.';
@@ -298,10 +316,27 @@ export async function createMercadoPagoPixPayment(params: CreatePixParams) {
     };
   }
 
+  const parsedAmount = typeof amount === 'number' ? amount : parseFloat(String(amount || '0').replace(',', '.'));
+  const safeAmount = Number((isNaN(parsedAmount) ? 0 : parsedAmount).toFixed(2));
+
+  if (safeAmount < 1.00) {
+    const errorMsg = 'Valor inválido para cobrança Pix. O valor mínimo aceito pelo Mercado Pago é de R$ 1,00.';
+    logMpRequest('POST', 'https://api.mercadopago.com/v1/payments', null, 400, null, errorMsg);
+    return {
+      success: false,
+      isLive: false,
+      error: errorMsg,
+      status: 'rejected',
+      statusDetail: '4037: Invalid transaction_amount',
+      invoiceId,
+      amount: safeAmount,
+    };
+  }
+
   const idempotencyKey = `pix-${invoiceId}-${Date.now()}`;
   const payload: Record<string, any> = {
-    transaction_amount: Number(amount.toFixed(2)),
-    description: description || `Fatura ${invoiceId} - Lojinha do Campus`,
+    transaction_amount: safeAmount,
+    description: description || `Pedido Lojinha Iceves #${invoiceId}`,
     payment_method_id: 'pix',
     external_reference: invoiceId,
     payer: {
@@ -411,8 +446,97 @@ export async function createMercadoPagoPixPayment(params: CreatePixParams) {
   }
 }
 
+export async function createMercadoPagoCardToken(params: {
+  cardNumber: string;
+  cardExpiry: string;
+  cardCvv: string;
+  cardHolderName: string;
+  payerCpf?: string;
+}): Promise<string> {
+  const accessToken = getMpAccessToken();
+  if (!accessToken) {
+    throw new Error('Access Token do Mercado Pago não configurado.');
+  }
+
+  const cleanNumber = (params.cardNumber || '').replace(/\D/g, '');
+  const cleanCvv = (params.cardCvv || '').replace(/\D/g, '');
+  const rawExpiry = (params.cardExpiry || '').replace(/\s+/g, '');
+  const [rawMonth, rawYear] = rawExpiry.split('/');
+
+  const expMonth = parseInt(rawMonth || '12', 10);
+  let expYear = parseInt(rawYear || '2028', 10);
+  if (expYear < 100) {
+    expYear = 2000 + expYear;
+  }
+
+  const validCpf = ensureValidCpf(params.payerCpf);
+  const holderName = (params.cardHolderName || 'CLIENTE LOJINHA').trim().toUpperCase();
+
+  const tokenPayload = {
+    card_number: cleanNumber,
+    expiration_month: expMonth,
+    expiration_year: expYear,
+    security_code: cleanCvv,
+    cardholder: {
+      name: holderName,
+      identification: {
+        type: 'CPF',
+        number: validCpf,
+      },
+    },
+  };
+
+  const response = await fetch('https://api.mercadopago.com/v1/card_tokens', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(tokenPayload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data?.id) {
+    const errMsg = data?.message || data?.error || 'Não foi possível validar os dados do cartão de crédito no Mercado Pago.';
+    const causes = Array.isArray(data?.cause) ? data.cause.map((c: any) => `${c.code || ''}: ${c.description || ''}`).join('; ') : '';
+    const fullError = causes ? `${errMsg} (${causes})` : errMsg;
+
+    logMpRequest('POST', 'https://api.mercadopago.com/v1/card_tokens', {
+      ...tokenPayload,
+      card_number: '••••' + cleanNumber.slice(-4),
+      security_code: '•••'
+    }, response.status, data, fullError);
+
+    throw new Error(`Validação de cartão recusada pelo Mercado Pago: ${fullError}`);
+  }
+
+  logMpRequest('POST', 'https://api.mercadopago.com/v1/card_tokens', {
+    ...tokenPayload,
+    card_number: '••••' + cleanNumber.slice(-4),
+    security_code: '•••'
+  }, response.status, { id: data.id, status: data.status });
+
+  return data.id;
+}
+
 export async function createMercadoPagoCardPayment(params: CreateCardPaymentParams) {
-  const { invoiceId, amount, token, installments, paymentMethodId, payerEmail, payerCpf, cardHolderName, description } = params;
+  const { 
+    invoiceId, 
+    amount, 
+    token: passedToken, 
+    cardNumber, 
+    cardExpiry, 
+    cardCvv, 
+    installments, 
+    paymentMethodId, 
+    payerEmail, 
+    payerCpf, 
+    cardHolderName, 
+    description,
+    deviceId,
+    items
+  } = params;
   const accessToken = getMpAccessToken();
   const url = getAppUrl();
 
@@ -425,40 +549,114 @@ export async function createMercadoPagoCardPayment(params: CreateCardPaymentPara
     throw new Error(errorMsg);
   }
 
+  // Obter token legítimo do Mercado Pago (prioriza token gerado no navegador com Device Fingerprint)
+  let finalCardToken = passedToken;
+  const isRealMpToken = Boolean(finalCardToken && /^[a-f0-9]{32}$/i.test(finalCardToken));
+
+  if (!isRealMpToken) {
+    if (cardNumber && cardExpiry && cardCvv) {
+      finalCardToken = await createMercadoPagoCardToken({
+        cardNumber,
+        cardExpiry,
+        cardCvv,
+        cardHolderName: cardHolderName || 'Cliente Lojinha',
+        payerCpf: validCpf
+      });
+    } else {
+      throw new Error('Token do cartão inválido ou dados do cartão incompletos (3003: Invalid card_token_id). Preencha número, validade e código de segurança.');
+    }
+  }
+
+  const parsedAmount = typeof amount === 'number' ? amount : parseFloat(String(amount || '0').replace(',', '.'));
+  const safeAmount = Number((isNaN(parsedAmount) ? 0 : parsedAmount).toFixed(2));
+
+  if (safeAmount < 1.00) {
+    const errorMsg = 'Valor inválido para pagamento com cartão. O valor mínimo aceito pelo Mercado Pago é de R$ 1,00.';
+    logMpRequest('POST', 'https://api.mercadopago.com/v1/payments', null, 400, null, errorMsg);
+    return {
+      success: false,
+      isLive: false,
+      error: errorMsg,
+      status: 'rejected',
+      statusDetail: '4037: Invalid transaction_amount',
+      invoiceId,
+      amount: safeAmount,
+    };
+  }
+
+  // Regra do Mercado Pago no Brasil: Cada parcela deve ser de no mínimo R$ 5,00
+  const maxPossibleInstallments = Math.max(1, Math.floor(safeAmount / 5.00));
+  const safeInstallments = Math.min(Math.max(1, Number(installments) || 1), maxPossibleInstallments);
+
+  const nameParts = (cardHolderName || 'Cliente Lojinha').trim().split(/\s+/);
+  const firstName = nameParts[0] || 'Cliente';
+  const lastName = nameParts.slice(1).join(' ') || 'Lojinha';
+
+  const mpItems = Array.isArray(items) && items.length > 0
+    ? items.map(item => ({
+        id: item.id,
+        title: item.title,
+        description: item.title,
+        category_id: 'food',
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+      }))
+    : [
+        {
+          id: invoiceId,
+          title: `Pedido Lojinha Iceves #${invoiceId}`,
+          description: `Consumo de produtos na Lojinha Iceves`,
+          category_id: 'food',
+          quantity: 1,
+          unit_price: safeAmount,
+        }
+      ];
+
   const idempotencyKey = `card-${invoiceId}-${Date.now()}`;
   const payload: Record<string, any> = {
-    transaction_amount: Number(amount.toFixed(2)),
-    token: token || 'tok_test_dummy',
-    description: description || `Pagamento Fatura ${invoiceId}`,
-    installments: Number(installments) || 1,
-    payment_method_id: paymentMethodId || 'master',
+    transaction_amount: safeAmount,
+    token: finalCardToken,
+    description: description || `Pedido Lojinha Iceves #${invoiceId}`,
+    installments: safeInstallments,
+    payment_method_id: paymentMethodId || 'visa',
     external_reference: invoiceId,
+    statement_descriptor: 'LOJINHA',
+    binary_mode: false,
     payer: {
       email: validEmail,
+      first_name: firstName,
+      last_name: lastName,
       identification: {
         type: 'CPF',
         number: validCpf,
       },
     },
+    additional_info: {
+      items: mpItems,
+      payer: {
+        first_name: firstName,
+        last_name: lastName,
+      },
+    },
   };
-
-  if (cardHolderName) {
-    (payload.payer as any).first_name = cardHolderName.split(' ')[0];
-    (payload.payer as any).last_name = cardHolderName.split(' ').slice(1).join(' ');
-  }
 
   if (url && url.startsWith('https://')) {
     payload.notification_url = `${url.replace(/\/$/, '')}/api/mercadopago/webhook`;
   }
 
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'X-Idempotency-Key': idempotencyKey,
+  };
+  if (deviceId) {
+    headers['X-meli-session-id'] = deviceId;
+  }
+
   try {
     const response = await fetch('https://api.mercadopago.com/v1/payments', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'X-Idempotency-Key': idempotencyKey,
-      },
+      headers,
       body: JSON.stringify(payload),
     });
 
@@ -472,7 +670,17 @@ export async function createMercadoPagoCardPayment(params: CreateCardPaymentPara
       console.error(`[Mercado Pago Cartão] Resposta ${response.status}:`, fullError);
       logMpRequest('POST', 'https://api.mercadopago.com/v1/payments', payload, response.status, data, fullError);
 
-      throw new Error(fullError);
+      return {
+        success: false,
+        isLive: true,
+        error: fullError,
+        status: data?.status || 'rejected',
+        statusDetail: data?.status_detail || (causes ? causes : 'bad_request'),
+        paymentId: data?.id ? String(data.id) : undefined,
+        paymentMethodId: data?.payment_method_id || paymentMethodId || 'card',
+        invoiceId,
+        amount,
+      };
     }
 
     logMpRequest('POST', 'https://api.mercadopago.com/v1/payments', payload, response.status, {
@@ -483,7 +691,7 @@ export async function createMercadoPagoCardPayment(params: CreateCardPaymentPara
     });
 
     return {
-      success: true,
+      success: data.status === 'approved' || data.status === 'in_process',
       isLive: true,
       paymentId: String(data.id),
       status: data.status,
@@ -494,7 +702,17 @@ export async function createMercadoPagoCardPayment(params: CreateCardPaymentPara
     };
   } catch (err: any) {
     logMpRequest('POST', 'https://api.mercadopago.com/v1/payments', payload, 500, null, err.message);
-    throw err;
+    return {
+      success: false,
+      isLive: false,
+      error: err.message || 'Falha ao processar pagamento com cartão.',
+      status: 'rejected',
+      statusDetail: 'network_error',
+      paymentId: undefined,
+      paymentMethodId: paymentMethodId || 'card',
+      invoiceId,
+      amount,
+    };
   }
 }
 

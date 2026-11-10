@@ -15,7 +15,12 @@ import {
   Clock, 
   Sparkles,
   ExternalLink,
-  CreditCard
+  CreditCard,
+  Sliders,
+  Edit3,
+  Save,
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 import { Invoice, MonthlyClosingPreview, InvoiceStatus, Student } from '../../types';
 import { formatCurrency, formatDate, formatDateTime, formatPeriod } from '../../utils/formatters';
@@ -51,10 +56,81 @@ export function InvoicesAndClosing({
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('TODAS');
   
-  // Invoice detailed statement modal
+  // Invoice detailed statement modal & editing
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [copiedPix, setCopiedPix] = useState(false);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+
+  // Flexible Tuition & Adjustment editing on Invoice
+  const [isEditingInvoice, setIsEditingInvoice] = useState(false);
+  const [editTuition, setEditTuition] = useState<number>(0);
+  const [editAdjustments, setEditAdjustments] = useState<number>(0);
+  const [editNotes, setEditNotes] = useState<string>('');
+  const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [invoiceSaveSuccess, setInvoiceSaveSuccess] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
+
+  const openInvoiceDetails = (invoice: Invoice, startEditing = false) => {
+    setSelectedInvoice(invoice);
+    setEditTuition(invoice.tuitionAmount);
+    setEditAdjustments(invoice.adjustmentsTotal || 0);
+    setEditNotes(invoice.notes || '');
+    setIsEditingInvoice(startEditing);
+    setInvoiceSaveSuccess(false);
+  };
+
+  const handleSaveInvoiceAdjustments = async () => {
+    if (!selectedInvoice) return;
+    setIsSavingInvoice(true);
+    try {
+      const updated = await api.updateInvoice(selectedInvoice.id, {
+        tuitionAmount: Number(editTuition) || 0,
+        adjustmentsTotal: Number(editAdjustments) || 0,
+        notes: editNotes
+      });
+      setSelectedInvoice(updated);
+      setIsEditingInvoice(false);
+      setInvoiceSaveSuccess(true);
+      onInvoicesUpdated();
+      setTimeout(() => setInvoiceSaveSuccess(false), 2500);
+    } catch (err: any) {
+      alert(`Erro ao salvar ajustes: ${err.message}`);
+    } finally {
+      setIsSavingInvoice(false);
+    }
+  };
+
+  const handleClearAllInvoices = async () => {
+    if (!window.confirm('Atenção: Deseja realmente excluir TODAS as faturas emitidas de todos os estudantes? Esta ação limpará o histórico e deixará a base de faturamento 100% limpa.')) {
+      return;
+    }
+    setIsClearingAll(true);
+    try {
+      const res = await api.clearAllInvoices();
+      onInvoicesUpdated();
+      setSelectedInvoice(null);
+      alert(`Todas as faturas antigas foram excluídas com sucesso (${res.totalDeleted} faturas removidas). A base está limpa.`);
+    } catch (err: any) {
+      alert(`Erro ao excluir faturas: ${err.message}`);
+    } finally {
+      setIsClearingAll(false);
+    }
+  };
+
+  const handleDeleteInvoice = async (invoiceId: string, studentName: string) => {
+    if (!window.confirm(`Deseja excluir permanentemente a fatura ${invoiceId} do aluno ${studentName}?`)) {
+      return;
+    }
+    try {
+      await api.deleteInvoice(invoiceId);
+      if (selectedInvoice?.id === invoiceId) {
+        setSelectedInvoice(null);
+      }
+      onInvoicesUpdated();
+    } catch (err: any) {
+      alert(`Erro ao excluir fatura: ${err.message}`);
+    }
+  };
 
   // Generate closing preview
   const handleGeneratePreview = async () => {
@@ -321,17 +397,23 @@ export function InvoicesAndClosing({
 
               {/* List of students preview */}
               <div>
-                <h4 className="text-xs font-bold text-white mb-2.5 uppercase tracking-wider">Detalhamento por Aluno</h4>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2.5">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Detalhamento por Aluno</h4>
+                  <span className="text-[11px] text-zinc-400">
+                    Altere ou remova a mensalidade em <strong className="text-zinc-200">Alunos & Responsáveis</strong> ou desative globalmente em <strong className="text-zinc-200">Configurações</strong>.
+                  </span>
+                </div>
                 <div className="divide-y divide-[#242424] border border-[#262626] rounded-xl overflow-hidden text-xs bg-[#141414]">
                   {students.filter(s => s.status === 'ACTIVE').map(student => {
-                    const studentTotal = student.defaultTuition + student.currentConsumptionBalance;
+                    const studentTuition = preview.totalTuitions === 0 ? 0 : (student.defaultTuition || 0);
+                    const studentTotal = studentTuition + student.currentConsumptionBalance;
                     return (
                       <div key={student.id} className="p-3.5 flex items-center justify-between hover:bg-[#1C1C1C] transition">
                         <div>
                           <span className="font-bold text-white text-sm">{student.name}</span>
                           <span className="text-[#8B7CFF] font-mono ml-2 text-xs">({student.registrationNumber})</span>
                           <p className="text-[11px] text-[#A1A1AA] mt-0.5">
-                            Mensalidade: {formatCurrency(student.defaultTuition)} • Consumo Lojinha: <strong className="text-white">{formatCurrency(student.currentConsumptionBalance)}</strong>
+                            Mensalidade: {studentTuition === 0 ? <span className="text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded text-[10px]">Isento / R$ 0,00</span> : formatCurrency(studentTuition)} • Consumo Lojinha: <strong className="text-white">{formatCurrency(student.currentConsumptionBalance)}</strong>
                           </p>
                         </div>
                         <div className="text-right">
@@ -398,24 +480,59 @@ export function InvoicesAndClosing({
               />
             </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 scrollbar-none">
-              {['TODAS', 'PUBLICADA', 'PARCIALMENTE_PAGA', 'PAGA', 'VENCIDA'].map(st => (
+            <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 scrollbar-none">
+              <div className="flex items-center gap-1.5">
+                {['TODAS', 'PUBLICADA', 'PARCIALMENTE_PAGA', 'PAGA', 'VENCIDA'].map(st => (
+                  <button
+                    key={st}
+                    onClick={() => setStatusFilter(st)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      statusFilter === st ? 'bg-[#282828] text-[#F5F5F5] border border-[#3A3A3A]' : 'bg-[#151515] text-[#A1A1AA] hover:text-[#F5F5F5]'
+                    }`}
+                  >
+                    {st === 'TODAS' ? 'Todas' : st.replace('_', ' ')}
+                  </button>
+                ))}
+              </div>
+
+              {isAdmin && invoices.length > 0 && (
                 <button
-                  key={st}
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                    statusFilter === st ? 'bg-[#282828] text-[#F5F5F5] border border-[#3A3A3A]' : 'bg-[#151515] text-[#A1A1AA] hover:text-[#F5F5F5]'
-                  }`}
+                  type="button"
+                  disabled={isClearingAll}
+                  onClick={handleClearAllInvoices}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 cursor-pointer disabled:opacity-50 shrink-0 ml-auto"
+                  title="Excluir todas as faturas de todos os estudantes"
                 >
-                  {st === 'TODAS' ? 'Todas' : st.replace('_', ' ')}
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {isClearingAll ? 'Limpando...' : 'Limpar Todas as Faturas'}
                 </button>
-              ))}
+              )}
             </div>
           </div>
 
-          {/* Invoices Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          {/* Invoices Table or Empty Clean State */}
+          {filteredInvoices.length === 0 ? (
+            <div className="py-12 px-4 text-center space-y-3 bg-[#151515] rounded-xl border border-[#242424] my-2">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/20">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-white text-sm">Nenhuma Fatura no Momento (Base 100% Limpa)</h4>
+                <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                  Todas as faturas antigas foram removidas. Os saldos e extratos de todos os estudantes estão zerados e prontos para novos fechamentos.
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveTab('closing_engine')}
+                className="px-4 py-2 bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm inline-flex items-center gap-1.5"
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                Ir para Fechamento Mensal
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
               <thead className="bg-[#151515] text-[#71717A] font-bold uppercase tracking-wider border-b border-[#282828]">
                 <tr>
                   <th className="py-3 px-4">Identificador</th>
@@ -473,91 +590,304 @@ export function InvoicesAndClosing({
                     </td>
 
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => setSelectedInvoice(invoice)}
-                        className="px-2.5 py-1 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-[#8B7CFF] text-[11px] font-bold border border-[#303030] transition flex items-center gap-1 ml-auto cursor-pointer"
-                        title="Abrir extrato detalhado"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        Extrato
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {isAdmin && (
+                          <button
+                            onClick={() => openInvoiceDetails(invoice, true)}
+                            className="px-2 py-1 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-amber-300 text-[11px] font-bold border border-amber-500/20 transition flex items-center gap-1 cursor-pointer"
+                            title="Ajustar ou remover mensalidade"
+                          >
+                            <Sliders className="w-3.5 h-3.5" />
+                            Ajustar
+                          </button>
+                        )}
+                        <button
+                          onClick={() => openInvoiceDetails(invoice, false)}
+                          className="px-2.5 py-1 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-[#8B7CFF] text-[11px] font-bold border border-[#303030] transition flex items-center gap-1 cursor-pointer"
+                          title="Abrir extrato detalhado"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Extrato
+                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDeleteInvoice(invoice.id, invoice.studentName)}
+                            className="p-1 rounded-lg bg-[#222222] hover:bg-rose-500/20 text-[#71717A] hover:text-rose-400 border border-[#303030] hover:border-rose-500/30 transition cursor-pointer"
+                            title="Excluir fatura"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          )}
 
         </div>
       )}
 
       {/* Invoice Detailed Statement Modal */}
-      {selectedInvoice && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-[#1A1A1A] rounded-2xl shadow-2xl border border-[#303030] max-w-2xl w-full p-6 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-            
-            <div className="flex items-center justify-between border-b border-[#282828] pb-4">
-              <div>
-                <span className="text-[10px] font-mono text-[#71717A]">DOCUMENTO OFICIAL DE COBRANÇA</span>
-                <h3 className="font-extrabold text-[#F5F5F5] text-lg">
-                  Fatura & Prestação de Contas — {formatPeriod(selectedInvoice.billingPeriod)}
-                </h3>
-                <p className="text-xs text-[#A1A1AA] font-mono">
-                  Código: <strong className="text-white">{selectedInvoice.id}</strong> • Aluno: <strong className="text-white">{selectedInvoice.studentName}</strong> ({selectedInvoice.registrationNumber})
-                </p>
+      {selectedInvoice && (() => {
+        const calcGross = Math.max(
+          0,
+          Math.round(((Number(editTuition) || 0) + selectedInvoice.canteenConsumptionTotal - (Number(editAdjustments) || 0)) * 100) / 100
+        );
+        const calcRemaining = Math.max(
+          0,
+          Math.round((calcGross - selectedInvoice.paidTotal) * 100) / 100
+        );
+
+        return (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-[#1A1A1A] rounded-2xl shadow-2xl border border-[#303030] max-w-2xl w-full p-6 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+              
+              <div className="flex items-center justify-between border-b border-[#282828] pb-4">
+                <div>
+                  <span className="text-[10px] font-mono text-[#71717A]">DOCUMENTO OFICIAL DE COBRANÇA</span>
+                  <h3 className="font-extrabold text-[#F5F5F5] text-lg">
+                    Fatura & Prestação de Contas — {formatPeriod(selectedInvoice.billingPeriod)}
+                  </h3>
+                  <p className="text-xs text-[#A1A1AA] font-mono">
+                    Código: <strong className="text-white">{selectedInvoice.id}</strong> • Aluno: <strong className="text-white">{selectedInvoice.studentName}</strong> ({selectedInvoice.registrationNumber})
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {isAdmin && !isEditingInvoice && (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingInvoice(true)}
+                      className="px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                      title="Editar ou zerar mensalidade"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      Ajustar Mensalidade
+                    </button>
+                  )}
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteInvoice(selectedInvoice.id, selectedInvoice.studentName)}
+                      className="p-2 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition cursor-pointer"
+                      title="Excluir esta fatura permanentemente"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="p-2 rounded-lg border border-[#303030] hover:bg-[#222222] text-[#A1A1AA] hover:text-white cursor-pointer"
+                    title="Imprimir"
+                  >
+                    <Printer className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => { setSelectedInvoice(null); setIsEditingInvoice(false); }}
+                    className="text-[#71717A] hover:text-white text-xl font-bold cursor-pointer"
+                  >
+                    &times;
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="p-2 rounded-lg border border-[#303030] hover:bg-[#222222] text-[#A1A1AA] hover:text-white cursor-pointer"
-                  title="Imprimir"
-                >
-                  <Printer className="w-4 h-4" />
-                </button>
-                <button 
-                  onClick={() => setSelectedInvoice(null)}
-                  className="text-[#71717A] hover:text-white text-xl font-bold cursor-pointer"
-                >
-                  &times;
-                </button>
-              </div>
-            </div>
-
-            {/* Financial Summary Breakdown */}
-            <div className="mt-4 p-4 rounded-xl bg-[#141414] border border-[#262626] text-xs space-y-2">
-              <div className="flex justify-between text-[#A1A1AA]">
-                <span>Mensalidade Fixa Escolar:</span>
-                <span className="font-semibold text-[#F5F5F5] font-mono">{formatCurrency(selectedInvoice.tuitionAmount)}</span>
-              </div>
-              <div className="flex justify-between text-[#A1A1AA]">
-                <span>Total de Consumo da Lojinha:</span>
-                <span className="font-semibold text-[#8B7CFF] font-mono">{formatCurrency(selectedInvoice.canteenConsumptionTotal)}</span>
-              </div>
-              {selectedInvoice.previousBalance > 0 && (
-                <div className="flex justify-between text-[#A1A1AA]">
-                  <span>Saldo Devedor Anterior:</span>
-                  <span className="font-semibold text-amber-400 font-mono">{formatCurrency(selectedInvoice.previousBalance)}</span>
+              {invoiceSaveSuccess && (
+                <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>Fatura e valores de mensalidade atualizados com sucesso! Código Pix regerado.</span>
                 </div>
               )}
-              <div className="flex justify-between text-sm font-extrabold text-[#F5F5F5] pt-2 border-t border-[#262626]">
-                <span>TOTAL DA FATURA:</span>
-                <span className="text-[#8B7CFF] font-mono">{formatCurrency(selectedInvoice.grossTotal)}</span>
-              </div>
-              <div className="flex justify-between text-xs text-emerald-400 font-semibold">
-                <span>Pagamentos Confirmados:</span>
-                <span className="font-mono">- {formatCurrency(selectedInvoice.paidTotal)}</span>
-              </div>
-              <div className="flex justify-between text-sm font-black text-rose-400 pt-1 border-t border-[#262626]">
-                <span>SALDO RESTANTE A PAGAR:</span>
-                <span className="font-mono">{formatCurrency(selectedInvoice.remainingBalance)}</span>
-              </div>
-              <div className="flex justify-between text-xs text-[#71717A] pt-1">
-                <span>Data de Vencimento:</span>
-                <span className="font-bold text-[#F5F5F5]">{formatDate(selectedInvoice.dueDate)}</span>
-              </div>
-            </div>
+
+              {/* Financial Summary Breakdown (View Mode vs Edit Mode) */}
+              {!isEditingInvoice ? (
+                <div className="mt-4 p-4 rounded-xl bg-[#141414] border border-[#262626] text-xs space-y-2">
+                  <div className="flex justify-between items-center text-[#A1A1AA]">
+                    <span>Mensalidade Fixa Escolar:</span>
+                    <div className="flex items-center gap-2">
+                      {selectedInvoice.tuitionAmount === 0 ? (
+                        <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-bold">
+                          Isento (R$ 0,00)
+                        </span>
+                      ) : null}
+                      <span className="font-semibold text-[#F5F5F5] font-mono">{formatCurrency(selectedInvoice.tuitionAmount)}</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-[#A1A1AA]">
+                    <span>Total de Consumo da Lojinha:</span>
+                    <span className="font-semibold text-[#8B7CFF] font-mono">{formatCurrency(selectedInvoice.canteenConsumptionTotal)}</span>
+                  </div>
+                  {selectedInvoice.adjustmentsTotal > 0 && (
+                    <div className="flex justify-between text-emerald-400">
+                      <span>Descontos / Ajustes Aplicados:</span>
+                      <span className="font-semibold font-mono">- {formatCurrency(selectedInvoice.adjustmentsTotal)}</span>
+                    </div>
+                  )}
+                  {selectedInvoice.previousBalance > 0 && (
+                    <div className="flex justify-between text-[#A1A1AA]">
+                      <span>Saldo Devedor Anterior:</span>
+                      <span className="font-semibold text-amber-400 font-mono">{formatCurrency(selectedInvoice.previousBalance)}</span>
+                    </div>
+                  )}
+                  {selectedInvoice.notes && (
+                    <div className="text-[11px] text-zinc-400 bg-[#1A1A1A] p-2 rounded-lg border border-[#262626] mt-1">
+                      <strong className="text-zinc-300">Observações:</strong> {selectedInvoice.notes}
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm font-extrabold text-[#F5F5F5] pt-2 border-t border-[#262626]">
+                    <span>TOTAL DA FATURA:</span>
+                    <span className="text-[#8B7CFF] font-mono">{formatCurrency(selectedInvoice.grossTotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-emerald-400 font-semibold">
+                    <span>Pagamentos Confirmados:</span>
+                    <span className="font-mono">- {formatCurrency(selectedInvoice.paidTotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-black text-rose-400 pt-1 border-t border-[#262626]">
+                    <span>SALDO RESTANTE A PAGAR:</span>
+                    <span className="font-mono">{formatCurrency(selectedInvoice.remainingBalance)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-[#71717A] pt-1">
+                    <span>Data de Vencimento:</span>
+                    <span className="font-bold text-[#F5F5F5]">{formatDate(selectedInvoice.dueDate)}</span>
+                  </div>
+                </div>
+              ) : (
+                /* Interactive Tuition & Adjustments Editor */
+                <div className="mt-4 p-4 rounded-xl bg-gradient-to-br from-[#1C1810] to-[#141414] border border-amber-500/30 text-xs space-y-3.5">
+                  <div className="flex items-center justify-between border-b border-[#2D2820] pb-2">
+                    <div className="flex items-center gap-1.5 text-amber-300 font-bold">
+                      <Sliders className="w-4 h-4" />
+                      <span>Ajustes Flexíveis de Mensalidade & Fatura</span>
+                    </div>
+                    <span className="text-[10px] text-zinc-400 font-mono">Modo Administrador</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-semibold text-zinc-200 block">
+                        Valor da Mensalidade Escolar (R$)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-zinc-400 font-mono font-bold">R$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editTuition}
+                          onChange={(e) => setEditTuition(Math.max(0, parseFloat(e.target.value) || 0))}
+                          className="w-full p-2 bg-[#1A1A1A] border border-[#3A3A3A] focus:border-amber-400 rounded-lg text-white font-mono font-bold text-xs outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditTuition(0)}
+                          className="px-2 py-0.5 bg-[#252525] hover:bg-[#303030] text-amber-300 rounded text-[10px] font-bold border border-amber-500/30 cursor-pointer"
+                        >
+                          Zerar / Isento (R$ 0)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditTuition(375)}
+                          className="px-2 py-0.5 bg-[#252525] hover:bg-[#303030] text-purple-300 rounded text-[10px] font-bold border border-purple-500/30 cursor-pointer"
+                        >
+                          Bolsa 50% (R$ 375)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditTuition(750)}
+                          className="px-2 py-0.5 bg-[#252525] hover:bg-[#303030] text-emerald-300 rounded text-[10px] font-bold border border-emerald-500/30 cursor-pointer"
+                        >
+                          Padrão (R$ 750)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-semibold text-zinc-200 block">
+                        Desconto / Ajuste Especial (R$)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-zinc-400 font-mono font-bold">- R$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editAdjustments}
+                          onChange={(e) => setEditAdjustments(Math.max(0, parseFloat(e.target.value) || 0))}
+                          placeholder="0.00"
+                          className="w-full p-2 bg-[#1A1A1A] border border-[#3A3A3A] focus:border-amber-400 rounded-lg text-white font-mono font-bold text-xs outline-none"
+                        />
+                      </div>
+                      <p className="text-[10px] text-zinc-400 pt-1">
+                        Abate diretamente do valor final da fatura.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-zinc-200 block">
+                      Motivo do Ajuste / Observações
+                    </label>
+                    <input
+                      type="text"
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      placeholder="Ex: Bolsa parcial autorizada pela diretoria, isenção de mensalidade..."
+                      className="w-full p-2 bg-[#1A1A1A] border border-[#3A3A3A] focus:border-amber-400 rounded-lg text-white text-xs outline-none"
+                    />
+                  </div>
+
+                  {/* Pré-visualização do Cálculo */}
+                  <div className="p-3 bg-[#131313] rounded-xl border border-[#2A2A2A] space-y-1.5 font-mono text-xs">
+                    <div className="flex justify-between text-zinc-400">
+                      <span>Consumo da Lojinha:</span>
+                      <span>{formatCurrency(selectedInvoice.canteenConsumptionTotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-amber-300">
+                      <span>Nova Mensalidade:</span>
+                      <span>+ {formatCurrency(Number(editTuition) || 0)}</span>
+                    </div>
+                    {Number(editAdjustments) > 0 && (
+                      <div className="flex justify-between text-emerald-400">
+                        <span>Desconto Aplicado:</span>
+                        <span>- {formatCurrency(Number(editAdjustments) || 0)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold text-white border-t border-[#2A2A2A] pt-1 text-sm">
+                      <span>Novo Total da Fatura:</span>
+                      <span className="text-[#8B7CFF]">{formatCurrency(calcGross)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-rose-400 text-xs">
+                      <span>Novo Saldo Restante a Pagar:</span>
+                      <span>{formatCurrency(calcRemaining)}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={isSavingInvoice}
+                      onClick={() => setIsEditingInvoice(false)}
+                      className="px-3.5 py-2 rounded-xl border border-[#3A3A3A] text-zinc-300 hover:text-white hover:bg-[#252525] text-xs font-semibold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSavingInvoice}
+                      onClick={handleSaveInvoiceAdjustments}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-sm disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {isSavingInvoice ? 'Salvando...' : 'Salvar Alterações da Fatura'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
             {/* Itemized Canteen Consumption */}
             <div className="mt-5 space-y-2">
@@ -660,7 +990,7 @@ export function InvoicesAndClosing({
 
           </div>
         </div>
-      )}
+      )})()}
 
       {showCheckoutModal && selectedInvoice && (
         <MercadoPagoCheckoutModal

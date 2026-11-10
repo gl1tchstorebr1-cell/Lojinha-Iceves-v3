@@ -311,6 +311,8 @@ export interface SystemSettings {
   mercadoPagoAccessToken?: string;
   mercadoPagoPublicKey?: string;
   mercadoPagoWebhookSecret?: string;
+  tuitionBillingActive?: boolean; // Se false, faturamento mensal cobra apenas consumo da lojinha
+  defaultTuitionAmount?: number; // Valor padrão sugerido da mensalidade escolar
   supabaseActive?: boolean;
   supabaseUrl?: string;
   supabaseAnonKey?: string;

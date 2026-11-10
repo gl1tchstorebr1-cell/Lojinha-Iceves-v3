@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   CreditCard, 
   QrCode, 
@@ -37,8 +37,25 @@ export function MercadoPagoCheckoutModal({
   const [gatewayStatus, setGatewayStatus] = useState<{
     configured: boolean;
     isProduction: boolean;
+    publicKeyAvailable?: boolean;
+    publicKey?: string;
     maskedToken?: string;
   } | null>(null);
+
+  // Calcula valor seguro a liquidar (mínimo R$ 1,00 para o Mercado Pago)
+  const invoiceAmount = useMemo(() => {
+    const rem = Number(invoice.remainingBalance);
+    if (!isNaN(rem) && rem > 0) return Number(rem.toFixed(2));
+    const gross = Number(invoice.grossTotal);
+    if (!isNaN(gross) && gross > 0) return Number(gross.toFixed(2));
+    return 0;
+  }, [invoice.remainingBalance, invoice.grossTotal]);
+
+  // Regra Mercado Pago Brasil: Cada parcela no cartão deve ser de no mínimo R$ 5,00
+  const availableInstallments = useMemo(() => {
+    if (invoiceAmount < 5.00) return [1];
+    return [1, 2, 3, 4, 5, 6, 10, 12].filter(n => (invoiceAmount / n) >= 5.00);
+  }, [invoiceAmount]);
 
   // Pix state
   const [isGeneratingPix, setIsGeneratingPix] = useState(false);
@@ -55,15 +72,27 @@ export function MercadoPagoCheckoutModal({
   const [copiedPix, setCopiedPix] = useState(false);
   const [isPollingPix, setIsPollingPix] = useState(false);
 
+  // Sanitiza e-mail inicial para evitar domínios fictícios (.edu)
+  const initialCleanEmail = useMemo(() => {
+    const raw = (payerEmail || '').trim().toLowerCase();
+    if (!raw || raw.endsWith('.edu') || raw.includes('@campus.')) {
+      const local = raw.split('@')[0]?.replace(/[^a-z0-9._-]/g, '') || 'cliente.lojinha';
+      return `${local}@gmail.com`;
+    }
+    return raw;
+  }, [payerEmail]);
+
   // Card state
   const [cardNumber, setCardNumber] = useState('');
   const [cardHolder, setCardHolder] = useState(payerName || '');
+  const [cardEmail, setCardEmail] = useState(initialCleanEmail);
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
   const [cardCpf, setCardCpf] = useState(payerCpf || '');
   const [installments, setInstallments] = useState(1);
   const [isProcessingCard, setIsProcessingCard] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isHighRisk, setIsHighRisk] = useState(false);
 
   // Success state
   const [paymentApproved, setPaymentApproved] = useState(false);
@@ -116,16 +145,21 @@ export function MercadoPagoCheckoutModal({
   }, [pixData?.paymentId, paymentApproved, activeTab]);
 
   const handleGeneratePix = async () => {
+    if (invoiceAmount < 1.00) {
+      setErrorMessage('O valor deste pedido é inferior ao valor mínimo de R$ 1,00 exigido pelo Mercado Pago.');
+      setPixData(null);
+      return;
+    }
     setIsGeneratingPix(true);
     setErrorMessage(null);
     try {
       const res = await api.createMercadoPagoPix({
         invoiceId: invoice.id,
-        amount: invoice.remainingBalance,
-        payerEmail,
+        amount: invoiceAmount,
+        payerEmail: cardEmail || initialCleanEmail,
         payerName,
         payerCpf: cardCpf || payerCpf || '',
-        description: `Mensalidade/Consumo Campus - Fatura ${invoice.id}`
+        description: `Pedido Lojinha Iceves #${invoice.id}`
       });
 
       if (!res.success || !res.qrCode) {
@@ -190,10 +224,53 @@ export function MercadoPagoCheckoutModal({
     return clean;
   };
 
+  const translateMpError = (statusDetail?: string, fallbackMessage?: string) => {
+    const map: Record<string, string> = {
+      'cc_rejected_bad_filled_card_number': 'Número do cartão inválido. Verifique os dígitos informados.',
+      'cc_rejected_bad_filled_date': 'Data de vencimento incorreta ou cartão expirado.',
+      'cc_rejected_bad_filled_security_code': 'Código de segurança (CVV) incorreto.',
+      'cc_rejected_bad_filled_other': 'Dados do cartão incorretos. Verifique as informações informadas.',
+      'cc_rejected_insufficient_amount': 'Cartão com saldo ou limite insuficiente.',
+      'cc_rejected_call_for_authorize': 'Transação não autorizada. Ligue para o banco emissor do cartão para liberar a compra.',
+      'cc_rejected_card_disabled': 'Cartão bloqueado ou inativo. Entre em contato com seu banco.',
+      'cc_rejected_duplicated_payment': 'Pagamento duplicado. Verifique se o pagamento já não foi processado.',
+      'cc_rejected_high_risk': 'Pagamento recusado pelas regras de segurança do Mercado Pago. Importante: o Mercado Pago bloqueia automaticamente compras feitas com cartão, CPF ou e-mail do próprio dono da conta Mercado Pago (autocompra). Use um cartão/CPF/e-mail de terceiro ou pague via Pix.',
+      'cc_rejected_max_attempts': 'Número máximo de tentativas excedido. Tente novamente mais tarde ou use outro cartão.',
+      'collector_is_payer': 'O titular da conta Mercado Pago não pode realizar pagamentos para si próprio (autocompra bloqueada pelo antifraude).',
+      'invalid_users': 'A conta de origem e destino são incompatíveis.',
+      'pending_contingency': 'O pagamento está sendo processado pelo Mercado Pago. Aguarde a confirmação.',
+      'pending_review_manual': 'O pagamento está em análise manual pelo Mercado Pago.',
+      '3003': 'Dados do cartão recusados na tokenização. Verifique os números informados.',
+      '3034': 'Número do cartão inválido perante o emissor. Por favor, revise os números digitados.',
+      '4037': 'Valor da transação inválido (o valor mínimo aceito pelo Mercado Pago é R$ 1,00 e cada parcela do cartão deve ser de pelo menos R$ 5,00).',
+      'Invalid transaction_amount': 'Valor da transação inválido. O valor mínimo é R$ 1,00 e cada parcela deve ser de pelo menos R$ 5,00 no cartão.',
+      '10114': 'Parcelamento não permitido para cartões internacionais. Selecione pagamento à vista (1x).',
+    };
+    if (statusDetail) {
+      if (map[statusDetail]) return map[statusDetail];
+      for (const [key, msg] of Object.entries(map)) {
+        if (statusDetail.includes(key)) return msg;
+      }
+    }
+    if (fallbackMessage) {
+      for (const [key, msg] of Object.entries(map)) {
+        if (fallbackMessage.includes(key)) return msg;
+      }
+    }
+    return fallbackMessage || `Pagamento não aprovado (${statusDetail || 'recusado pelo emissor'}).`;
+  };
+
   const handleProcessCard = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessingCard(true);
     setErrorMessage(null);
+    setIsHighRisk(false);
+
+    if (invoiceAmount < 1.00) {
+      setErrorMessage('O valor deste pedido é inferior ao valor mínimo de R$ 1,00 exigido pelo Mercado Pago.');
+      setIsProcessingCard(false);
+      return;
+    }
 
     const cleanNumber = cardNumber.replace(/\D/g, '');
     if (cleanNumber.length < 13) {
@@ -202,31 +279,104 @@ export function MercadoPagoCheckoutModal({
       return;
     }
 
+    const cleanExpiry = cardExpiry.replace(/\s+/g, '');
+    if (!cleanExpiry.includes('/') || cleanExpiry.length < 4) {
+      setErrorMessage('Por favor, informe a validade no formato MM/AA.');
+      setIsProcessingCard(false);
+      return;
+    }
+
+    const cleanCvv = cardCvv.replace(/\D/g, '');
+    if (cleanCvv.length < 3) {
+      setErrorMessage('Por favor, informe um código de segurança (CVV) válido.');
+      setIsProcessingCard(false);
+      return;
+    }
+
+    const cleanCpf = cardCpf.replace(/\D/g, '');
+    const maxInst = Math.max(1, Math.floor(invoiceAmount / 5.00));
+    const safeInst = Math.min(Number(installments) || 1, maxInst);
+
     try {
       const brand = detectCardBrand(cleanNumber);
+
+      // Tokenizar direto no navegador via MercadoPago.js V2 para incluir Device Fingerprint e IP do cliente
+      let browserCardToken: string | undefined = undefined;
+      const mpGlobal = (window as any).MercadoPago;
+      if (mpGlobal && gatewayStatus?.publicKey && cleanCpf.length === 11) {
+        try {
+          const [rawM, rawY] = cleanExpiry.split('/');
+          const expMonth = String(parseInt(rawM || '12', 10)).padStart(2, '0');
+          let expYearNum = parseInt(rawY || '2028', 10);
+          if (expYearNum < 100) expYearNum += 2000;
+          const mp = new mpGlobal(gatewayStatus.publicKey, { locale: 'pt-BR' });
+          const tokenObj = await mp.createCardToken({
+            cardNumber: cleanNumber,
+            cardholderName: (cardHolder || 'CLIENTE LOJINHA').trim().toUpperCase(),
+            cardExpirationMonth: expMonth,
+            cardExpirationYear: String(expYearNum),
+            securityCode: cleanCvv,
+            identificationType: 'CPF',
+            identificationNumber: cleanCpf,
+          });
+          if (tokenObj && tokenObj.id) {
+            browserCardToken = tokenObj.id;
+          }
+        } catch {
+          // Se falhar no navegador, o backend gera o token automaticamente
+        }
+      }
+
+      const deviceId = (window as any).MP_DEVICE_SESSION_ID || undefined;
+
       const res = await api.createMercadoPagoCardPayment({
         invoiceId: invoice.id,
-        amount: invoice.remainingBalance,
-        token: `tok_mp_${Date.now()}_${cleanNumber.slice(-4)}`,
-        installments: Number(installments),
+        amount: invoiceAmount,
+        token: browserCardToken,
+        cardNumber: cleanNumber,
+        cardExpiry: cleanExpiry,
+        cardCvv: cleanCvv,
+        installments: safeInst,
         paymentMethodId: brand,
-        payerEmail,
-        payerCpf: cardCpf.replace(/\D/g, ''),
+        payerEmail: cardEmail || initialCleanEmail,
+        payerCpf: cleanCpf,
         cardHolderName: cardHolder,
-        description: `Fatura ${invoice.id} - ${installments}x no Cartão`
+        description: `Pedido Lojinha Iceves #${invoice.id}`,
+        deviceId
       });
 
       if (res.status === 'approved') {
         setPaymentApproved(true);
         setApprovedDetails({
           id: res.paymentId,
-          method: `Cartão de Crédito (${brand.toUpperCase()} em ${installments}x)`
+          method: `Cartão de Crédito (${brand.toUpperCase()} em ${safeInst}x)`
+        });
+      } else if (res.status === 'in_process') {
+        setPaymentApproved(true);
+        setApprovedDetails({
+          id: res.paymentId,
+          method: `Cartão (${brand.toUpperCase()}) - Em análise pelo Mercado Pago`
         });
       } else {
-        setErrorMessage(`Pagamento retornado com status: ${res.statusDetail || res.status}.`);
+        const detail = res.statusDetail || '';
+        const errStr = res.error || '';
+        if (detail.includes('high_risk') || errStr.includes('high_risk') || detail === 'collector_is_payer' || errStr.includes('collector_is_payer')) {
+          setIsHighRisk(true);
+        } else {
+          setIsHighRisk(false);
+        }
+        setErrorMessage(translateMpError(res.statusDetail, res.error));
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Falha ao processar pagamento com cartão no Mercado Pago.');
+      const msg = err.message || '';
+      if (msg.includes('high_risk') || msg.includes('collector_is_payer')) {
+        setIsHighRisk(true);
+        setErrorMessage('Pagamento recusado pelas regras de segurança do Mercado Pago (antifraude).');
+      } else if (msg.includes('3003')) {
+        setErrorMessage('Dados do cartão rejeitados pelo serviço de validação do Mercado Pago. Verifique os números digitados.');
+      } else {
+        setErrorMessage(msg || 'Falha ao processar pagamento com cartão no Mercado Pago.');
+      }
     } finally {
       setIsProcessingCard(false);
     }
@@ -282,12 +432,19 @@ export function MercadoPagoCheckoutModal({
           </div>
           <div className="text-right">
             <span className="text-zinc-400 block text-[11px]">Valor a Liquidar</span>
-            <span className="font-bold text-emerald-400 text-base">{formatCurrency(invoice.remainingBalance)}</span>
+            <span className="font-bold text-emerald-400 text-base">{formatCurrency(invoiceAmount)}</span>
           </div>
         </div>
 
         {/* Content Body */}
         <div className="p-5 overflow-y-auto flex-1 space-y-5">
+          {invoiceAmount < 1.00 && (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+              <span>Esta fatura já se encontra liquidada ou com saldo inferior a R$ 1,00 (mínimo exigido pelo Mercado Pago).</span>
+            </div>
+          )}
+
           {paymentApproved ? (
             /* Success Screen */
             <div className="text-center py-6 space-y-4">
@@ -315,7 +472,7 @@ export function MercadoPagoCheckoutModal({
                   </div>
                   <div className="flex justify-between text-zinc-400">
                     <span>Valor:</span>
-                    <span className="text-white">{formatCurrency(invoice.remainingBalance)}</span>
+                    <span className="text-white">{formatCurrency(invoiceAmount)}</span>
                   </div>
                   <div className="flex justify-between text-zinc-400">
                     <span>Status:</span>
@@ -363,9 +520,30 @@ export function MercadoPagoCheckoutModal({
               </div>
 
               {errorMessage && (
-                <div className="p-3 bg-red-950/40 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                  <div>{errorMessage}</div>
+                <div className="p-3.5 bg-red-950/40 border border-red-500/30 rounded-xl text-xs text-red-200 space-y-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    <div className="flex-1 leading-relaxed">{errorMessage}</div>
+                  </div>
+                  {isHighRisk && (
+                    <div className="pt-2 border-t border-red-500/20 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+                      <div className="text-[11px] text-zinc-300">
+                        <strong className="text-amber-300">Dica:</strong> O Pix possui aprovação instantânea e não sofre recusas por antifraude.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('pix');
+                          setErrorMessage(null);
+                          setIsHighRisk(false);
+                        }}
+                        className="w-full sm:w-auto px-3.5 py-1.5 bg-[#009EE3] hover:bg-[#008CC9] text-white font-bold rounded-lg text-xs cursor-pointer transition flex items-center justify-center gap-1.5 shrink-0 shadow-md"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        Pagar via Pix (Instantâneo)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -543,18 +721,33 @@ export function MercadoPagoCheckoutModal({
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-zinc-300 font-medium mb-1">
-                      Nome Impresso no Cartão
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={cardHolder}
-                      onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
-                      placeholder="COMO ESTÁ NO CARTÃO"
-                      className="w-full p-2.5 bg-[#1C1C21] border border-white/[0.1] rounded-xl text-white uppercase focus:border-[#009EE3] focus:outline-none"
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-zinc-300 font-medium mb-1">
+                        Nome Impresso no Cartão
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={cardHolder}
+                        onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
+                        placeholder="COMO ESTÁ NO CARTÃO"
+                        className="w-full p-2.5 bg-[#1C1C21] border border-white/[0.1] rounded-xl text-white uppercase focus:border-[#009EE3] focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-zinc-300 font-medium mb-1">
+                        E-mail do Comprador
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={cardEmail}
+                        onChange={(e) => setCardEmail(e.target.value)}
+                        placeholder="comprador@email.com"
+                        className="w-full p-2.5 bg-[#1C1C21] border border-white/[0.1] rounded-xl text-white focus:border-[#009EE3] focus:outline-none"
+                      />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -603,20 +796,24 @@ export function MercadoPagoCheckoutModal({
                     </div>
 
                     <div>
-                      <label className="block text-zinc-300 font-medium mb-1">
-                        Opções de Parcelamento
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-zinc-300 font-medium">
+                          Opções de Parcelamento
+                        </label>
+                        <span className="text-[10px] text-zinc-500">Mín. R$ 5,00/parcela</span>
+                      </div>
                       <select
                         value={installments}
                         onChange={(e) => setInstallments(Number(e.target.value))}
                         className="w-full p-2.5 bg-[#1C1C21] border border-white/[0.1] rounded-xl text-white focus:border-[#009EE3] focus:outline-none"
                       >
-                        <option value={1}>1x de {formatCurrency(invoice.remainingBalance)} (à vista)</option>
-                        <option value={2}>2x de {formatCurrency(invoice.remainingBalance / 2)}</option>
-                        <option value={3}>3x de {formatCurrency(invoice.remainingBalance / 3)}</option>
-                        <option value={6}>6x de {formatCurrency(invoice.remainingBalance / 6)}</option>
-                        <option value={10}>10x de {formatCurrency(invoice.remainingBalance / 10)}</option>
-                        <option value={12}>12x de {formatCurrency(invoice.remainingBalance / 12)}</option>
+                        {availableInstallments.map((n) => (
+                          <option key={n} value={n}>
+                            {n === 1 
+                              ? `1x de ${formatCurrency(invoiceAmount)} (à vista)` 
+                              : `${n}x de ${formatCurrency(invoiceAmount / n)}`}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -624,7 +821,7 @@ export function MercadoPagoCheckoutModal({
                   <div className="pt-2">
                     <button
                       type="submit"
-                      disabled={isProcessingCard}
+                      disabled={isProcessingCard || invoiceAmount < 1.00}
                       className="w-full py-3 bg-[#009EE3] hover:bg-[#008CC9] text-white font-bold rounded-xl text-sm transition shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       {isProcessingCard ? (
@@ -633,7 +830,7 @@ export function MercadoPagoCheckoutModal({
                           Processando Pagamento...
                         </>
                       ) : (
-                        `Pagar ${formatCurrency(invoice.remainingBalance)}`
+                        `Pagar ${formatCurrency(invoiceAmount)}`
                       )}
                     </button>
                   </div>

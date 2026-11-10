@@ -40,8 +40,8 @@ export function SystemSettingsView({
   const { isAdmin } = useAuth();
 
   const [formData, setFormData] = useState<Partial<SystemSettings>>({
-    institutionName: settings?.institutionName || 'Campus University School',
-    storeName: settings?.storeName || 'Lojinha do Campus',
+    institutionName: settings?.institutionName || 'Lojinha Iceves',
+    storeName: settings?.storeName || 'Lojinha Iceves',
     cnpj: settings?.cnpj || '18.423.891/0001-44',
     closingDay: settings?.closingDay || 'LAST_DAY',
     closingHour: settings?.closingHour || '23:59',
@@ -59,6 +59,8 @@ export function SystemSettingsView({
     supabaseUrl: (settings as any)?.supabaseUrl || '',
     supabaseAnonKey: (settings as any)?.supabaseAnonKey || '',
     supabaseServiceRoleKey: (settings as any)?.supabaseServiceRoleKey || '',
+    tuitionBillingActive: settings?.tuitionBillingActive ?? false,
+    defaultTuitionAmount: settings?.defaultTuitionAmount ?? 0,
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -398,6 +400,52 @@ export function SystemSettingsView({
               />
               <p className="text-[10px] text-[#A1A1AA] mt-1">Ex: 10 = todo dia 10 do mês seguinte.</p>
             </div>
+          </div>
+
+          {/* Mensalidade Escolar Integrada nas Faturas */}
+          <div className="pt-3 border-t border-[#242424] space-y-3">
+            <div className="p-3.5 bg-[#151515] rounded-xl border border-[#282828] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <span className="font-semibold text-[#F5F5F5] block">
+                  Cobrança de Mensalidade Escolar Integrada {formData.tuitionBillingActive !== false ? 'ATIVA' : 'DESATIVADA'}
+                </span>
+                <span className="text-[#A1A1AA] text-[11px] block">
+                  {formData.tuitionBillingActive !== false
+                    ? 'O fechamento mensal soma a mensalidade do aluno ao consumo na lojinha.'
+                    : 'Desativada: O fechamento mensal gerará faturas cobrando estritamente o consumo da lojinha/cantina (sem mensalidade escolar).'}
+                </span>
+              </div>
+
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={formData.tuitionBillingActive ?? true}
+                  onChange={(e) => setFormData({ ...formData, tuitionBillingActive: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-6 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#8B7CFF]"></div>
+              </label>
+            </div>
+
+            {formData.tuitionBillingActive !== false && (
+              <div className="p-3 bg-[#151515] rounded-xl border border-[#242424] flex items-center justify-between gap-3">
+                <div>
+                  <span className="font-medium text-[#F5F5F5] text-xs block">Valor Base Padrão da Mensalidade Escolar (R$)</span>
+                  <span className="text-[10px] text-[#A1A1AA] block">Valor base aplicado para novos alunos (customizável individualmente em Alunos & Responsáveis).</span>
+                </div>
+                <div className="w-40 flex items-center gap-1.5 shrink-0">
+                  <span className="text-zinc-500 font-mono text-xs">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.defaultTuitionAmount ?? 750}
+                    onChange={(e) => setFormData({ ...formData, defaultTuitionAmount: parseFloat(e.target.value) || 0 })}
+                    className="w-full p-2 bg-[#1A1A1A] border border-[#303030] rounded-lg text-[#F5F5F5] font-mono text-xs focus:border-[#8B7CFF] focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

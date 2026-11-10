@@ -251,6 +251,32 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       return { status: 200, data: result };
     }
 
+    if (pathname === '/api/invoices/clear-all' && method === 'POST') {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem excluir todas as faturas.' } };
+      }
+      const result = db.clearAllInvoices(currentUser);
+      return { status: 200, data: result };
+    }
+
+    if (pathname.startsWith('/api/invoices/') && method === 'DELETE') {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem excluir faturas.' } };
+      }
+      const invoiceId = pathname.replace('/api/invoices/', '');
+      const result = db.deleteInvoice(invoiceId, currentUser);
+      return { status: 200, data: result };
+    }
+
+    if (pathname.startsWith('/api/invoices/') && (method === 'PATCH' || method === 'PUT')) {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem alterar faturas e valores de mensalidade.' } };
+      }
+      const invoiceId = pathname.replace('/api/invoices/', '');
+      const updated = db.updateInvoice(invoiceId, req.body, currentUser);
+      return { status: 200, data: updated };
+    }
+
     // 8. Pix Payments
     if (pathname === '/api/pix') {
       if (method === 'GET') {
@@ -367,7 +393,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       const { invoiceId, amount, payerEmail, payerName, payerCpf, description } = req.body || {};
       const invoice = db.getInvoices().find(i => i.id === invoiceId);
       if (!invoice) {
-        return { status: 404, data: { error: 'Fatura não encontrada.' } };
+        return { status: 404, data: { error: 'Cobrança não encontrada.' } };
       }
 
       const student = invoice.studentId ? db.getStudents().find(s => s.id === invoice.studentId) : null;
@@ -375,17 +401,21 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       if (student && student.guardians && student.guardians.length > 0) {
         primaryGuardian = db.getGuardians().find(g => g.id === student.guardians[0].guardianId);
       }
-      const safeEmail = payerEmail || primaryGuardian?.email || student?.email || 'contato.aluno@gmail.com';
-      const safeName = payerName || primaryGuardian?.name || student?.name || currentUser?.name || 'Cliente Campus';
+      const safeEmail = payerEmail || primaryGuardian?.email || student?.email || 'cliente.lojinha@gmail.com';
+      const safeName = payerName || primaryGuardian?.name || student?.name || currentUser?.name || 'Cliente Lojinha';
       const safeCpf = payerCpf || primaryGuardian?.cpf || '';
+
+      const finalPixAmount = Number(amount) > 0 
+        ? Number(amount) 
+        : (Number(invoice.remainingBalance) > 0 ? Number(invoice.remainingBalance) : Number(invoice.grossTotal || 0));
 
       const pixResult = await createMercadoPagoPixPayment({
         invoiceId,
-        amount: Number(amount) || invoice.remainingBalance,
+        amount: finalPixAmount,
         payerEmail: safeEmail,
         payerName: safeName,
         payerCpf: safeCpf,
-        description: description || `Pagamento Fatura ${invoice.id}`
+        description: description || `Pedido Lojinha Iceves #${invoice.id}`
       });
 
       return { status: pixResult.success ? 200 : 400, data: pixResult };
@@ -396,17 +426,21 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         invoiceId, 
         amount, 
         token, 
+        cardNumber,
+        cardExpiry,
+        cardCvv,
         installments, 
         paymentMethodId, 
         payerEmail, 
         payerCpf, 
         cardHolderName, 
-        description 
+        description,
+        deviceId
       } = req.body || {};
 
       const invoice = db.getInvoices().find(i => i.id === invoiceId);
       if (!invoice) {
-        return { status: 404, data: { error: 'Fatura não encontrada.' } };
+        return { status: 404, data: { error: 'Cobrança não encontrada.' } };
       }
 
       const student = invoice.studentId ? db.getStudents().find(s => s.id === invoice.studentId) : null;
@@ -414,26 +448,44 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       if (student && student.guardians && student.guardians.length > 0) {
         primaryGuardian = db.getGuardians().find(g => g.id === student.guardians[0].guardianId);
       }
-      const safeEmail = payerEmail || primaryGuardian?.email || student?.email || 'contato.aluno@gmail.com';
+      const safeEmail = payerEmail || primaryGuardian?.email || student?.email || 'cliente.lojinha@gmail.com';
       const safeCpf = payerCpf || primaryGuardian?.cpf || '';
+
+      const finalCardAmount = Number(amount) > 0 
+        ? Number(amount) 
+        : (Number(invoice.remainingBalance) > 0 ? Number(invoice.remainingBalance) : Number(invoice.grossTotal || 0));
+
+      const retailItems = Array.isArray(invoice.consumptionItems) && invoice.consumptionItems.length > 0
+        ? invoice.consumptionItems.map(ci => ({
+            id: ci.productId,
+            title: ci.productName,
+            quantity: ci.quantity,
+            unit_price: ci.averageUnitPrice
+          }))
+        : undefined;
 
       const cardResult = await createMercadoPagoCardPayment({
         invoiceId,
-        amount: Number(amount) || invoice.remainingBalance,
+        amount: finalCardAmount,
         token,
+        cardNumber,
+        cardExpiry,
+        cardCvv,
         installments: Number(installments) || 1,
         paymentMethodId: paymentMethodId || 'visa',
         payerEmail: safeEmail,
         payerCpf: safeCpf,
         cardHolderName: cardHolderName || primaryGuardian?.name || currentUser?.name,
-        description: description || `Pagamento Fatura ${invoice.id}`
+        description: description || `Pedido Lojinha Iceves #${invoice.id}`,
+        deviceId,
+        items: retailItems
       });
 
       // If approved immediately
       if (cardResult.status === 'approved') {
         const payment = db.submitPixPayment({
           invoiceId,
-          amount: Number(amount) || invoice.remainingBalance,
+          amount: finalCardAmount,
           transactionReference: `MP-${cardResult.paymentId}`,
           receiptAttachment: `Comprovante_MercadoPago_${cardResult.paymentId}.pdf`,
           receiptNotes: `Pagamento com Cartão aprovado via Checkout Transparente Mercado Pago (${cardResult.paymentMethodId.toUpperCase()})`,

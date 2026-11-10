@@ -15,18 +15,20 @@ import {
 
 export const initialSettings: SystemSettings = {
   id: 'settings-1',
-  institutionName: 'Campus University School',
+  institutionName: 'Lojinha Iceves',
   cnpj: '18.423.891/0001-44',
-  storeName: 'Lojinha do Campus',
+  storeName: 'Lojinha Iceves',
   closingDay: 'LAST_DAY',
   closingHour: '23:59',
-  dueDayOffset: 10, // Vencimento dia 10 do mês seguinte
-  allowDirectCashPayment: false, // Consumo vai obrigatoriamente para a fatura mensal
+  dueDayOffset: 10,
+  allowDirectCashPayment: false,
   stockControlActive: true,
   blockSaleWithoutStock: true,
-  pixKey: 'financeiro@campus.edu.br',
+  tuitionBillingActive: false,
+  defaultTuitionAmount: 0,
+  pixKey: '',
   pixKeyType: 'EMAIL',
-  pixReceiverName: 'CAMPUS EDUCACIONAL',
+  pixReceiverName: 'LOJINHA ICEVES',
   pixCity: 'SAO PAULO',
   whatsappAutoEnabled: true,
   whatsappProviderName: 'WhatsApp Business Cloud API',
@@ -34,7 +36,6 @@ export const initialSettings: SystemSettings = {
   mercadoPagoActive: true,
   mercadoPagoMode: 'PRODUCAO',
   supabaseActive: true,
-  stripePublishableKey: 'pk_test_51UVBR4Ce1xrwLqvjzNeIaPvHRPuBmEgEoTU3x447Ywbb6C9IbHOmP24vMtUT3azAtGadTJ5jjDJ6GCU9eXkObiva00E01EwrRp',
   updatedAt: '2026-10-25T10:00:00Z',
   updatedByUserName: 'Administrador do Sistema'
 };
@@ -43,7 +44,7 @@ export const initialUsers: User[] = [
   {
     id: 'user-admin',
     name: 'Mariana Vasconcelos',
-    email: 'admin@campus.edu',
+    email: 'admin.lojinha@gmail.com',
     role: 'ADMIN',
     phone: '(11) 98765-4321',
     avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
@@ -52,7 +53,7 @@ export const initialUsers: User[] = [
   {
     id: 'user-cashier',
     name: 'Roberto Silveira',
-    email: 'caixa@campus.edu',
+    email: 'caixa.lojinha@gmail.com',
     role: 'CASHIER',
     phone: '(11) 97654-3210',
     avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
@@ -61,7 +62,7 @@ export const initialUsers: User[] = [
   {
     id: 'user-student-lucas',
     name: 'Lucas Andrade',
-    email: 'aluno.lucas@campus.edu',
+    email: 'lucas.andrade@gmail.com',
     role: 'STUDENT',
     studentId: 'student-1',
     phone: '(11) 99123-4567',
@@ -71,7 +72,7 @@ export const initialUsers: User[] = [
   {
     id: 'user-student-sofia',
     name: 'Sofia Andrade',
-    email: 'aluna.sofia@campus.edu',
+    email: 'sofia.andrade@gmail.com',
     role: 'STUDENT',
     studentId: 'student-2',
     phone: '(11) 99345-6789',
@@ -129,13 +130,13 @@ export const initialStudents: Student[] = [
     name: 'Lucas Andrade',
     registrationNumber: '2024-0412',
     classGroup: '3º Ano E.M. - Turma A',
-    email: 'aluno.lucas@campus.edu',
+    email: 'lucas.andrade@gmail.com',
     phone: '(11) 99123-4567',
     avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
     status: 'ACTIVE',
-    defaultTuition: 750.00,
+    defaultTuition: 0,
     currentConsumptionBalance: 42.50,
-    totalOpenDebt: 792.50,
+    totalOpenDebt: 42.50,
     payerRule: 'BOTH',
     reportRecipientRule: 'BOTH',
     dueReminderRecipientRule: 'BOTH',
@@ -149,7 +150,7 @@ export const initialStudents: Student[] = [
         canAccessPortal: true
       }
     ],
-    notes: 'Aluno autorizado a consumir na cantina até R$ 250,00 por quinzena.',
+    notes: 'Cliente autorizado a consumir na lojinha até R$ 250,00 por quinzena.',
     createdAt: '2026-02-10T08:00:00Z'
   },
   {
@@ -157,13 +158,13 @@ export const initialStudents: Student[] = [
     name: 'Sofia Andrade',
     registrationNumber: '2024-0413',
     classGroup: '1º Ano E.M. - Turma B',
-    email: 'aluna.sofia@campus.edu',
+    email: 'sofia.andrade@gmail.com',
     phone: '(11) 99345-6789',
     avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
     status: 'ACTIVE',
-    defaultTuition: 750.00,
+    defaultTuition: 0,
     currentConsumptionBalance: 27.00,
-    totalOpenDebt: 777.00,
+    totalOpenDebt: 27.00,
     payerRule: 'GUARDIAN_ONLY',
     reportRecipientRule: 'BOTH',
     dueReminderRecipientRule: 'GUARDIAN_ONLY',
@@ -185,11 +186,11 @@ export const initialStudents: Student[] = [
     name: 'Matheus Lima',
     registrationNumber: '2024-0589',
     classGroup: '2º Ano E.M. - Turma A',
-    email: 'aluno.matheus@campus.edu',
+    email: 'matheus.lima@gmail.com',
     phone: '(11) 99777-8899',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
     status: 'ACTIVE',
-    defaultTuition: 750.00,
+    defaultTuition: 0,
     currentConsumptionBalance: 15.50,
     totalOpenDebt: 15.50,
     payerRule: 'STUDENT_ONLY',
@@ -212,11 +213,11 @@ export const initialStudents: Student[] = [
     name: 'Beatriz Costa',
     registrationNumber: '2024-0610',
     classGroup: '3º Ano E.M. - Turma B',
-    email: 'aluna.beatriz@campus.edu',
+    email: 'beatriz.costa@gmail.com',
     phone: '(11) 99888-1122',
     avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
     status: 'ACTIVE',
-    defaultTuition: 750.00,
+    defaultTuition: 0,
     currentConsumptionBalance: 64.00,
     totalOpenDebt: 64.00,
     payerRule: 'BOTH',
@@ -530,16 +531,6 @@ export const initialSales: Sale[] = [
 
 export const initialFinancialLedger: FinancialTransaction[] = [
   {
-    id: 'LED-001',
-    timestamp: '2026-10-01T00:00:00Z',
-    studentId: 'student-1',
-    type: 'DEBITO',
-    category: 'MENSALIDADE',
-    amount: 750.00,
-    description: 'Mensalidade escolar Outubro/2026',
-    performedByUserName: 'Sistema Automático'
-  },
-  {
     id: 'LED-002',
     timestamp: '2026-10-27T10:15:00Z',
     studentId: 'student-1',
@@ -574,124 +565,11 @@ export const initialFinancialLedger: FinancialTransaction[] = [
   }
 ];
 
-export const initialInvoices: Invoice[] = [
-  {
-    id: 'FAT-2026-09-001',
-    studentId: 'student-1',
-    studentName: 'Lucas Andrade',
-    registrationNumber: '2024-0412',
-    billingPeriod: '2026-09',
-    tuitionAmount: 750.00,
-    canteenConsumptionTotal: 84.50,
-    previousBalance: 0.00,
-    adjustmentsTotal: 0.00,
-    grossTotal: 834.50,
-    paidTotal: 834.50,
-    remainingBalance: 0.00,
-    closingDate: '2026-09-30',
-    dueDate: '2026-10-10',
-    status: 'PAGA',
-    salesIds: ['VEN-2026-0941', 'VEN-2026-0955'],
-    consumptionItems: [
-      {
-        productId: 'prod-1',
-        productName: 'Suco Natural de Laranja 300ml',
-        category: 'Bebidas',
-        quantity: 6,
-        averageUnitPrice: 7.50,
-        totalAmount: 45.00
-      },
-      {
-        productId: 'prod-2',
-        productName: 'Pão de Queijo Mineiro Artesanal',
-        category: 'Salgados & Lanches',
-        quantity: 5,
-        averageUnitPrice: 6.00,
-        totalAmount: 30.00
-      },
-      {
-        productId: 'prod-5',
-        productName: 'Brownie Artesanal Chocolate Belga',
-        category: 'Doces & Sobremesas',
-        quantity: 1,
-        averageUnitPrice: 8.50,
-        totalAmount: 9.50
-      }
-    ],
-    paymentAllocations: [
-      {
-        paymentId: 'PIX-2026-0701',
-        amount: 834.50,
-        payerName: 'Dra. Cláudia Andrade',
-        payerType: 'RESPONSAVEL',
-        date: '2026-10-08T11:20:00Z'
-      }
-    ],
-    pixCopyPasteCode: '00020126580014br.gov.bcb.pix0136financeiro@campus.edu.br5204000053039865406834.505802BR5925CAMPUS EDUCACIONAL6009SAO PAULO62070503***6304D1A4',
-    pixQrCodePayload: '00020126580014br.gov.bcb.pix0136financeiro@campus.edu.br5204000053039865406834.505802BR5925CAMPUS EDUCACIONAL6009SAO PAULO62070503***6304D1A4',
-    approvedByUserName: 'Mariana Vasconcelos',
-    approvedAt: '2026-09-30T18:00:00Z',
-    publishedAt: '2026-09-30T18:30:00Z',
-    createdAt: '2026-09-30T17:00:00Z',
-    updatedAt: '2026-10-08T11:25:00Z'
-  }
-];
+export const initialInvoices: Invoice[] = [];
 
-export const initialPixPayments: PixPayment[] = [
-  {
-    id: 'PIX-2026-0901',
-    invoiceId: 'FAT-2026-09-001',
-    invoiceCode: 'FAT-2026-09-001',
-    studentId: 'student-1',
-    studentName: 'Lucas Andrade',
-    payerName: 'Dra. Cláudia Andrade',
-    payerRole: 'RESPONSAVEL',
-    amount: 834.50,
-    transactionReference: 'E18423891202610081120KLP834',
-    receiptAttachment: 'Comprovante_PIX_BancoDoBrasil_834_50.pdf',
-    receiptNotes: 'Transferência Pix liquidada via App BB com chave e-mail da escola.',
-    status: 'CONFIRMADO',
-    registeredByUserId: 'user-guardian-claudia',
-    registeredByUserName: 'Dra. Cláudia Andrade',
-    registeredAt: '2026-10-08T11:20:00Z',
-    reviewedByUserId: 'user-admin',
-    reviewedByUserName: 'Mariana Vasconcelos',
-    reviewedAt: '2026-10-08T11:25:00Z',
-    reviewDecisionReason: 'Crédito de R$ 834,50 localizado no extrato bancário oficial.'
-  }
-];
+export const initialPixPayments: PixPayment[] = [];
 
 export const initialWhatsAppNotifications: WhatsAppNotification[] = [
-  {
-    id: 'WPP-001',
-    type: 'NOVA_FATURA',
-    recipientName: 'Dra. Cláudia Andrade',
-    recipientPhone: '(11) 98111-2233',
-    recipientRole: 'RESPONSAVEL',
-    studentName: 'Lucas Andrade',
-    studentId: 'student-1',
-    invoiceId: 'FAT-2026-09-001',
-    messageText: 'Olá Cláudia! A fatura de Setembro/2026 do aluno Lucas Andrade já está disponível para conferência. Valor: R$ 834,50 (Mensalidade + Consumo Lojinha). Vencimento: 10/10/2026. Acesse o portal: https://campus.edu.br/portal',
-    status: 'ENTREGUE',
-    scheduledFor: '2026-09-30T19:00:00Z',
-    sentAt: '2026-09-30T19:01:14Z',
-    attemptsCount: 1
-  },
-  {
-    id: 'WPP-002',
-    type: 'CONFIRMACAO_PAGAMENTO',
-    recipientName: 'Dra. Cláudia Andrade',
-    recipientPhone: '(11) 98111-2233',
-    recipientRole: 'RESPONSAVEL',
-    studentName: 'Lucas Andrade',
-    studentId: 'student-1',
-    invoiceId: 'FAT-2026-09-001',
-    messageText: 'Recebimento Pix confirmado! Recebemos com sucesso o pagamento de R$ 834,50 ref. à fatura FAT-2026-09-001 de Lucas Andrade. A fatura foi liquidada. Obrigado!',
-    status: 'ENTREGUE',
-    scheduledFor: '2026-10-08T11:25:00Z',
-    sentAt: '2026-10-08T11:25:30Z',
-    attemptsCount: 1
-  },
   {
     id: 'WPP-003',
     type: 'ALERTA_ESTOQUE',

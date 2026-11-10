@@ -43,6 +43,8 @@ export function StudentsAndGuardians({
   const [confirmationRule, setConfirmationRule] = useState<RecipientOption>('BOTH');
   const [selectedChannels, setSelectedChannels] = useState<('WHATSAPP' | 'EMAIL')[]>(['WHATSAPP', 'EMAIL']);
   const [studentNotes, setStudentNotes] = useState('');
+  const [tuitionAmount, setTuitionAmount] = useState<number>(0);
+  const [isTuitionExempt, setIsTuitionExempt] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -76,6 +78,9 @@ export function StudentsAndGuardians({
     setConfirmationRule(student.paymentConfirmationRecipientRule);
     setSelectedChannels([...student.allowedChannels]);
     setStudentNotes(student.notes || '');
+    const currentTuition = student.defaultTuition !== undefined ? student.defaultTuition : 0;
+    setTuitionAmount(currentTuition);
+    setIsTuitionExempt(currentTuition === 0);
     setSaveSuccess(false);
   };
 
@@ -85,12 +90,14 @@ export function StudentsAndGuardians({
 
     setIsSaving(true);
     try {
+      const finalTuition = isTuitionExempt ? 0 : Math.max(0, Number(tuitionAmount) || 0);
       const updated = await api.updateStudent(editingStudent.id, {
         payerRule,
         reportRecipientRule: reportRule,
         dueReminderRecipientRule: reminderRule,
         paymentConfirmationRecipientRule: confirmationRule,
         allowedChannels: selectedChannels,
+        defaultTuition: finalTuition,
         notes: studentNotes
       });
       onStudentUpdated(updated);
@@ -219,7 +226,13 @@ export function StudentsAndGuardians({
                       </td>
 
                       <td className="py-3 px-4 font-mono font-bold text-[#F5F5F5]">
-                        {formatCurrency(student.defaultTuition)}
+                        {student.defaultTuition === 0 ? (
+                          <span className="inline-flex items-center gap-1 text-amber-400 font-semibold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md text-[10px]">
+                            Isento (R$ 0,00)
+                          </span>
+                        ) : (
+                          formatCurrency(student.defaultTuition)
+                        )}
                       </td>
 
                       <td className="py-3 px-4">
@@ -463,6 +476,92 @@ export function StudentsAndGuardians({
                     />
                     <span>E-mail</span>
                   </label>
+                </div>
+              </div>
+
+              {/* 4. Mensalidade Escolar Fixa & Isenção */}
+              <div className="bg-[#151515] p-3.5 rounded-xl border border-[#282828] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="block font-bold text-[#F5F5F5]">
+                      4. Mensalidade Escolar deste Aluno
+                    </label>
+                    <span className="text-[11px] text-[#A1A1AA] block">
+                      Defina o valor base cobrado na fatura mensal ou marque isenção total.
+                    </span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    isTuitionExempt || tuitionAmount === 0 
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
+                      : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  }`}>
+                    {isTuitionExempt || tuitionAmount === 0 ? 'Isento (R$ 0,00)' : formatCurrency(tuitionAmount)}
+                  </span>
+                </div>
+
+                <div className="space-y-2 pt-1 border-t border-[#242424]">
+                  <div className="flex items-center gap-2.5">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!isTuitionExempt}
+                        onChange={(e) => {
+                          const enabled = e.target.checked;
+                          setIsTuitionExempt(!enabled);
+                          if (enabled && tuitionAmount === 0) {
+                            setTuitionAmount(750);
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                    <span className="text-xs text-[#D4D4D8] font-medium">
+                      {isTuitionExempt ? 'Cobrar Apenas Consumo da Lojinha (Mensalidade R$ 0,00)' : 'Cobrar Mensalidade Escolar'}
+                    </span>
+                  </div>
+
+                  {!isTuitionExempt && (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-zinc-400 font-mono font-bold">R$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={tuitionAmount}
+                          onChange={(e) => setTuitionAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                          placeholder="0.00"
+                          className="flex-1 p-2 bg-[#1A1A1A] border border-[#303030] focus:border-[#8B7CFF] rounded-lg text-white font-mono font-bold text-xs outline-none"
+                        />
+                      </div>
+
+                      {/* Presets rápidos */}
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => { setIsTuitionExempt(true); setTuitionAmount(0); }}
+                          className="px-2 py-1 bg-[#222222] hover:bg-[#2A2A2A] text-amber-300 border border-amber-500/20 rounded-md text-[10px] font-bold cursor-pointer transition"
+                        >
+                          Remover / Isento (R$ 0)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setIsTuitionExempt(false); setTuitionAmount(375); }}
+                          className="px-2 py-1 bg-[#222222] hover:bg-[#2A2A2A] text-purple-300 border border-purple-500/20 rounded-md text-[10px] font-bold cursor-pointer transition"
+                        >
+                          Bolsa 50% (R$ 375,00)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setIsTuitionExempt(false); setTuitionAmount(750); }}
+                          className="px-2 py-1 bg-[#222222] hover:bg-[#2A2A2A] text-emerald-300 border border-emerald-500/20 rounded-md text-[10px] font-bold cursor-pointer transition"
+                        >
+                          Padrão (R$ 750,00)
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

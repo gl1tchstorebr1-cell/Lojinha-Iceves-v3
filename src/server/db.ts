@@ -585,16 +585,20 @@ class DatabaseService {
     let pendingUnpaidSalesCount = 0;
     const inconsistencies: MonthlyClosingPreview['inconsistencies'] = [];
 
-    // Checar vendas do período
-    const periodSales = this.data.sales.filter(s => s.billingPeriod === period && s.status === 'COMPLETED');
-    pendingUnpaidSalesCount = periodSales.length;
+    // Checar vendas em aberto (não faturadas)
+    const unbilledSales = this.data.sales.filter(s => s.status === 'COMPLETED' && !s.invoiceId);
+    pendingUnpaidSalesCount = unbilledSales.length;
+
+    const isTuitionEnabled = Boolean(this.data.settings.tuitionBillingActive);
 
     for (const student of eligibleStudents) {
-      totalTuitions += student.defaultTuition;
+      const studentTuition = isTuitionEnabled ? (Number(student.defaultTuition) || 0) : 0;
+      totalTuitions += studentTuition;
 
-      // Calcular consumo do aluno no período
-      const studentSales = periodSales.filter(s => s.studentId === student.id);
-      const studentConsumption = studentSales.reduce((acc, sale) => acc + sale.total, 0);
+      // Calcular consumo em aberto do aluno na Lojinha
+      const studentSales = unbilledSales.filter(s => s.studentId === student.id);
+      const salesSum = studentSales.reduce((acc, sale) => acc + sale.total, 0);
+      const studentConsumption = Math.max(salesSum, Number(student.currentConsumptionBalance) || 0);
       totalConsumptions += studentConsumption;
 
       // Inconsistências
@@ -604,7 +608,7 @@ class DatabaseService {
           studentId: student.id,
           studentName: student.name,
           severity: 'WARNING',
-          message: `O aluno já possui fatura gerada para ${period}. Não será duplicada.`
+          message: `O aluno já possui cobrança gerada para ${period}. Não será duplicada.`
         });
       }
 
@@ -657,6 +661,8 @@ class DatabaseService {
     const dueDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
     const closingDate = `${year}-${String(month).padStart(2, '0')}-28`;
 
+    const isTuitionEnabled = Boolean(this.data.settings.tuitionBillingActive);
+
     for (const student of eligibleStudents) {
       // PREVENÇÃO DE DUPLICIDADE (Idempotência estrita)
       const existing = this.data.invoices.find(
@@ -666,14 +672,22 @@ class DatabaseService {
         continue; // Não gerar faturas duplicadas!
       }
 
-      // Vendas do período para este aluno
+      // Vendas não faturadas para este aluno
       const studentSales = this.data.sales.filter(
-        s => s.studentId === student.id && s.billingPeriod === period && s.status === 'COMPLETED'
+        s => s.studentId === student.id && s.status === 'COMPLETED' && !s.invoiceId
       );
 
-      const consumptionTotal = studentSales.reduce((acc, s) => acc + s.total, 0);
+      const salesSum = studentSales.reduce((acc, s) => acc + s.total, 0);
+      const consumptionTotal = Math.max(salesSum, Number(student.currentConsumptionBalance) || 0);
+      const tuitionAmount = isTuitionEnabled ? (Number(student.defaultTuition) || 0) : 0;
+      const grossTotal = Math.round((tuitionAmount + consumptionTotal) * 100) / 100;
 
-      // Agrupar itens de consumo para o extrato da fatura
+      // Não gerar cobrança zerada (R$ 0,00)
+      if (grossTotal <= 0) {
+        continue;
+      }
+
+      // Agrupar itens de consumo para o extrato da cobrança
       const itemMap = new Map<string, { product: Product | undefined; name: string; category: any; qty: number; total: number }>();
       for (const sale of studentSales) {
         for (const item of sale.items) {
@@ -700,9 +714,12 @@ class DatabaseService {
         totalAmount: Math.round(data.total * 100) / 100
       }));
 
-      const tuitionAmount = student.defaultTuition;
-      const grossTotal = Math.round((tuitionAmount + consumptionTotal) * 100) / 100;
       const invoiceId = `FAT-${period.replace('-', '')}-${student.registrationNumber.replace('-', '')}`;
+
+      // Vincular vendas a esta cobrança
+      for (const sale of studentSales) {
+        sale.invoiceId = invoiceId;
+      }
 
       // Montar código Pix Copia e Cola no padrão oficial Bacen EMV
       const pixCode = generateBacenPixPayload({
@@ -744,16 +761,19 @@ class DatabaseService {
       createdInvoices.push(invoice);
       this.data.invoices.unshift(invoice);
 
-      // Zerar o saldo de consumo acumulado do aluno pois agora está faturado nesta fatura oficial
+      // Zerar o saldo de consumo aberto do aluno pois agora está faturado nesta cobrança
       student.currentConsumptionBalance = 0;
-      student.totalOpenDebt = grossTotal;
+      const openInvoicesTotal = this.data.invoices
+        .filter(i => i.studentId === student.id && i.status !== 'CANCELADA' && i.status !== 'PAGA')
+        .reduce((acc, inv) => acc + inv.remainingBalance, 0);
+      student.totalOpenDebt = Math.round(openInvoicesTotal * 100) / 100;
 
       // Disparar Notificações WhatsApp conforme preferências do Aluno
       this.scheduleInvoiceNotifications(invoice, student);
     }
 
     if (createdInvoices.length === 0) {
-      throw new Error(`Todas as faturas para a competência ${period} já foram geradas e publicadas anteriormente para todos os alunos ativos.`);
+      throw new Error(`Nenhuma cobrança com saldo positivo pendente para gerar na competência ${period}.`);
     }
 
     this.logAudit(
@@ -762,7 +782,7 @@ class DatabaseService {
       user.role,
       'FECHAMENTO_MENSAL_EXECUTADO',
       'FECHAMENTO',
-      `Fechamento de ${period} concluído com sucesso. ${createdInvoices.length} faturas geradas e publicadas.`
+      `Fechamento de ${period} concluído com sucesso. ${createdInvoices.length} cobranças geradas e publicadas.`
     );
 
     this.saveDatabase();
@@ -774,12 +794,92 @@ class DatabaseService {
     };
   }
 
+  // 7.1 Excluir uma fatura individual
+  public deleteInvoice(invoiceId: string, user: { id: string; name: string; role: any }) {
+    const idx = this.data.invoices.findIndex(i => i.id === invoiceId);
+    if (idx === -1) throw new Error('Cobrança não encontrada.');
+
+    const deleted = this.data.invoices.splice(idx, 1)[0];
+
+    // Desvincular vendas que apontavam para esta fatura
+    for (const sale of this.data.sales) {
+      if (sale.invoiceId === invoiceId) {
+        sale.invoiceId = undefined;
+      }
+    }
+
+    // Recalcular saldo de consumo aberto e dívida total do aluno
+    const student = this.data.students.find(s => s.id === deleted.studentId);
+    if (student) {
+      const unbilledSalesTotal = this.data.sales
+        .filter(s => s.studentId === student.id && s.status === 'COMPLETED' && !s.invoiceId)
+        .reduce((acc, s) => acc + s.total, 0);
+      student.currentConsumptionBalance = Math.round(unbilledSalesTotal * 100) / 100;
+
+      const remainingOpenInvoices = this.data.invoices.filter(
+        i => i.studentId === student.id && i.status !== 'CANCELADA' && i.status !== 'PAGA'
+      );
+      const openInvoicesTotal = remainingOpenInvoices.reduce((acc, inv) => acc + inv.remainingBalance, 0);
+      student.totalOpenDebt = Math.round((openInvoicesTotal + student.currentConsumptionBalance) * 100) / 100;
+      this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    }
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'EXCLUIR_FATURA',
+      'FATURAMENTO',
+      `Cobrança ${deleted.id} do aluno ${deleted.studentName} foi excluída permanentemente.`
+    );
+
+    this.saveDatabase();
+    return { success: true, deletedId: invoiceId };
+  }
+
+  // 7.2 Excluir todas as faturas antigas de todos os estudantes (Deixar a base limpa)
+  public clearAllInvoices(user: { id: string; name: string; role: any }) {
+    const totalDeleted = this.data.invoices.length;
+    this.data.invoices = [];
+
+    // Limpar invoiceId de todas as vendas para que voltem a ser consumo em aberto na Lojinha
+    for (const sale of this.data.sales) {
+      sale.invoiceId = undefined;
+    }
+
+    // Recalcular currentConsumptionBalance e totalOpenDebt de todos os estudantes com base nas vendas reais
+    for (const student of this.data.students) {
+      const unbilledSalesTotal = this.data.sales
+        .filter(s => s.studentId === student.id && s.status === 'COMPLETED' && !s.invoiceId)
+        .reduce((acc, s) => acc + s.total, 0);
+      student.currentConsumptionBalance = Math.round(unbilledSalesTotal * 100) / 100;
+      student.totalOpenDebt = student.currentConsumptionBalance;
+      this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    }
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'LIMPAR_TODAS_FATURAS',
+      'FATURAMENTO',
+      `Todas as ${totalDeleted} faturas foram excluídas de todos os estudantes com sucesso. Saldos de consumo da Lojinha restaurados.`
+    );
+
+    this.saveDatabase();
+    return { success: true, totalDeleted };
+  }
+
   // Programar notificações WhatsApp respeitando quem deve receber
   private scheduleInvoiceNotifications(invoice: Invoice, student: Student) {
     if (!this.data.settings.whatsappAutoEnabled) return;
 
     const sendToStudent = student.reportRecipientRule === 'STUDENT' || student.reportRecipientRule === 'STUDENT_ONLY' || student.reportRecipientRule === 'BOTH';
     const sendToGuardian = student.reportRecipientRule === 'GUARDIAN' || student.reportRecipientRule === 'GUARDIAN_ONLY' || student.reportRecipientRule === 'BOTH';
+
+    const detailsText = invoice.tuitionAmount > 0
+      ? `(Mensalidade: R$ ${invoice.tuitionAmount.toFixed(2)} + Lojinha: R$ ${invoice.canteenConsumptionTotal.toFixed(2)})`
+      : `(Consumo Lojinha Iceves: R$ ${invoice.canteenConsumptionTotal.toFixed(2)})`;
 
     if (sendToStudent && student.phone) {
       this.data.whatsappNotifications.unshift({
@@ -791,7 +891,7 @@ class DatabaseService {
         studentName: student.name,
         studentId: student.id,
         invoiceId: invoice.id,
-        messageText: `Olá, ${student.name}! Sua fatura do Campus ref. a ${invoice.billingPeriod} foi emitida. Valor Total: R$ ${invoice.grossTotal.toFixed(2)} (Mensalidade: R$ ${invoice.tuitionAmount.toFixed(2)} + Lojinha: R$ ${invoice.canteenConsumptionTotal.toFixed(2)}). Vencimento: ${invoice.dueDate}.`,
+        messageText: `Olá, ${student.name}! Seu fechamento da Lojinha Iceves ref. a ${invoice.billingPeriod} foi emitido. Valor Total: R$ ${invoice.grossTotal.toFixed(2)} ${detailsText}. Vencimento: ${invoice.dueDate}.`,
         status: 'ENTREGUE',
         scheduledFor: new Date().toISOString(),
         sentAt: new Date().toISOString(),
@@ -812,7 +912,7 @@ class DatabaseService {
             studentName: student.name,
             studentId: student.id,
             invoiceId: invoice.id,
-            messageText: `Prezado(a) ${guardian.name}, a fatura de ${student.name} referente a ${invoice.billingPeriod} está disponível. Total: R$ ${invoice.grossTotal.toFixed(2)}. Vencimento: ${invoice.dueDate}. Código Pix Copia e Cola disponível no portal da família.`,
+            messageText: `Prezado(a) ${guardian.name}, o fechamento de consumo da Lojinha Iceves de ${student.name} referente a ${invoice.billingPeriod} está disponível. Total: R$ ${invoice.grossTotal.toFixed(2)}. Vencimento: ${invoice.dueDate}.`,
             status: 'ENTREGUE',
             scheduledFor: new Date().toISOString(),
             sentAt: new Date().toISOString(),
@@ -1009,6 +1109,73 @@ class DatabaseService {
     this.saveDatabase();
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     return student;
+  }
+
+  // 10.1 Atualização flexível de Mensalidade e Ajustes na Fatura
+  public updateInvoice(
+    invoiceId: string, 
+    updates: { tuitionAmount?: number; adjustmentsTotal?: number; notes?: string }, 
+    user: { id: string; name: string; role: any }
+  ) {
+    const invoice = this.data.invoices.find(i => i.id === invoiceId);
+    if (!invoice) throw new Error('Fatura não encontrada.');
+
+    if (updates.tuitionAmount !== undefined) {
+      invoice.tuitionAmount = Math.max(0, Number(updates.tuitionAmount) || 0);
+    }
+    if (updates.adjustmentsTotal !== undefined) {
+      invoice.adjustmentsTotal = Number(updates.adjustmentsTotal) || 0;
+    }
+    if (updates.notes !== undefined) {
+      invoice.notes = updates.notes;
+    }
+
+    // Recalcular total bruto e saldo devedor
+    invoice.grossTotal = Math.max(
+      0, 
+      Math.round((invoice.tuitionAmount + invoice.canteenConsumptionTotal - (invoice.adjustmentsTotal || 0)) * 100) / 100
+    );
+    invoice.remainingBalance = Math.max(
+      0, 
+      Math.round((invoice.grossTotal - invoice.paidTotal) * 100) / 100
+    );
+
+    // Ajustar status se quitada ou pendente
+    if (invoice.remainingBalance === 0 && invoice.grossTotal > 0 && invoice.paidTotal >= invoice.grossTotal) {
+      invoice.status = 'PAGA';
+    } else if (invoice.remainingBalance === 0 && invoice.grossTotal === 0) {
+      invoice.status = 'PAGA';
+    } else if (invoice.remainingBalance > 0 && invoice.paidTotal > 0) {
+      invoice.status = 'PARCIALMENTE_PAGA';
+    } else if (invoice.remainingBalance > 0 && invoice.status === 'PAGA') {
+      invoice.status = 'PUBLICADA';
+    }
+
+    // Regerar payload Pix se houver saldo restante a pagar
+    if (invoice.remainingBalance > 0) {
+      invoice.pixCopyPasteCode = generateBacenPixPayload({
+        pixKey: this.data.settings.pixKey,
+        receiverName: this.data.settings.pixReceiverName,
+        city: this.data.settings.pixCity,
+        amount: invoice.remainingBalance,
+        txId: invoice.id
+      });
+    }
+
+    invoice.updatedAt = new Date().toISOString();
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'AJUSTAR_MENSALIDADE_FATURA',
+      'FATURAMENTO',
+      `Fatura ${invoice.id} (${invoice.studentName}) teve sua mensalidade ajustada para R$ ${invoice.tuitionAmount.toFixed(2)} e ajustes para R$ ${(invoice.adjustmentsTotal || 0).toFixed(2)}. Novo total: R$ ${invoice.grossTotal.toFixed(2)}.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('invoices', invoice, 'mapInvoiceToSupabase');
+    return invoice;
   }
 
   // 11. Simulação e reprocessamento da fila de WhatsApp
