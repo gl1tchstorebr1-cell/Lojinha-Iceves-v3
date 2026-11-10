@@ -157,25 +157,34 @@ export function GuardianPortal({
       {/* Guardian Welcome Header - Dark Theme */}
       <div className="bg-[#1B1B1B] rounded-2xl p-6 border border-[#282828] relative overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative z-10">
-          <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-[11px] bg-[#8B7CFF]/15 text-[#8B7CFF] font-semibold px-2.5 py-0.5 rounded-md border border-[#8B7CFF]/30 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Portal da Família / Responsável Financeiro
-              </span>
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shadow-lg shrink-0 overflow-hidden hidden sm:flex items-center justify-center">
+              <img
+                src="/assets/aistudio/image_e4461e45.png"
+                alt="Logo ICEVES"
+                className="w-full h-full rounded-full object-cover"
+              />
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-[#F5F5F5] tracking-tight">
-              {guardian.name}
-            </h2>
-            <p className="text-xs text-[#A1A1AA]">
-              CPF: <span className="font-mono text-[#F5F5F5]">{guardian.cpf}</span> • Contato: {guardian.phone} • {guardian.email}
-            </p>
+            <div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[11px] bg-emerald-500/15 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-md border border-emerald-500/30 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Portal da Família / Responsável Financeiro • ICEVES
+                </span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-bold text-[#F5F5F5] tracking-tight">
+                {guardian.name}
+              </h2>
+              <p className="text-xs text-[#A1A1AA]">
+                CPF: <span className="font-mono text-[#F5F5F5]">{guardian.cpf}</span> • Contato: {guardian.phone} • {guardian.email}
+              </p>
+            </div>
           </div>
 
           <div className="bg-[#151515] p-3.5 rounded-xl border border-[#282828] text-xs max-w-sm">
             <span className="text-[#A1A1AA] block text-[10px] uppercase font-semibold tracking-wider">Acesso Seguro (LGPD):</span>
             <p className="text-[#D4D4D8] text-xs mt-0.5">
-              Visualização restrita aos <strong className="text-[#8B7CFF]">{authorizedStudents.length} dependente(s)</strong> sob sua responsabilidade financeira.
+              Visualização restrita aos <strong className="text-emerald-400">{authorizedStudents.length} dependente(s)</strong> sob sua responsabilidade financeira.
             </p>
           </div>
         </div>
@@ -191,7 +200,7 @@ export function GuardianPortal({
                 onClick={() => setSelectedStudentId(st.id)}
                 className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer border ${
                   isSelected
-                    ? 'bg-[#8B7CFF] text-white border-[#8B7CFF] shadow-sm'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-500 shadow-sm'
                     : 'bg-[#151515] text-[#A1A1AA] hover:text-[#F5F5F5] hover:bg-[#222222] border-[#282828]'
                 }`}
               >
@@ -214,14 +223,14 @@ export function GuardianPortal({
           {/* Dependent Financial Highlights Card */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828]">
-              <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Mensalidade Escolar Fixa</span>
-              <span className="block text-xl font-bold text-[#F5F5F5] mt-1.5">{formatCurrency(selectedStudent.defaultTuition)}</span>
-              <span className="text-[11px] text-[#71717A] mt-0.5 block">Turma: {selectedStudent.classGroup}</span>
+              <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Edição & Formatura</span>
+              <span className="block text-lg font-bold text-[#F5F5F5] mt-1.5">10ª Turma — Escola de Cristo</span>
+              <span className="text-[11px] text-emerald-400 mt-0.5 block">Formatura: Dia 27 ao Dia 30 (ICEVES)</span>
             </div>
 
             <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828]">
               <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Consumo da Lojinha (Mês Vigente)</span>
-              <span className="block text-xl font-bold text-[#8B7CFF] mt-1.5">{formatCurrency(selectedStudent.currentConsumptionBalance)}</span>
+              <span className="block text-xl font-bold text-emerald-400 mt-1.5">{formatCurrency(selectedStudent.currentConsumptionBalance)}</span>
               <span className="text-[11px] text-[#71717A] mt-0.5 block">Será consolidado no fechamento mensal</span>
             </div>
 
@@ -255,7 +264,7 @@ export function GuardianPortal({
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242424] pb-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-semibold text-[#8B7CFF]">{invoice.id}</span>
+                          <span className="font-mono text-xs font-semibold text-emerald-400">{invoice.id}</span>
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
                             invoice.status === 'PAGA' 
                               ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40' 
@@ -280,7 +289,7 @@ export function GuardianPortal({
                           onClick={() => setViewingInvoice(invoice)}
                           className="px-3.5 py-1.5 bg-[#222222] border border-[#303030] hover:bg-[#2A2A2A] text-[#F5F5F5] rounded-xl text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
                         >
-                          <Eye className="w-3.5 h-3.5 text-[#8B7CFF]" />
+                          <Eye className="w-3.5 h-3.5 text-emerald-400" />
                           Ver Extrato
                         </button>
                       </div>
@@ -294,7 +303,7 @@ export function GuardianPortal({
                       </div>
                       <div>
                         <span className="text-[10px] text-[#A1A1AA] block">Consumo Lojinha:</span>
-                        <span className="font-semibold text-[#8B7CFF]">{formatCurrency(invoice.canteenConsumptionTotal)}</span>
+                        <span className="font-semibold text-emerald-400">{formatCurrency(invoice.canteenConsumptionTotal)}</span>
                       </div>
                       <div>
                         <span className="text-[10px] text-[#A1A1AA] block">Total Faturado:</span>
@@ -312,9 +321,9 @@ export function GuardianPortal({
                     {invoice.remainingBalance > 0 && (
                       <div className="space-y-4">
                         {/* Stripe Checkout button banner */}
-                        <div className="p-4 bg-gradient-to-r from-indigo-950/70 via-slate-900 to-indigo-950/70 rounded-xl border border-indigo-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="p-4 bg-gradient-to-r from-emerald-950/70 via-slate-900 to-teal-950/70 rounded-xl border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
                               <CreditCard className="w-5 h-5" />
                             </div>
                             <div>
@@ -354,7 +363,7 @@ export function GuardianPortal({
                               <button
                                 type="button"
                                 onClick={() => copyPix(invoice.pixCopyPasteCode, invoice.id)}
-                                className="px-3.5 py-2 bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white rounded-lg text-xs font-semibold transition flex items-center gap-1 shrink-0 cursor-pointer"
+                                className="px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1 shrink-0 cursor-pointer"
                               >
                                 {copiedPixId === invoice.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                                 {copiedPixId === invoice.id ? 'Copiado!' : 'Copiar'}
@@ -400,7 +409,7 @@ export function GuardianPortal({
                   <div key={sale.id} className="p-3.5 flex items-center justify-between hover:bg-[#1A1A1A] text-xs transition">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-[#8B7CFF]">{sale.id}</span>
+                        <span className="font-mono font-semibold text-emerald-400">{sale.id}</span>
                         <span className="text-[10px] text-[#A1A1AA]">{formatDateTime(sale.createdAt)}</span>
                       </div>
                       <p className="text-[#D4D4D8] mt-1">
@@ -426,7 +435,7 @@ export function GuardianPortal({
           <div className="bg-[#141414] rounded-2xl shadow-2xl border border-white/[0.12] max-w-md w-full p-6 animate-in fade-in zoom-in-95 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center font-bold">S</div>
+                <div className="w-7 h-7 rounded-lg bg-emerald-600/20 text-emerald-400 flex items-center justify-center font-bold">S</div>
                 <h3 className="font-bold text-white text-base">Stripe Checkout (Test Mode)</h3>
               </div>
               <button 
@@ -437,7 +446,7 @@ export function GuardianPortal({
               </button>
             </div>
 
-            <div className="p-3 bg-indigo-950/40 rounded-xl border border-indigo-500/20 text-xs space-y-1 text-zinc-300">
+            <div className="p-3 bg-emerald-950/40 rounded-xl border border-emerald-500/20 text-xs space-y-1 text-zinc-300">
               <p>Fatura: <strong className="text-white font-mono">{stripeModalInvoice.id}</strong></p>
               <p>Dependente: <strong className="text-white">{selectedStudent.name}</strong></p>
               <p>Valor a Pagar: <strong className="text-emerald-400 text-sm font-bold">{formatCurrency(stripeModalInvoice.remainingBalance)}</strong></p>
@@ -500,7 +509,7 @@ export function GuardianPortal({
                 type="button"
                 disabled={isStripeLoading}
                 onClick={handleConfirmStripePayment}
-                className="flex-1 py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition disabled:opacity-50 cursor-pointer shadow-lg"
+                className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl font-bold transition disabled:opacity-50 cursor-pointer shadow-lg"
               >
                 {isStripeLoading ? 'Processando...' : `Pagar ${formatCurrency(stripeModalInvoice.remainingBalance)}`}
               </button>
@@ -528,9 +537,16 @@ export function GuardianPortal({
         <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-[#1B1B1B] rounded-2xl shadow-2xl border border-[#282828] max-w-xl w-full p-6 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[#282828] pb-3">
-              <div>
-                <h3 className="font-bold text-[#F5F5F5] text-base">Extrato Itemizado de Cobrança</h3>
-                <p className="text-xs text-[#A1A1AA] font-mono">Fatura: {viewingInvoice.id} • {formatPeriod(viewingInvoice.billingPeriod)}</p>
+              <div className="flex items-center gap-3">
+                <img
+                  src="/assets/aistudio/image_e4461e45.png"
+                  alt="Logo ICEVES"
+                  className="w-10 h-10 rounded-full object-cover bg-white p-0.5 ring-1 ring-emerald-500/40 shrink-0"
+                />
+                <div>
+                  <h3 className="font-bold text-[#F5F5F5] text-base">Extrato Itemizado de Cobrança • ICEVES</h3>
+                  <p className="text-xs text-[#A1A1AA] font-mono">Fatura: {viewingInvoice.id} • {formatPeriod(viewingInvoice.billingPeriod)}</p>
+                </div>
               </div>
               <button 
                 onClick={() => setViewingInvoice(null)}
@@ -543,7 +559,7 @@ export function GuardianPortal({
             <div className="mt-4 space-y-3.5 text-xs">
               <div className="p-3.5 bg-[#151515] rounded-xl border border-[#282828] space-y-1.5 text-[#D4D4D8]">
                 <div className="flex justify-between"><span>Mensalidade Fixa:</span><span className="font-semibold text-[#F5F5F5]">{formatCurrency(viewingInvoice.tuitionAmount)}</span></div>
-                <div className="flex justify-between"><span>Consumo Cantina:</span><span className="font-semibold text-[#8B7CFF]">{formatCurrency(viewingInvoice.canteenConsumptionTotal)}</span></div>
+                <div className="flex justify-between"><span>Consumo Cantina:</span><span className="font-semibold text-emerald-400">{formatCurrency(viewingInvoice.canteenConsumptionTotal)}</span></div>
                 <div className="flex justify-between text-sm font-bold pt-1.5 border-t border-[#282828] text-[#F5F5F5]"><span>Total:</span><span>{formatCurrency(viewingInvoice.grossTotal)}</span></div>
                 <div className="flex justify-between text-emerald-400 font-semibold"><span>Total Pago:</span><span>{formatCurrency(viewingInvoice.paidTotal)}</span></div>
                 <div className="flex justify-between text-red-400 font-bold"><span>Saldo Restante:</span><span>{formatCurrency(viewingInvoice.remainingBalance)}</span></div>
@@ -579,7 +595,7 @@ export function GuardianPortal({
               <button
                 type="button"
                 onClick={() => setViewingInvoice(null)}
-                className="px-4 py-2 bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white rounded-xl text-xs font-semibold transition cursor-pointer"
+                className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl text-xs font-semibold transition cursor-pointer"
               >
                 Fechar
               </button>
@@ -608,7 +624,7 @@ export function GuardianPortal({
               <p>Fatura: <strong className="text-[#F5F5F5]">{selectedInvoiceForPayment.id}</strong></p>
               <p>Competência: <strong className="text-[#F5F5F5]">{formatPeriod(selectedInvoiceForPayment.billingPeriod)}</strong></p>
               <p>Aluno: <strong className="text-[#F5F5F5]">{selectedInvoiceForPayment.studentName}</strong></p>
-              <p>Saldo Restante: <strong className="text-[#8B7CFF]">{formatCurrency(selectedInvoiceForPayment.remainingBalance)}</strong></p>
+              <p>Saldo Restante: <strong className="text-emerald-400">{formatCurrency(selectedInvoiceForPayment.remainingBalance)}</strong></p>
             </div>
 
             {pixSuccess && (
@@ -634,7 +650,7 @@ export function GuardianPortal({
                   max={selectedInvoiceForPayment.remainingBalance}
                   value={paymentAmount || ''}
                   onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
-                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none font-bold"
+                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-bold"
                   required
                 />
               </div>
@@ -646,7 +662,7 @@ export function GuardianPortal({
                   value={transactionRef}
                   onChange={(e) => setTransactionRef(e.target.value)}
                   placeholder="Ex: E1842389120261029..."
-                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl font-mono text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl font-mono text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
                   required
                 />
               </div>
@@ -658,7 +674,7 @@ export function GuardianPortal({
                   onChange={(e) => setPaymentNotes(e.target.value)}
                   placeholder="Ex: Pagamento efetuado via Santander às 15:30..."
                   rows={2}
-                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
                 />
               </div>
 
@@ -673,7 +689,7 @@ export function GuardianPortal({
                 <button
                   type="submit"
                   disabled={isSubmittingPix}
-                  className="flex-1 py-2 px-3 bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white rounded-xl font-semibold transition disabled:opacity-50 cursor-pointer"
+                  className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl font-semibold transition disabled:opacity-50 cursor-pointer"
                 >
                   {isSubmittingPix ? 'Enviando...' : 'Enviar Comprovante'}
                 </button>

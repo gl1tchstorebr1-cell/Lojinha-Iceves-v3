@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS products (
   min_stock INT NOT NULL DEFAULT 10,
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
   image_url TEXT,
+  images JSONB DEFAULT '[]'::jsonb,
   unit TEXT NOT NULL DEFAULT 'un',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

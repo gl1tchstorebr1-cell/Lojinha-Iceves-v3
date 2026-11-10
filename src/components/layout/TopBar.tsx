@@ -115,8 +115,19 @@ export function TopBar({
           </button>
         </div>
 
-        {/* Right: Notifications, Settings, Profile */}
+        {/* Right: Institutional Badge, Notifications, Settings, Profile */}
         <div className="flex items-center gap-2 relative">
+          {/* ICEVES Institutional Pill */}
+          <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 mr-1">
+            <img
+              src="/assets/aistudio/image_e4461e45.png"
+              alt="Logo ICEVES"
+              className="w-5 h-5 rounded-full object-cover bg-white ring-1 ring-emerald-500/40 shrink-0"
+            />
+            <span className="text-[11px] font-semibold text-emerald-300 tracking-tight">
+              ICEVES • 10ª Turma
+            </span>
+          </div>
           
           {/* Notifications Button */}
           <div className="relative">

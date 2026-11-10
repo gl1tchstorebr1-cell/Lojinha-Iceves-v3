@@ -56,7 +56,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
       <div className="bg-[#1B1B1B] rounded-2xl p-6 border border-[#282828] flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <BookOpen className="w-5 h-5 text-[#8B7CFF]" />
+            <BookOpen className="w-5 h-5 text-emerald-400" />
             <h2 className="text-xl font-bold text-[#F5F5F5] tracking-tight">
               Motor Financeiro & Auditoria (LGPD)
             </h2>
@@ -97,7 +97,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Buscar por lançamento, aluno ou cupom..."
-                className="w-full pl-9 pr-3 py-2 text-xs bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full pl-9 pr-3 py-2 text-xs bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:border-emerald-500 focus:outline-none"
               />
             </div>
           </div>
@@ -130,7 +130,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
                     return (
                       <tr key={entry.id} className="hover:bg-[#1A1A1A] transition">
                         <td className="py-3 px-4">
-                          <span className="font-mono font-semibold text-[#8B7CFF] block">{entry.id}</span>
+                          <span className="font-mono font-semibold text-emerald-400 block">{entry.id}</span>
                           <span className="text-[10px] text-[#A1A1AA]">{formatDateTime(entry.timestamp)}</span>
                         </td>
 
@@ -190,7 +190,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Buscar ação ou usuário..."
-                className="w-full pl-9 pr-3 py-2 text-xs bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full pl-9 pr-3 py-2 text-xs bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:border-emerald-500 focus:outline-none"
               />
             </div>
 
@@ -200,7 +200,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
                   key={mod}
                   onClick={() => setModuleFilter(mod)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap border ${
-                    moduleFilter === mod ? 'bg-[#8B7CFF] text-white border-[#8B7CFF]' : 'bg-[#151515] text-[#A1A1AA] border-[#282828] hover:text-[#F5F5F5]'
+                    moduleFilter === mod ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-500' : 'bg-[#151515] text-[#A1A1AA] border-[#282828] hover:text-[#F5F5F5]'
                   }`}
                 >
                   {mod === 'TODOS' ? 'Todos os Módulos' : mod}

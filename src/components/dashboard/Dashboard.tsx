@@ -214,6 +214,39 @@ export function Dashboard({
   return (
     <div className="space-y-6">
       
+      {/* Banner Institucional: Escola de Cristo - ICEVES (10ª Turma) */}
+      <div className="rounded-xl bg-gradient-to-r from-[#0d1f18] via-[#111815] to-[#111111] border border-emerald-500/25 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shadow-md shadow-emerald-950/60 flex items-center justify-center shrink-0 overflow-hidden">
+            <img
+              src="/assets/aistudio/image_e4461e45.png"
+              alt="Logo ICEVES"
+              className="w-full h-full rounded-full object-cover"
+            />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-bold text-white">
+                Escola de Cristo no ICEVES — 10ª Turma
+              </h2>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+                Formatura: Dia 27 ao Dia 30
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              1 turma por vez • 2 turmas por semestre • {students.length} alunos ativos cadastrados na Lojinha Iceves
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => onNavigate('settings')}
+          className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-xs text-white font-semibold transition cursor-pointer self-start sm:self-auto shadow-sm"
+        >
+          Fotos de Perfil dos Alunos &gt;
+        </button>
+      </div>
+
       {/* ========================================== */}
       {/* 1. METRICS CARDS GRID                      */}
       {/* ========================================== */}
@@ -326,7 +359,7 @@ export function Dashboard({
 
             <button 
               onClick={() => onNavigate('closing')}
-              className="bg-white text-black hover:bg-zinc-200 font-medium text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs px-3.5 py-1.5 rounded-lg transition-all shadow-sm cursor-pointer"
             >
               Ver Faturas
             </button>
@@ -339,21 +372,21 @@ export function Dashboard({
             onClick={() => setVisibleSeries(prev => ({ ...prev, vendasPdv: !prev.vendasPdv }))}
             className={`flex items-center gap-2 transition-opacity cursor-pointer ${visibleSeries.vendasPdv ? 'opacity-100' : 'opacity-40'}`}
           >
-            <span className="w-2.5 h-2.5 rounded-sm bg-white" />
+            <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
             <span className="text-zinc-300">Vendas PDV (R$)</span>
           </button>
           <button
             onClick={() => setVisibleSeries(prev => ({ ...prev, pagamentosPix: !prev.pagamentosPix }))}
             className={`flex items-center gap-2 transition-opacity cursor-pointer ${visibleSeries.pagamentosPix ? 'opacity-100' : 'opacity-40'}`}
           >
-            <span className="w-2.5 h-2.5 rounded-sm bg-zinc-500" />
+            <span className="w-2.5 h-2.5 rounded-sm bg-teal-500" />
             <span className="text-zinc-300">Pagamentos Pix (R$)</span>
           </button>
           <button
             onClick={() => setVisibleSeries(prev => ({ ...prev, consumoFaturado: !prev.consumoFaturado }))}
             className={`flex items-center gap-2 transition-opacity cursor-pointer ${visibleSeries.consumoFaturado ? 'opacity-100' : 'opacity-40'}`}
           >
-            <span className="w-2.5 h-2.5 rounded-sm bg-zinc-700" />
+            <span className="w-2.5 h-2.5 rounded-sm bg-zinc-600" />
             <span className="text-zinc-300">Consumo Acumulado (R$)</span>
           </button>
         </div>
@@ -364,15 +397,15 @@ export function Dashboard({
             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="gradWhite" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ffffff" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#ffffff" stopOpacity={0.0} />
+                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
                 </linearGradient>
                 <linearGradient id="gradGray" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#a1a1aa" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#a1a1aa" stopOpacity={0.0} />
+                  <stop offset="5%" stopColor="#14B8A6" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#0D9488" stopOpacity={0.0} />
                 </linearGradient>
                 <linearGradient id="gradDark" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#52525b" stopOpacity={0.1} />
+                  <stop offset="5%" stopColor="#52525b" stopOpacity={0.12} />
                   <stop offset="95%" stopColor="#52525b" stopOpacity={0.0} />
                 </linearGradient>
               </defs>
@@ -389,7 +422,7 @@ export function Dashboard({
                 content={({ active, payload, label }) => {
                   if (active && payload && payload.length) {
                     return (
-                      <div className="rounded-lg bg-[#18181b] border border-white/[0.12] p-3 shadow-xl text-xs space-y-1">
+                      <div className="rounded-lg bg-[#18181b] border border-emerald-500/25 p-3 shadow-xl text-xs space-y-1">
                         <div className="text-zinc-400 font-medium mb-1">{label}</div>
                         {payload.map((entry, index) => (
                           <div key={index} className="flex items-center justify-between gap-4">
@@ -419,7 +452,7 @@ export function Dashboard({
                   type="monotone"
                   dataKey="pagamentosPix"
                   name="Pagamentos Pix"
-                  stroke="#a1a1aa"
+                  stroke="#14B8A6"
                   strokeWidth={1.5}
                   fillOpacity={1}
                   fill="url(#gradGray)"
@@ -430,7 +463,7 @@ export function Dashboard({
                   type="monotone"
                   dataKey="vendasPdv"
                   name="Vendas PDV"
-                  stroke="#ffffff"
+                  stroke="#10B981"
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#gradWhite)"
@@ -514,10 +547,10 @@ export function Dashboard({
                 <th className="p-3.5 w-10 text-center">
                   <input type="checkbox" className="rounded border-zinc-700 bg-zinc-800" />
                 </th>
-                <th className="p-3.5">Aluno & Matrícula</th>
-                <th className="p-3.5">Turma</th>
+                <th className="p-3.5">Aluno (10ª Turma)</th>
+                <th className="p-3.5">Código Matrícula</th>
                 <th className="p-3.5">Consumo Aberto (Lojinha)</th>
-                <th className="p-3.5">Saldo Devedor Faturas</th>
+                <th className="p-3.5">Saldo Devedor</th>
                 <th className="p-3.5">Status</th>
                 <th className="p-3.5 w-10"></th>
               </tr>
@@ -540,13 +573,13 @@ export function Dashboard({
                       />
                       <div>
                         <div className="font-semibold text-white group-hover:text-zinc-200">{st.name}</div>
-                        <div className="text-[11px] text-zinc-500 font-mono">Matrícula: {st.registrationNumber}</div>
+                        <div className="text-[11px] text-zinc-500">{st.email}</div>
                       </div>
                     </div>
                   </td>
                   <td className="p-3.5">
-                    <span className="px-2 py-0.5 rounded-full border border-white/[0.1] bg-white/[0.04] text-zinc-300 font-medium">
-                      {st.classGroup}
+                    <span className="px-2 py-0.5 rounded-md border border-white/[0.1] bg-white/[0.04] text-zinc-300 font-mono text-[11px]">
+                      {st.registrationNumber}
                     </span>
                   </td>
                   <td className="p-3.5 text-white font-semibold">

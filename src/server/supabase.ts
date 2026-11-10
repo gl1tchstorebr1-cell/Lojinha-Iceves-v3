@@ -9,9 +9,10 @@ export function getSupabaseCredentials() {
   const settings = db.getSettings();
   let rawUrl = (
     (settings as any)?.supabaseUrl || 
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
     process.env.SUPABASE_URL || 
     process.env.VITE_SUPABASE_URL || 
-    ''
+    'https://brjsoaxvqrtxyofwxgkk.supabase.co'
   ).trim();
 
   // Remove common accidental suffixes like /rest/v1 or trailing slashes
@@ -20,10 +21,11 @@ export function getSupabaseCredentials() {
   const key = (
     (settings as any)?.supabaseServiceRoleKey || 
     (settings as any)?.supabaseAnonKey || 
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     process.env.SUPABASE_SERVICE_ROLE_KEY || 
     process.env.SUPABASE_ANON_KEY || 
     process.env.VITE_SUPABASE_ANON_KEY || 
-    ''
+    'sb_publishable_mEQzWNPKvTxqWvzZ8u6XQA_2wlGfyLR'
   ).trim();
 
   return { url, key };
@@ -227,7 +229,8 @@ export function mapProductToSupabase(p: any) {
     current_stock: Number(p.currentStock) || 0,
     min_stock: Number(p.minStock) || 0,
     status: p.status || 'ACTIVE',
-    image_url: p.imageUrl || null,
+    image_url: p.imageUrl || (Array.isArray(p.images) ? p.images[0] : null) || null,
+    images: Array.isArray(p.images) ? p.images : [],
     unit: p.unit || 'un',
     created_at: p.createdAt || new Date().toISOString(),
     updated_at: p.updatedAt || new Date().toISOString(),

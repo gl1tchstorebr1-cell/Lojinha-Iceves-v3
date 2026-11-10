@@ -111,8 +111,8 @@ export function WhatsAppAutomation({
         );
       case 'CANCELADO_FATURA_QUITADA':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-950/60 text-purple-300 border border-purple-800/40" title="Verificado saldo antes do envio: Fatura já liquidada, lembrete cancelado!">
-            <ShieldCheck className="w-3 h-3 text-[#8B7CFF]" />
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-teal-950/60 text-teal-300 border border-teal-800/40" title="Verificado saldo antes do envio: Fatura já liquidada, lembrete cancelado!">
+            <ShieldCheck className="w-3 h-3 text-emerald-400" />
             Cancelado (Fatura Quitada)
           </span>
         );
@@ -147,7 +147,7 @@ export function WhatsAppAutomation({
       <div className="bg-[#1B1B1B] rounded-2xl p-6 border border-[#282828] flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <MessageSquare className="w-5 h-5 text-[#8B7CFF]" />
+            <MessageSquare className="w-5 h-5 text-emerald-400" />
             <h2 className="text-xl font-bold text-[#F5F5F5] tracking-tight">
               Automação de WhatsApp & Mensagens
             </h2>
@@ -178,7 +178,7 @@ export function WhatsAppAutomation({
               className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
                 settings?.whatsappProviderStatus === 'CONNECTED'
                   ? 'bg-[#222222] hover:bg-[#2A2A2A] text-amber-400 border border-[#303030]'
-                  : 'bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white'
+                  : 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white'
               }`}
             >
               {settings?.whatsappProviderStatus === 'CONNECTED' ? (
@@ -200,7 +200,7 @@ export function WhatsAppAutomation({
       {/* Rules Notice */}
       <div className="p-4 bg-[#1E1E1E] border border-[#282828] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-[#D4D4D8]">
         <div className="flex items-center gap-2.5">
-          <ShieldCheck className="w-5 h-5 text-[#8B7CFF] shrink-0" />
+          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
           <span>
             <strong className="text-[#F5F5F5]">Proteção Anti-Incômodo Ativa:</strong> O sistema checa se a fatura já possui status <em className="text-emerald-400">Quitada</em> antes de realizar qualquer disparo de cobrança ou lembrete.
           </span>
@@ -222,7 +222,7 @@ export function WhatsAppAutomation({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Buscar por destinatário, telefone ou texto..."
-              className="w-full pl-9 pr-3 py-2 text-xs bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:border-[#8B7CFF] focus:outline-none"
+              className="w-full pl-9 pr-3 py-2 text-xs bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:border-emerald-500 focus:outline-none"
             />
           </div>
 
@@ -232,7 +232,7 @@ export function WhatsAppAutomation({
                 key={t}
                 onClick={() => setTypeFilter(t)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap border ${
-                  typeFilter === t ? 'bg-[#8B7CFF] text-white border-[#8B7CFF]' : 'bg-[#151515] text-[#A1A1AA] border-[#282828] hover:text-[#F5F5F5]'
+                  typeFilter === t ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-500' : 'bg-[#151515] text-[#A1A1AA] border-[#282828] hover:text-[#F5F5F5]'
                 }`}
               >
                 {t === 'TODOS' ? 'Todos os Tipos' : getTypeLabel(t as NotificationType)}
@@ -252,7 +252,7 @@ export function WhatsAppAutomation({
               <div key={notif.id} className="p-4 hover:bg-[#1A1A1A] transition space-y-2.5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-semibold text-[#8B7CFF]">{notif.id}</span>
+                    <span className="font-mono font-semibold text-emerald-400">{notif.id}</span>
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-[#222222] text-[#D4D4D8] border border-[#303030]">
                       {getTypeLabel(notif.type)}
                     </span>
@@ -273,7 +273,7 @@ export function WhatsAppAutomation({
                 {/* Recipient info & Retry */}
                 <div className="flex items-center justify-between pt-1">
                   <div className="flex items-center gap-2 text-[11px] text-[#A1A1AA]">
-                    <Phone className="w-3 h-3 text-[#8B7CFF]" />
+                    <Phone className="w-3 h-3 text-emerald-400" />
                     <span>Destinatário: <strong className="text-[#F5F5F5]">{notif.recipientName}</strong> ({notif.recipientPhone}) • Papel: {notif.recipientRole}</span>
                   </div>
 
@@ -281,7 +281,7 @@ export function WhatsAppAutomation({
                     <button
                       onClick={() => handleRetry(notif.id)}
                       disabled={retryingId === notif.id}
-                      className="px-2.5 py-1 text-[11px] font-medium text-[#8B7CFF] hover:text-white bg-[#222222] hover:bg-[#2A2A2A] border border-[#303030] rounded-lg transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      className="px-2.5 py-1 text-[11px] font-medium text-emerald-400 hover:text-white bg-[#222222] hover:bg-[#2A2A2A] border border-[#303030] rounded-lg transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3 h-3 ${retryingId === notif.id ? 'animate-spin' : ''}`} />
                       Revalidar Saldo e Reenviar

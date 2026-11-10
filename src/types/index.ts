@@ -62,11 +62,10 @@ export interface Guardian {
 }
 
 export type ProductCategory = 
-  | 'Bebidas' 
-  | 'Salgados & Lanches' 
-  | 'Doces & Sobremesas' 
-  | 'Papelaria & Material' 
-  | 'Uniformes & Merch';
+  | 'Alimentícios' 
+  | 'Papelaria' 
+  | 'Produtos de Limpeza' 
+  | 'Cosméticos';
 
 export interface Product {
   id: string;
@@ -79,6 +78,7 @@ export interface Product {
   minStock: number;
   status: 'ACTIVE' | 'INACTIVE';
   imageUrl?: string;
+  images?: string[]; // Até 3 imagens por produto
   unit: string; // 'un', 'pct', etc.
   createdAt: string;
   updatedAt: string;
@@ -293,7 +293,11 @@ export interface SystemSettings {
   institutionName: string;
   cnpj: string;
   storeName: string;
-  closingDay: 'LAST_DAY' | number; // 'LAST_DAY' ou número de 1 a 28
+  currentCohortName?: string; // ex: '10ª Turma'
+  cohortsPerSemester?: number; // ex: 2 (1 turma por vez)
+  graduationStartDay?: number; // ex: 27
+  graduationEndDay?: number; // ex: 30
+  closingDay: 'LAST_DAY' | number; // 'LAST_DAY' ou número de 1 a 30
   closingHour: string; // e.g. '23:59'
   dueDayOffset: number; // e.g. 10 (10º dia do mês subsequente)
   allowDirectCashPayment: boolean; // default false

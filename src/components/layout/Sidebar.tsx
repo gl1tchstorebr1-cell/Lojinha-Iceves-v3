@@ -95,15 +95,24 @@ export function Sidebar({
         }`}
       >
         {/* Header */}
-        <div className="p-4 flex items-center justify-between border-b border-white/[0.08] shrink-0">
+        <div className="p-3.5 flex items-center justify-between border-b border-white/[0.08] shrink-0">
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-white text-black shrink-0 font-bold text-xs shadow-sm">
-              <Command className="w-4 h-4" />
+            <div className="flex items-center justify-center w-9 h-9 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shrink-0 shadow-md shadow-emerald-950/60 overflow-hidden">
+              <img
+                src="/assets/aistudio/image_e4461e45.png"
+                alt="Logo ICEVES"
+                className="w-full h-full rounded-full object-cover"
+              />
             </div>
             {!isCollapsed && (
-              <span className="font-semibold text-sm tracking-tight text-white whitespace-nowrap truncate">
-                {storeName}
-              </span>
+              <div className="min-w-0">
+                <span className="font-bold text-sm tracking-tight text-white block truncate leading-tight">
+                  {storeName === 'Lojinha do Campus' ? 'Lojinha Iceves' : storeName}
+                </span>
+                <span className="text-[10px] text-emerald-400 font-semibold block truncate">
+                  Escola de Cristo • ICEVES
+                </span>
+              </div>
             )}
           </div>
           {isMobileOpen && (
@@ -116,7 +125,7 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Action Buttons (Reference style) */}
+        {/* Action Buttons (ICEVES Green Gradient) */}
         <div className="px-3 py-2.5 flex items-center gap-2 shrink-0">
           <button
             onClick={() => {
@@ -124,7 +133,7 @@ export function Sidebar({
               if (isMobileOpen) setIsMobileOpen(false);
             }}
             title="Abrir PDV e Registrar Venda"
-            className={`flex-1 flex items-center justify-center gap-2 bg-zinc-100 hover:bg-white text-black font-medium text-xs py-2 px-3 rounded-lg transition-all shadow-sm cursor-pointer ${
+            className={`flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs py-2 px-3 rounded-lg transition-all shadow-sm shadow-emerald-950/50 cursor-pointer ${
               isCollapsed ? 'p-2' : ''
             }`}
           >
@@ -135,7 +144,7 @@ export function Sidebar({
           <button
             onClick={() => handleSelectTab('whatsapp')}
             title="Automações e Comunicação"
-            className="flex items-center justify-center w-8 h-8 rounded-lg border border-white/[0.08] text-zinc-300 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0 cursor-pointer"
+            className="flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/15 transition-colors shrink-0 cursor-pointer"
           >
             <Mail className="w-4 h-4" />
           </button>
@@ -163,7 +172,7 @@ export function Sidebar({
                 {activeTab === 'dashboard' && (
                   <motion.div
                     layoutId="activeTabBadge"
-                    className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                    className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                     transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   />
                 )}
@@ -194,7 +203,7 @@ export function Sidebar({
                   {(activeTab === 'pdv' || activeTab === 'sales_history') && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -216,7 +225,7 @@ export function Sidebar({
                   {activeTab === 'products' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -254,7 +263,7 @@ export function Sidebar({
                   {activeTab === 'closing' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -273,7 +282,7 @@ export function Sidebar({
                   {activeTab === 'pix' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -311,7 +320,7 @@ export function Sidebar({
                   {activeTab === 'students' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -332,7 +341,7 @@ export function Sidebar({
                   {activeTab === 'student_portal' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -353,7 +362,7 @@ export function Sidebar({
                   {activeTab === 'guardian_portal' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -384,7 +393,7 @@ export function Sidebar({
                   {activeTab === 'whatsapp' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -403,7 +412,7 @@ export function Sidebar({
                   {activeTab === 'audit' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -422,7 +431,7 @@ export function Sidebar({
                   {activeTab === 'settings' && (
                     <motion.div
                       layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-white/[0.08] rounded-lg"
+                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -487,10 +496,17 @@ export function Sidebar({
         {/* Footer Card & Profile (Reference Style) */}
         {!isCollapsed && (
           <div className="p-3 border-t border-white/[0.08] space-y-3 shrink-0 bg-[#111111]">
-            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs space-y-1">
-              <div className="font-semibold text-zinc-200 text-xs">Gestão do Campus</div>
-              <div className="text-zinc-500 leading-relaxed text-[11px]">
-                Operando com livro-razão rastreável e persistência ativa.
+            <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-950/30 to-white/[0.02] border border-emerald-500/20 text-xs space-y-1.5">
+              <div className="flex items-center gap-2">
+                <img
+                  src="/assets/aistudio/image_e4461e45.png"
+                  alt="ICEVES"
+                  className="w-5 h-5 rounded-full object-cover bg-white ring-1 ring-emerald-500/40 shrink-0"
+                />
+                <div className="font-bold text-emerald-300 text-xs truncate">Escola de Cristo • ICEVES</div>
+              </div>
+              <div className="text-zinc-400 leading-relaxed text-[11px]">
+                10ª Turma (Formatura: 27 a 30) • Gestão integrada e persistência ativa.
               </div>
             </div>
 

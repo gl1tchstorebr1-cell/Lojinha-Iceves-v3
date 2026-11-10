@@ -185,7 +185,7 @@ export function InvoicesAndClosing({
       case 'PARCIALMENTE_PAGA':
         return <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">Parcialmente Paga</span>;
       case 'PUBLICADA':
-        return <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#8B7CFF]/10 text-[#8B7CFF] border border-[#8B7CFF]/20">Publicada (Em Aberto)</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Publicada (Em Aberto)</span>;
       case 'VENCIDA':
         return <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">Vencida</span>;
       case 'AGUARDANDO_APROVACAO':
@@ -208,7 +208,7 @@ export function InvoicesAndClosing({
       <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-[#8B7CFF]" />
+            <FileText className="w-5 h-5 text-emerald-400" />
             <h2 className="text-lg font-extrabold text-[#F5F5F5] tracking-tight">
               Faturas & Fechamento Mensal
             </h2>
@@ -242,10 +242,10 @@ export function InvoicesAndClosing({
         <div className="space-y-6">
           
           {/* ULTRA-INTUITIVE 1-CLICK CLOSING WIZARD CARD */}
-          <div className="bg-gradient-to-br from-[#1F1B2C] to-[#161616] rounded-2xl border border-[#8B7CFF]/30 p-6 shadow-xl space-y-5">
+          <div className="bg-gradient-to-br from-[#0F241D] to-[#161616] rounded-2xl border border-emerald-500/30 p-6 shadow-xl space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-[#8B7CFF]/20 text-[#8B7CFF] border border-[#8B7CFF]/40 mb-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 mb-2">
                   <Sparkles className="w-3.5 h-3.5" />
                   Assistente Inteligente de Fechamento & Faturamento
                 </span>
@@ -265,7 +265,7 @@ export function InvoicesAndClosing({
                     setPreview(null);
                     setClosingResult(null);
                   }}
-                  className="px-4 py-2.5 border border-[#3A3A3A] rounded-xl text-xs font-bold bg-[#151515] text-white focus:border-[#8B7CFF] focus:outline-none shadow-sm"
+                  className="px-4 py-2.5 border border-[#3A3A3A] rounded-xl text-xs font-bold bg-[#151515] text-white focus:border-emerald-500 focus:outline-none shadow-sm"
                 >
                   <option value="2026-10">Outubro / 2026 (Competência Atual)</option>
                   <option value="2026-11">Novembro / 2026</option>
@@ -277,7 +277,7 @@ export function InvoicesAndClosing({
                     type="button"
                     disabled={isLoadingPreview}
                     onClick={handleGeneratePreview}
-                    className="px-5 py-2.5 bg-[#8B7CFF] hover:bg-[#7A6AEE] text-white rounded-xl text-xs font-black transition flex items-center gap-2 shadow-lg disabled:opacity-40 cursor-pointer"
+                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl text-xs font-black transition flex items-center gap-2 shadow-lg disabled:opacity-40 cursor-pointer"
                   >
                     <Sparkles className="w-4 h-4" />
                     {isLoadingPreview ? 'Calculando Prévia...' : 'Gerar Faturas do Mês'}
@@ -365,10 +365,10 @@ export function InvoicesAndClosing({
                 </div>
                 <div className="p-4 bg-[#141414] rounded-xl border border-[#262626]">
                   <span className="text-[10px] font-bold text-[#71717A] uppercase">Consumo na Lojinha</span>
-                  <span className="block text-xl font-black text-[#8B7CFF] font-mono mt-1">{formatCurrency(preview.totalConsumptions)}</span>
+                  <span className="block text-xl font-black text-emerald-400 font-mono mt-1">{formatCurrency(preview.totalConsumptions)}</span>
                 </div>
-                <div className="p-4 bg-[#1C182C] rounded-xl border border-[#483B80]">
-                  <span className="text-[10px] font-bold text-[#8B7CFF] uppercase">Total Geral a Faturar</span>
+                <div className="p-4 bg-[#0F241D] rounded-xl border border-emerald-500/40">
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase">Total Geral a Faturar</span>
                   <span className="block text-xl font-black text-white font-mono mt-1">{formatCurrency(preview.totalGrossToBill)}</span>
                 </div>
               </div>
@@ -411,7 +411,7 @@ export function InvoicesAndClosing({
                       <div key={student.id} className="p-3.5 flex items-center justify-between hover:bg-[#1C1C1C] transition">
                         <div>
                           <span className="font-bold text-white text-sm">{student.name}</span>
-                          <span className="text-[#8B7CFF] font-mono ml-2 text-xs">({student.registrationNumber})</span>
+                          <span className="text-emerald-400 font-mono ml-2 text-xs">({student.registrationNumber})</span>
                           <p className="text-[11px] text-[#A1A1AA] mt-0.5">
                             Mensalidade: {studentTuition === 0 ? <span className="text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded text-[10px]">Isento / R$ 0,00</span> : formatCurrency(studentTuition)} • Consumo Lojinha: <strong className="text-white">{formatCurrency(student.currentConsumptionBalance)}</strong>
                           </p>
@@ -437,7 +437,7 @@ export function InvoicesAndClosing({
           {!preview && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-[#151515] rounded-2xl p-5 border border-[#282828] space-y-2">
-                <span className="w-8 h-8 rounded-xl bg-[#8B7CFF]/15 text-[#8B7CFF] flex items-center justify-center font-black text-xs">1</span>
+                <span className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center font-black text-xs">1</span>
                 <h4 className="font-bold text-white text-sm">Clique em Gerar Faturas</h4>
                 <p className="text-xs text-[#A1A1AA] leading-relaxed">
                   O sistema agrupa automaticamente todos os produtos consumidos no balcão e soma à mensalidade fixa do mês.
@@ -445,7 +445,7 @@ export function InvoicesAndClosing({
               </div>
 
               <div className="bg-[#151515] rounded-2xl p-5 border border-[#282828] space-y-2">
-                <span className="w-8 h-8 rounded-xl bg-[#8B7CFF]/15 text-[#8B7CFF] flex items-center justify-center font-black text-xs">2</span>
+                <span className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center font-black text-xs">2</span>
                 <h4 className="font-bold text-white text-sm">Conferência com 1 Clique</h4>
                 <p className="text-xs text-[#A1A1AA] leading-relaxed">
                   Analise a prévia detalhada com valores por aluno, avisos de pendência e totalizadores antes de aprovar.
@@ -453,7 +453,7 @@ export function InvoicesAndClosing({
               </div>
 
               <div className="bg-[#151515] rounded-2xl p-5 border border-[#282828] space-y-2">
-                <span className="w-8 h-8 rounded-xl bg-[#8B7CFF]/15 text-[#8B7CFF] flex items-center justify-center font-black text-xs">3</span>
+                <span className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center font-black text-xs">3</span>
                 <h4 className="font-bold text-white text-sm">Pix & Notificação WhatsApp</h4>
                 <p className="text-xs text-[#A1A1AA] leading-relaxed">
                   Ao publicar, cada fatura recebe um QR Code Pix Copia e Cola único e um aviso automático no WhatsApp da família.
@@ -476,7 +476,7 @@ export function InvoicesAndClosing({
                 value={invoiceSearch}
                 onChange={(e) => setInvoiceSearch(e.target.value)}
                 placeholder="Buscar por código ou aluno..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-[#8B7CFF]"
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-emerald-500"
               />
             </div>
 
@@ -524,7 +524,7 @@ export function InvoicesAndClosing({
               </div>
               <button
                 onClick={() => setActiveTab('closing_engine')}
-                className="px-4 py-2 bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm inline-flex items-center gap-1.5"
+                className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm inline-flex items-center gap-1.5"
               >
                 <Calendar className="w-3.5 h-3.5" />
                 Ir para Fechamento Mensal
@@ -567,7 +567,7 @@ export function InvoicesAndClosing({
                       {formatCurrency(invoice.tuitionAmount)}
                     </td>
 
-                    <td className="py-3 px-4 font-mono font-semibold text-[#8B7CFF]">
+                    <td className="py-3 px-4 font-mono font-semibold text-emerald-400">
                       {formatCurrency(invoice.canteenConsumptionTotal)}
                     </td>
 
@@ -603,7 +603,7 @@ export function InvoicesAndClosing({
                         )}
                         <button
                           onClick={() => openInvoiceDetails(invoice, false)}
-                          className="px-2.5 py-1 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-[#8B7CFF] text-[11px] font-bold border border-[#303030] transition flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-emerald-400 text-[11px] font-bold border border-[#303030] transition flex items-center gap-1 cursor-pointer"
                           title="Abrir extrato detalhado"
                         >
                           <Eye className="w-3.5 h-3.5" />
@@ -646,14 +646,23 @@ export function InvoicesAndClosing({
             <div className="bg-[#1A1A1A] rounded-2xl shadow-2xl border border-[#303030] max-w-2xl w-full p-6 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
               
               <div className="flex items-center justify-between border-b border-[#282828] pb-4">
-                <div>
-                  <span className="text-[10px] font-mono text-[#71717A]">DOCUMENTO OFICIAL DE COBRANÇA</span>
-                  <h3 className="font-extrabold text-[#F5F5F5] text-lg">
-                    Fatura & Prestação de Contas — {formatPeriod(selectedInvoice.billingPeriod)}
-                  </h3>
-                  <p className="text-xs text-[#A1A1AA] font-mono">
-                    Código: <strong className="text-white">{selectedInvoice.id}</strong> • Aluno: <strong className="text-white">{selectedInvoice.studentName}</strong> ({selectedInvoice.registrationNumber})
-                  </p>
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shadow-md shrink-0 overflow-hidden">
+                    <img
+                      src="/assets/aistudio/image_e4461e45.png"
+                      alt="Logo ICEVES"
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono text-emerald-400 font-semibold">DOCUMENTO OFICIAL DE COBRANÇA • ESCOLA DE CRISTO ICEVES</span>
+                    <h3 className="font-extrabold text-[#F5F5F5] text-lg">
+                      Fatura & Prestação de Contas — {formatPeriod(selectedInvoice.billingPeriod)}
+                    </h3>
+                    <p className="text-xs text-[#A1A1AA] font-mono">
+                      Código: <strong className="text-white">{selectedInvoice.id}</strong> • Aluno: <strong className="text-white">{selectedInvoice.studentName}</strong> ({selectedInvoice.registrationNumber})
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -718,7 +727,7 @@ export function InvoicesAndClosing({
                   </div>
                   <div className="flex justify-between text-[#A1A1AA]">
                     <span>Total de Consumo da Lojinha:</span>
-                    <span className="font-semibold text-[#8B7CFF] font-mono">{formatCurrency(selectedInvoice.canteenConsumptionTotal)}</span>
+                    <span className="font-semibold text-emerald-400 font-mono">{formatCurrency(selectedInvoice.canteenConsumptionTotal)}</span>
                   </div>
                   {selectedInvoice.adjustmentsTotal > 0 && (
                     <div className="flex justify-between text-emerald-400">
@@ -739,7 +748,7 @@ export function InvoicesAndClosing({
                   )}
                   <div className="flex justify-between text-sm font-extrabold text-[#F5F5F5] pt-2 border-t border-[#262626]">
                     <span>TOTAL DA FATURA:</span>
-                    <span className="text-[#8B7CFF] font-mono">{formatCurrency(selectedInvoice.grossTotal)}</span>
+                    <span className="text-emerald-400 font-mono">{formatCurrency(selectedInvoice.grossTotal)}</span>
                   </div>
                   <div className="flex justify-between text-xs text-emerald-400 font-semibold">
                     <span>Pagamentos Confirmados:</span>
@@ -792,7 +801,7 @@ export function InvoicesAndClosing({
                         <button
                           type="button"
                           onClick={() => setEditTuition(375)}
-                          className="px-2 py-0.5 bg-[#252525] hover:bg-[#303030] text-purple-300 rounded text-[10px] font-bold border border-purple-500/30 cursor-pointer"
+                          className="px-2 py-0.5 bg-[#252525] hover:bg-[#303030] text-teal-300 rounded text-[10px] font-bold border border-teal-500/30 cursor-pointer"
                         >
                           Bolsa 50% (R$ 375)
                         </button>
@@ -859,7 +868,7 @@ export function InvoicesAndClosing({
                     )}
                     <div className="flex justify-between font-bold text-white border-t border-[#2A2A2A] pt-1 text-sm">
                       <span>Novo Total da Fatura:</span>
-                      <span className="text-[#8B7CFF]">{formatCurrency(calcGross)}</span>
+                      <span className="text-emerald-400">{formatCurrency(calcGross)}</span>
                     </div>
                     <div className="flex justify-between font-bold text-rose-400 text-xs">
                       <span>Novo Saldo Restante a Pagar:</span>
@@ -929,7 +938,7 @@ export function InvoicesAndClosing({
             {selectedInvoice.remainingBalance > 0 && (
               <div className="mt-5 p-4 rounded-xl bg-[#151515] border border-[#2E2E2E] space-y-3">
                 <div className="flex items-center gap-2">
-                  <QrCode className="w-4 h-4 text-[#8B7CFF]" />
+                  <QrCode className="w-4 h-4 text-emerald-400" />
                   <h4 className="font-bold text-[#F5F5F5] text-xs uppercase tracking-wider">
                     Instruções para Pagamento via Pix
                   </h4>

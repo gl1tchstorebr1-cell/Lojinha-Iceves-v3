@@ -20,27 +20,36 @@ import {
   Trash2,
   UploadCloud,
   DownloadCloud,
-  Server
+  Server,
+  Camera,
+  Users,
+  Search,
+  Link2
 } from 'lucide-react';
-import { SystemSettings } from '../../types';
+import { SystemSettings, Student } from '../../types';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { getInitialsAvatar, compressImageFileToDataUrl } from '../../utils/avatar';
 
 interface SystemSettingsViewProps {
   settings: SystemSettings | null;
+  students?: Student[];
+  onStudentUpdated?: (student: Student) => void;
   onSettingsSaved: (settings: SystemSettings) => void;
   onResetData: () => void;
 }
 
 export function SystemSettingsView({ 
   settings, 
+  students = [],
+  onStudentUpdated,
   onSettingsSaved, 
   onResetData 
 }: SystemSettingsViewProps) {
   const { isAdmin } = useAuth();
 
   const [formData, setFormData] = useState<Partial<SystemSettings>>({
-    institutionName: settings?.institutionName || 'Lojinha Iceves',
+    institutionName: settings?.institutionName || 'Escola de Cristo - ICEVES',
     storeName: settings?.storeName || 'Lojinha Iceves',
     cnpj: settings?.cnpj || '18.423.891/0001-44',
     closingDay: settings?.closingDay || 'LAST_DAY',
@@ -134,6 +143,72 @@ export function SystemSettingsView({
   const [isTestingSupabase, setIsTestingSupabase] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+
+  // Student Profile Photo Manager state
+  const [photoSearch, setPhotoSearch] = useState('');
+  const [uploadingStudentId, setUploadingStudentId] = useState<string | null>(null);
+  const [savedStudentId, setSavedStudentId] = useState<string | null>(null);
+  const [editingUrlStudentId, setEditingUrlStudentId] = useState<string | null>(null);
+  const [customPhotoUrl, setCustomPhotoUrl] = useState('');
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
+  const filteredPhotoStudents = students.filter(st => {
+    const q = photoSearch.trim().toLowerCase();
+    if (!q) return true;
+    return st.name.toLowerCase().includes(q) || st.registrationNumber.toLowerCase().includes(q);
+  });
+
+  const handleStudentPhotoFile = async (student: Student, file?: File) => {
+    if (!file) return;
+    setUploadingStudentId(student.id);
+    setPhotoError(null);
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, 320);
+      const updated = await api.updateStudent(student.id, { avatar: dataUrl });
+      if (onStudentUpdated) onStudentUpdated(updated);
+      setSavedStudentId(student.id);
+      setTimeout(() => setSavedStudentId(prev => (prev === student.id ? null : prev)), 2500);
+    } catch (err: any) {
+      setPhotoError(err.message || 'Erro ao enviar foto de perfil.');
+    } finally {
+      setUploadingStudentId(null);
+    }
+  };
+
+  const handleSaveStudentPhotoUrl = async (student: Student) => {
+    const trimmed = customPhotoUrl.trim();
+    if (!trimmed) return;
+    setUploadingStudentId(student.id);
+    setPhotoError(null);
+    try {
+      const updated = await api.updateStudent(student.id, { avatar: trimmed });
+      if (onStudentUpdated) onStudentUpdated(updated);
+      setEditingUrlStudentId(null);
+      setCustomPhotoUrl('');
+      setSavedStudentId(student.id);
+      setTimeout(() => setSavedStudentId(prev => (prev === student.id ? null : prev)), 2500);
+    } catch (err: any) {
+      setPhotoError(err.message || 'Erro ao salvar link da foto.');
+    } finally {
+      setUploadingStudentId(null);
+    }
+  };
+
+  const handleResetStudentPhoto = async (student: Student) => {
+    setUploadingStudentId(student.id);
+    setPhotoError(null);
+    try {
+      const defaultAvatar = getInitialsAvatar(student.name);
+      const updated = await api.updateStudent(student.id, { avatar: defaultAvatar });
+      if (onStudentUpdated) onStudentUpdated(updated);
+      setSavedStudentId(student.id);
+      setTimeout(() => setSavedStudentId(prev => (prev === student.id ? null : prev)), 2500);
+    } catch (err: any) {
+      setPhotoError(err.message || 'Erro ao restaurar foto.');
+    } finally {
+      setUploadingStudentId(null);
+    }
+  };
 
   useEffect(() => {
     loadIntegrationsStatus();
@@ -293,7 +368,7 @@ export function SystemSettingsView({
       <div className="bg-[#1B1B1B] rounded-2xl p-6 border border-[#282828] flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <Settings className="w-5 h-5 text-[#8B7CFF]" />
+            <Settings className="w-5 h-5 text-emerald-400" />
             <h2 className="text-xl font-bold text-[#F5F5F5] tracking-tight">
               Configurações Operacionais & Integrações
             </h2>
@@ -315,11 +390,35 @@ export function SystemSettingsView({
         
         {/* 1. Identificação da Loja & Instituição */}
         <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
-          <div className="flex items-center gap-2 border-b border-[#242424] pb-3">
-            <Store className="w-4 h-4 text-[#8B7CFF]" />
-            <h3 className="font-semibold text-[#F5F5F5] text-sm">
-              1. Identificação da Loja e Instituição
-            </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#242424] pb-3">
+            <div className="flex items-center gap-2.5">
+              <img
+                src="/assets/aistudio/image_e4461e45.png"
+                alt="Logo ICEVES"
+                className="w-7 h-7 rounded-full object-cover bg-white p-0.5 ring-1 ring-emerald-500/40 shrink-0"
+              />
+              <h3 className="font-semibold text-[#F5F5F5] text-sm">
+                1. Identificação da Loja e Instituição (Escola de Cristo - ICEVES)
+              </h3>
+            </div>
+            <span className="text-[11px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold">
+              10ª Turma Vigente • Formatura: Dia 27 ao Dia 30
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828] grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Regime de Turmas</span>
+              <span className="text-[#F5F5F5] font-semibold mt-0.5 block">1 turma por vez (2 turmas por semestre)</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Turma Atual</span>
+              <span className="text-emerald-400 font-extrabold mt-0.5 block">10ª Turma — Escola de Cristo ICEVES</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Período de Formatura</span>
+              <span className="text-emerald-400 font-bold mt-0.5 block">Início dia 27 • Término dia 30</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
@@ -329,16 +428,16 @@ export function SystemSettingsView({
                 type="text"
                 value={formData.storeName || ''}
                 onChange={(e) => setFormData({ ...formData, storeName: e.target.value })}
-                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block font-medium text-[#F5F5F5] mb-1">Instituição de Ensino / Campus</label>
+              <label className="block font-medium text-[#F5F5F5] mb-1">Instituição</label>
               <input
                 type="text"
                 value={formData.institutionName || ''}
                 onChange={(e) => setFormData({ ...formData, institutionName: e.target.value })}
-                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
               />
             </div>
             <div>
@@ -347,16 +446,185 @@ export function SystemSettingsView({
                 type="text"
                 value={formData.cnpj || ''}
                 onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
-                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] font-mono focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] font-mono focus:border-emerald-500 focus:outline-none"
               />
             </div>
+          </div>
+        </div>
+
+        {/* 1.B Fotos de Perfil dos Alunos da 10ª Turma */}
+        <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242424] pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-emerald-400" />
+                <h3 className="font-semibold text-[#F5F5F5] text-sm">
+                  Fotos de Perfil dos Alunos — 10ª Turma ({students.length} alunos)
+                </h3>
+              </div>
+              <p className="text-[11px] text-[#A1A1AA] mt-0.5">
+                Adicione ou atualize a foto de perfil de cada aluno da 10ª Turma enviando uma imagem do dispositivo ou colando um link.
+              </p>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={photoSearch}
+                onChange={(e) => setPhotoSearch(e.target.value)}
+                placeholder="Buscar aluno por nome ou código..."
+                className="w-full pl-8 pr-3 py-1.5 bg-[#151515] border border-[#303030] rounded-xl text-xs text-[#F5F5F5] placeholder-[#71717A] focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {photoError && (
+            <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{photoError}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[460px] overflow-y-auto pr-1">
+            {filteredPhotoStudents.map((st) => {
+              const isUploading = uploadingStudentId === st.id;
+              const isSaved = savedStudentId === st.id;
+              const isEditingUrl = editingUrlStudentId === st.id;
+              const avatarSrc = st.avatar || getInitialsAvatar(st.name);
+              const isCustomPhoto = Boolean(st.avatar && !st.avatar.startsWith('data:image/svg+xml'));
+
+              return (
+                <div
+                  key={st.id}
+                  className="p-3 rounded-xl bg-[#151515] border border-[#282828] hover:border-[#383838] transition flex flex-col justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <label
+                      className="relative group cursor-pointer shrink-0"
+                      title="Clique para enviar foto do dispositivo"
+                    >
+                      <img
+                        src={avatarSrc}
+                        alt={st.name}
+                        className="w-12 h-12 rounded-full object-cover border-2 border-[#303030] group-hover:border-emerald-500 transition"
+                      />
+                      <span className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                        <Camera className="w-4 h-4 text-white" />
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={isUploading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleStudentPhotoFile(st, file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-[#F5F5F5] text-xs truncate" title={st.name}>
+                        {st.name}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] font-mono text-[#A1A1AA] bg-[#202020] px-1.5 py-0.5 rounded border border-[#2C2C2C]">
+                          {st.registrationNumber}
+                        </span>
+                        {isSaved && (
+                          <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-0.5">
+                            <Check className="w-3 h-3" /> Foto salva!
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isEditingUrl ? (
+                    <div className="space-y-1.5 pt-1 border-t border-[#222222]">
+                      <input
+                        type="url"
+                        value={customPhotoUrl}
+                        onChange={(e) => setCustomPhotoUrl(e.target.value)}
+                        placeholder="https://exemplo.com/foto.jpg"
+                        className="w-full p-1.5 bg-[#101010] border border-[#303030] rounded-lg text-[11px] text-white focus:border-emerald-500 focus:outline-none"
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveStudentPhotoUrl(st)}
+                          disabled={isUploading || !customPhotoUrl.trim()}
+                          className="flex-1 py-1 px-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-lg text-[10px] font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          Salvar Link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingUrlStudentId(null);
+                            setCustomPhotoUrl('');
+                          }}
+                          className="py-1 px-2 bg-[#222222] text-zinc-400 hover:text-white rounded-lg text-[10px] cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 pt-1 border-t border-[#222222]">
+                      <label className="flex-1 py-1.5 px-2 bg-[#222222] hover:bg-[#2C2C2C] text-[#F5F5F5] border border-[#333333] rounded-lg text-[10px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition">
+                        <Camera className="w-3 h-3 text-emerald-400" />
+                        <span>{isUploading ? 'Salvando...' : 'Enviar Foto'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={isUploading}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleStudentPhotoFile(st, file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingUrlStudentId(st.id);
+                          setCustomPhotoUrl(isCustomPhoto && st.avatar?.startsWith('http') ? st.avatar : '');
+                        }}
+                        className="py-1.5 px-2 bg-[#1C1C1C] hover:bg-[#282828] text-[#A1A1AA] hover:text-white border border-[#2C2C2C] rounded-lg text-[10px] font-medium flex items-center gap-1 cursor-pointer transition"
+                        title="Colar link (URL) de imagem"
+                      >
+                        <Link2 className="w-3 h-3" />
+                        <span>URL</span>
+                      </button>
+
+                      {isCustomPhoto && (
+                        <button
+                          type="button"
+                          onClick={() => handleResetStudentPhoto(st)}
+                          className="py-1.5 px-2 bg-[#1C1C1C] hover:bg-rose-950/40 text-zinc-400 hover:text-rose-300 border border-[#2C2C2C] rounded-lg text-[10px] cursor-pointer transition"
+                          title="Restaurar avatar com iniciais"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* 2. Fechamento Mensal e Vencimento */}
         <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
           <div className="flex items-center gap-2 border-b border-[#242424] pb-3">
-            <Calendar className="w-4 h-4 text-[#8B7CFF]" />
+            <Calendar className="w-4 h-4 text-emerald-400" />
             <h3 className="font-semibold text-[#F5F5F5] text-sm">
               2. Fechamento Mensal & Vencimento de Faturas
             </h3>
@@ -368,7 +636,7 @@ export function SystemSettingsView({
               <select
                 value={formData.closingDay}
                 onChange={(e) => setFormData({ ...formData, closingDay: e.target.value as any })}
-                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
               >
                 <option value="LAST_DAY">Último dia de cada mês (Padrão)</option>
                 <option value="25">Dia 25 de cada mês</option>
@@ -383,7 +651,7 @@ export function SystemSettingsView({
                 type="text"
                 value={formData.closingHour || '23:59'}
                 onChange={(e) => setFormData({ ...formData, closingHour: e.target.value })}
-                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] font-mono focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] font-mono focus:border-emerald-500 focus:outline-none"
               />
               <p className="text-[10px] text-[#A1A1AA] mt-1">Horário limite do corte mensal.</p>
             </div>
@@ -396,7 +664,7 @@ export function SystemSettingsView({
                 max={28}
                 value={formData.dueDayOffset}
                 onChange={(e) => setFormData({ ...formData, dueDayOffset: parseInt(e.target.value) || 10 })}
-                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] font-mono focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] font-mono focus:border-emerald-500 focus:outline-none"
               />
               <p className="text-[10px] text-[#A1A1AA] mt-1">Ex: 10 = todo dia 10 do mês seguinte.</p>
             </div>
@@ -423,7 +691,7 @@ export function SystemSettingsView({
                   onChange={(e) => setFormData({ ...formData, tuitionBillingActive: e.target.checked })}
                   className="sr-only peer"
                 />
-                <div className="w-10 h-6 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#8B7CFF]"></div>
+                <div className="w-10 h-6 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
               </label>
             </div>
 
@@ -441,7 +709,7 @@ export function SystemSettingsView({
                     min="0"
                     value={formData.defaultTuitionAmount ?? 750}
                     onChange={(e) => setFormData({ ...formData, defaultTuitionAmount: parseFloat(e.target.value) || 0 })}
-                    className="w-full p-2 bg-[#1A1A1A] border border-[#303030] rounded-lg text-[#F5F5F5] font-mono text-xs focus:border-[#8B7CFF] focus:outline-none"
+                    className="w-full p-2 bg-[#1A1A1A] border border-[#303030] rounded-lg text-[#F5F5F5] font-mono text-xs focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -465,7 +733,7 @@ export function SystemSettingsView({
                   Toda venda para aluno no balcão entra diretamente na fatura mensal, sem exigir pagamento no ato.
                 </span>
               </div>
-              <span className="px-2.5 py-1 rounded-md text-[10px] font-semibold bg-[#8B7CFF]/20 text-[#8B7CFF] border border-[#8B7CFF]/40">
+              <span className="px-2.5 py-1 rounded-md text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
                 Ativo Obrigatório
               </span>
             </div>
@@ -484,7 +752,7 @@ export function SystemSettingsView({
                   onChange={(e) => setFormData({ ...formData, stockControlActive: e.target.checked })}
                   className="sr-only peer"
                 />
-                <div className="w-10 h-6 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#8B7CFF]"></div>
+                <div className="w-10 h-6 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
               </label>
             </div>
 
@@ -502,7 +770,7 @@ export function SystemSettingsView({
                   onChange={(e) => setFormData({ ...formData, blockSaleWithoutStock: e.target.checked })}
                   className="sr-only peer"
                 />
-                <div className="w-10 h-6 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#8B7CFF]"></div>
+                <div className="w-10 h-6 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
               </label>
             </div>
           </div>
@@ -880,7 +1148,7 @@ export function SystemSettingsView({
                 onClick={handleTestSupabase}
                 className="px-3 py-1 bg-[#282828] hover:bg-[#323232] text-[#F5F5F5] rounded-lg text-xs font-medium transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isTestingSupabase ? 'animate-spin text-[#8B7CFF]' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${isTestingSupabase ? 'animate-spin text-emerald-400' : ''}`} />
                 Testar Conexão
               </button>
             </div>
@@ -1123,7 +1391,7 @@ export function SystemSettingsView({
             <button
               type="submit"
               disabled={isSaving}
-              className="w-full sm:w-auto px-6 py-2.5 bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white rounded-xl text-xs font-semibold transition shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl text-xs font-semibold transition shadow-md shadow-emerald-950/50 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               {isSaving ? 'Salvando...' : 'Salvar Configurações'}

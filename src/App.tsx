@@ -172,7 +172,13 @@ function AppContent() {
   };
 
   const handleStudentUpdated = (updatedStudent: Student) => {
-    setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
+    setStudents(prev => {
+      const exists = prev.some(s => s.id === updatedStudent.id);
+      if (exists) {
+        return prev.map(s => s.id === updatedStudent.id ? updatedStudent : s);
+      }
+      return [...prev, updatedStudent];
+    });
     loadData();
   };
 
@@ -185,13 +191,13 @@ function AppContent() {
   // Selected guardian for guardian portal
   const currentGuardian = guardians.find(g => g.id === user?.guardianId) || {
     id: 'guardian-1',
-    name: 'Dra. Cláudia Andrade',
+    name: 'Responsável / Família ICEVES',
     cpf: '142.589.632-10',
-    email: 'resp.claudia@gmail.com',
+    email: 'familia.iceves@gmail.com',
     phone: '(11) 98111-2233',
-    relationshipDefault: 'Mãe',
-    studentIds: ['student-1', 'student-2'],
-    createdAt: '2026-02-10T08:00:00Z'
+    relationshipDefault: 'Responsável',
+    studentIds: students.map(s => s.id),
+    createdAt: '2026-11-01T08:00:00Z'
   };
 
   return (
@@ -314,6 +320,8 @@ function AppContent() {
               {activeTab === 'settings' && (
                 <SystemSettingsView 
                   settings={settings}
+                  students={students}
+                  onStudentUpdated={handleStudentUpdated}
                   onSettingsSaved={setSettings}
                   onResetData={loadData}
                 />
@@ -349,9 +357,14 @@ function AppContent() {
         <footer className="border-t border-white/[0.08] bg-[#0a0a0a] py-4 px-4 sm:px-6 lg:px-8 mt-auto text-xs text-zinc-500">
           <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-zinc-300">{settings?.storeName || 'Lojinha do Campus'}</span>
+              <img
+                src="/assets/aistudio/image_e4461e45.png"
+                alt="Logo ICEVES"
+                className="w-5 h-5 rounded-full object-cover bg-white ring-1 ring-emerald-500/40 shrink-0"
+              />
+              <span className="font-semibold text-zinc-300">{settings?.storeName || 'Lojinha Iceves'}</span>
               <span>•</span>
-              <span className="text-zinc-400">Ponto de Venda & Mensalidades</span>
+              <span className="text-zinc-400">Escola de Cristo - ICEVES • 10ª Turma (Formatura: 27 a 30)</span>
               <span>•</span>
               <span className="text-emerald-400 font-mono text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                 Banco Persistente Ativo

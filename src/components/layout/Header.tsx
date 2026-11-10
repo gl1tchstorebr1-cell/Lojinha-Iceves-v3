@@ -33,13 +33,13 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
   const getRoleBadge = (r: string | null) => {
     switch (r) {
       case 'ADMIN':
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">Administrador</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">Administrador</span>;
       case 'CASHIER':
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">Operador do Caixa</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-100 text-teal-800 border border-teal-200">Operador do Caixa</span>;
       case 'STUDENT':
         return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">Aluno</span>;
       case 'GUARDIAN':
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">Responsável Financeiro</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">Responsável Financeiro</span>;
       default:
         return null;
     }
@@ -77,18 +77,22 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
             
             {/* Logo and Brand */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-md font-bold text-white text-lg tracking-wider">
-                B44
+              <div className="w-10 h-10 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 flex items-center justify-center shadow-md overflow-hidden shrink-0">
+                <img
+                  src="/assets/aistudio/image_e4461e45.png"
+                  alt="Logo ICEVES"
+                  className="w-full h-full rounded-full object-cover"
+                />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-base sm:text-lg tracking-tight text-white">Lojinha do Campus</span>
-                  <span className="text-xs bg-indigo-500/20 text-indigo-300 font-medium px-2 py-0.5 rounded border border-indigo-500/30">
-                    SaaS Lojinha
+                  <span className="font-bold text-base sm:text-lg tracking-tight text-white">Lojinha Iceves</span>
+                  <span className="text-xs bg-emerald-500/20 text-emerald-300 font-medium px-2 py-0.5 rounded border border-emerald-500/30">
+                    Escola de Cristo
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 hidden sm:block">
-                  Gestão Integrada de Caixa, Estoque, Mensalidades e Pix
+                  10ª Turma (Formatura: 27 a 30) • Gestão Integrada de Caixa, Estoque e Pix
                 </p>
               </div>
             </div>
@@ -103,7 +107,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                   className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700/80 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 text-xs sm:text-sm font-medium transition cursor-pointer"
                   title="Trocar perfil de acesso (Simulação de Perfis / Personas)"
                 >
-                  <UserCheck className="w-4 h-4 text-indigo-400" />
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
                   <span className="hidden md:inline font-medium">Trocar Perfil:</span>
                   <span className="font-semibold text-white max-w-[130px] truncate">{user?.name}</span>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
@@ -125,8 +129,8 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                             setShowPersonaMenu(false);
                             if (onRefreshData) onRefreshData();
                           }}
-                          className={`w-full text-left px-4 py-2.5 hover:bg-indigo-50 flex items-center gap-3 transition ${
-                            user?.id === u.id ? 'bg-indigo-50/80 font-medium' : ''
+                          className={`w-full text-left px-4 py-2.5 hover:bg-emerald-50 flex items-center gap-3 transition ${
+                            user?.id === u.id ? 'bg-emerald-50/80 font-medium' : ''
                           }`}
                         >
                           <img 
@@ -138,7 +142,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-semibold text-slate-900 truncate">{u.name}</span>
                               {user?.id === u.id && (
-                                <span className="text-[10px] text-indigo-600 font-bold bg-indigo-100 px-1.5 py-0.5 rounded">Ativo</span>
+                                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded">Ativo</span>
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
@@ -155,7 +159,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                           setShowPersonaMenu(false);
                           setShowLoginModal(true);
                         }}
-                        className="flex-1 text-center py-1.5 text-xs font-medium text-slate-600 hover:text-indigo-600 hover:bg-slate-50 rounded"
+                        className="flex-1 text-center py-1.5 text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-slate-50 rounded"
                       >
                         Entrar com senha
                       </button>
@@ -164,7 +168,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                           setShowPersonaMenu(false);
                           setShowResetModal(true);
                         }}
-                        className="flex-1 text-center py-1.5 text-xs font-medium text-slate-600 hover:text-indigo-600 hover:bg-slate-50 rounded"
+                        className="flex-1 text-center py-1.5 text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-slate-50 rounded"
                       >
                         Esqueci a senha
                       </button>
@@ -200,7 +204,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-indigo-600" />
+                <KeyRound className="w-5 h-5 text-emerald-600" />
                 <h3 className="text-lg font-bold text-slate-900">Acesso por Login e Senha</h3>
               </div>
               <button 
@@ -229,7 +233,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   placeholder="ex: admin@campus.edu ou resp.claudia@gmail.com"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   required
                 />
               </div>
@@ -241,7 +245,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>
 
@@ -252,7 +256,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                     setShowLoginModal(false);
                     setShowResetModal(true);
                   }}
-                  className="text-xs text-indigo-600 hover:underline"
+                  className="text-xs text-emerald-600 hover:underline"
                 >
                   Esqueci minha senha
                 </button>
@@ -268,7 +272,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700"
+                  className="flex-1 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg text-xs font-medium hover:from-emerald-400 hover:to-teal-500"
                 >
                   Entrar
                 </button>
@@ -284,7 +288,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
                 <h3 className="text-lg font-bold text-slate-900">Recuperação Segura de Senha</h3>
               </div>
               <button 
@@ -316,7 +320,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
                   placeholder="ex: aluno.lucas@campus.edu ou resp.claudia@gmail.com"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   required
                 />
               </div>
@@ -334,7 +338,7 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700"
+                  className="flex-1 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg text-xs font-medium hover:from-emerald-400 hover:to-teal-500"
                 >
                   Enviar Instruções
                 </button>

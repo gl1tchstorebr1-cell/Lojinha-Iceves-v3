@@ -138,7 +138,7 @@ export function PixConference({
       <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <QrCode className="w-5 h-5 text-[#8B7CFF]" />
+            <QrCode className="w-5 h-5 text-emerald-400" />
             <h2 className="text-lg font-extrabold text-[#F5F5F5] tracking-tight">
               Conferência & Liquidação de Pagamentos Pix
             </h2>
@@ -157,7 +157,7 @@ export function PixConference({
           >
             <span>Aguardando Conferência</span>
             {pendingPayments.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#8B7CFF] text-white font-extrabold">
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-extrabold">
                 {pendingPayments.length}
               </span>
             )}
@@ -209,7 +209,7 @@ export function PixConference({
                 <div key={payment.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-[#202020] transition">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-[#8B7CFF]">{payment.id}</span>
+                      <span className="font-mono text-xs font-bold text-emerald-400">{payment.id}</span>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
                         Aguardando Análise
                       </span>
@@ -270,7 +270,7 @@ export function PixConference({
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Buscar por ID, aluno ou pagador..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-[#8B7CFF]"
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-emerald-500"
               />
             </div>
           </div>
@@ -367,7 +367,7 @@ export function PixConference({
                     setCounterPayerName(inv.studentName);
                   }
                 }}
-                className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
                 required
               >
                 <option value="">Selecione a fatura do aluno...</option>
@@ -388,7 +388,7 @@ export function PixConference({
                   min="0.01"
                   value={counterAmount || ''}
                   onChange={(e) => setCounterAmount(parseFloat(e.target.value) || 0)}
-                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none font-mono font-bold"
+                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-mono font-bold"
                   required
                 />
               </div>
@@ -400,7 +400,7 @@ export function PixConference({
                   value={counterPayerName}
                   onChange={(e) => setCounterPayerName(e.target.value)}
                   placeholder="Nome de quem pagou"
-                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
                   required
                 />
               </div>
@@ -413,7 +413,7 @@ export function PixConference({
                 value={counterRef}
                 onChange={(e) => setCounterRef(e.target.value)}
                 placeholder="Ex: E1842389120261029..."
-                className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] font-mono focus:border-[#8B7CFF] focus:outline-none"
+                className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] font-mono focus:border-emerald-500 focus:outline-none"
               />
             </div>
 
@@ -504,7 +504,7 @@ export function PixConference({
                   value={reviewReason}
                   onChange={(e) => setReviewReason(e.target.value)}
                   rows={3}
-                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
                   required
                 />
               </div>

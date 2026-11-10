@@ -126,6 +126,13 @@ export const api = {
     return request<Student[]>('/api/students');
   },
 
+  async createStudent(studentData: Partial<Student>) {
+    return request<Student>('/api/students', {
+      method: 'POST',
+      body: JSON.stringify(studentData)
+    });
+  },
+
   async updateStudent(id: string, updates: Partial<Student>) {
     return request<Student>(`/api/students/${id}`, {
       method: 'PUT',

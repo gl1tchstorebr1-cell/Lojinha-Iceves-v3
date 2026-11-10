@@ -1,23 +1,23 @@
 import React, { useState } from 'react';
 import { 
   Users, 
-  UserCheck, 
   Settings2, 
   Search, 
   Phone, 
   Mail, 
-  CreditCard, 
-  Bell, 
   ShieldCheck, 
-  MessageSquare,
   Check,
-  ChevronRight,
-  Plus
+  Plus,
+  Camera,
+  Calendar,
+  Award,
+  RotateCcw
 } from 'lucide-react';
 import { Student, Guardian, PayerOption, RecipientOption } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { getInitialsAvatar, compressImageFileToDataUrl } from '../../utils/avatar';
 
 interface StudentsAndGuardiansProps {
   students: Student[];
@@ -35,18 +35,31 @@ export function StudentsAndGuardians({
   const [activeTab, setActiveTab] = useState<'students' | 'guardians'>('students');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Settings modal for Student
+  // Settings & Profile modal for Student
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAvatar, setEditAvatar] = useState('');
   const [payerRule, setPayerRule] = useState<PayerOption>('BOTH');
   const [reportRule, setReportRule] = useState<RecipientOption>('BOTH');
   const [reminderRule, setReminderRule] = useState<RecipientOption>('BOTH');
   const [confirmationRule, setConfirmationRule] = useState<RecipientOption>('BOTH');
   const [selectedChannels, setSelectedChannels] = useState<('WHATSAPP' | 'EMAIL')[]>(['WHATSAPP', 'EMAIL']);
   const [studentNotes, setStudentNotes] = useState('');
-  const [tuitionAmount, setTuitionAmount] = useState<number>(0);
-  const [isTuitionExempt, setIsTuitionExempt] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // New Student modal
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newAvatar, setNewAvatar] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+
+  // Quick row photo upload state
+  const [uploadingRowId, setUploadingRowId] = useState<string | null>(null);
 
   // Filter students
   const filteredStudents = students.filter(s => {
@@ -54,7 +67,6 @@ export function StudentsAndGuardians({
     return !q || (
       s.name.toLowerCase().includes(q) ||
       s.registrationNumber.toLowerCase().includes(q) ||
-      s.classGroup.toLowerCase().includes(q) ||
       s.email.toLowerCase().includes(q)
     );
   });
@@ -72,16 +84,51 @@ export function StudentsAndGuardians({
 
   const openSettingsModal = (student: Student) => {
     setEditingStudent(student);
+    setEditName(student.name);
+    setEditEmail(student.email);
+    setEditPhone(student.phone);
+    setEditAvatar(student.avatar || getInitialsAvatar(student.name));
     setPayerRule(student.payerRule);
     setReportRule(student.reportRecipientRule);
     setReminderRule(student.dueReminderRecipientRule);
     setConfirmationRule(student.paymentConfirmationRecipientRule);
     setSelectedChannels([...student.allowedChannels]);
     setStudentNotes(student.notes || '');
-    const currentTuition = student.defaultTuition !== undefined ? student.defaultTuition : 0;
-    setTuitionAmount(currentTuition);
-    setIsTuitionExempt(currentTuition === 0);
     setSaveSuccess(false);
+  };
+
+  const handleQuickPhotoUpload = async (student: Student, file?: File) => {
+    if (!file) return;
+    setUploadingRowId(student.id);
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, 320);
+      const updated = await api.updateStudent(student.id, { avatar: dataUrl });
+      onStudentUpdated(updated);
+    } catch (err: any) {
+      alert(`Erro ao enviar foto: ${err.message}`);
+    } finally {
+      setUploadingRowId(null);
+    }
+  };
+
+  const handleModalPhotoFile = async (file?: File) => {
+    if (!file) return;
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, 320);
+      setEditAvatar(dataUrl);
+    } catch (err: any) {
+      alert(`Erro ao processar imagem: ${err.message}`);
+    }
+  };
+
+  const handleNewModalPhotoFile = async (file?: File) => {
+    if (!file) return;
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, 320);
+      setNewAvatar(dataUrl);
+    } catch (err: any) {
+      alert(`Erro ao processar imagem: ${err.message}`);
+    }
   };
 
   const handleSaveStudentSettings = async (e: React.FormEvent) => {
@@ -90,14 +137,17 @@ export function StudentsAndGuardians({
 
     setIsSaving(true);
     try {
-      const finalTuition = isTuitionExempt ? 0 : Math.max(0, Number(tuitionAmount) || 0);
       const updated = await api.updateStudent(editingStudent.id, {
+        name: editName.trim() || editingStudent.name,
+        email: editEmail.trim() || editingStudent.email,
+        phone: editPhone.trim() || editingStudent.phone,
+        avatar: editAvatar || getInitialsAvatar(editName || editingStudent.name),
         payerRule,
         reportRecipientRule: reportRule,
         dueReminderRecipientRule: reminderRule,
         paymentConfirmationRecipientRule: confirmationRule,
         allowedChannels: selectedChannels,
-        defaultTuition: finalTuition,
+        defaultTuition: 0,
         notes: studentNotes
       });
       onStudentUpdated(updated);
@@ -105,7 +155,7 @@ export function StudentsAndGuardians({
       setTimeout(() => {
         setEditingStudent(null);
         setSaveSuccess(false);
-      }, 900);
+      }, 800);
     } catch (err: any) {
       alert(`Erro: ${err.message}`);
     } finally {
@@ -113,10 +163,34 @@ export function StudentsAndGuardians({
     }
   };
 
+  const handleCreateStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setIsCreating(true);
+    try {
+      const created = await api.createStudent({
+        name: newName.trim(),
+        email: newEmail.trim() || undefined,
+        phone: newPhone.trim() || undefined,
+        avatar: newAvatar || getInitialsAvatar(newName.trim()),
+      });
+      onStudentUpdated(created);
+      setShowNewModal(false);
+      setNewName('');
+      setNewEmail('');
+      setNewPhone('');
+      setNewAvatar('');
+    } catch (err: any) {
+      alert(`Erro ao cadastrar aluno: ${err.message}`);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const toggleChannel = (channel: 'WHATSAPP' | 'EMAIL') => {
     setSelectedChannels(prev => {
       if (prev.includes(channel)) {
-        if (prev.length === 1) return prev; // keep at least 1
+        if (prev.length === 1) return prev;
         return prev.filter(c => c !== channel);
       }
       return [...prev, channel];
@@ -126,37 +200,88 @@ export function StudentsAndGuardians({
   return (
     <div className="space-y-5">
       
-      {/* Top Banner */}
-      <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-[#8B7CFF]" />
-            <h2 className="text-lg font-extrabold text-[#F5F5F5] tracking-tight">
-              Alunos, Responsáveis & Regras Individuais
-            </h2>
+      {/* Top Banner — Escola de Cristo no ICEVES (10ª Turma) */}
+      <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828] shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Users className="w-5 h-5 text-emerald-400" />
+              <h2 className="text-lg font-extrabold text-[#F5F5F5] tracking-tight">
+                Alunos — Escola de Cristo no ICEVES
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                10ª Turma Atual ({students.length} Alunos)
+              </span>
+            </div>
+            <p className="text-xs text-[#A1A1AA] mt-1">
+              Na Escola de Cristo no ICEVES opera-se 1 turma por vez (2 turmas por semestre). No momento encontra-se na <strong>10ª Turma</strong>, com formatura do <strong>dia 27 ao dia 30</strong>.
+            </p>
           </div>
-          <p className="text-xs text-[#A1A1AA] mt-1">
-            Cadastros independentes com vínculos autorizados e regras individuais de cobrança.
-          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowNewModal(true)}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Adicionar Aluno</span>
+              </button>
+            )}
+
+            <div className="flex bg-[#151515] p-1 rounded-xl border border-[#282828] text-xs">
+              <button
+                onClick={() => setActiveTab('students')}
+                className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                  activeTab === 'students' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
+                }`}
+              >
+                Alunos ({students.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('guardians')}
+                className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                  activeTab === 'guardians' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
+                }`}
+              >
+                Responsáveis ({guardians.length})
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="flex bg-[#151515] p-1 rounded-xl border border-[#282828] text-xs">
-          <button
-            onClick={() => setActiveTab('students')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-              activeTab === 'students' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
-            }`}
-          >
-            Alunos ({students.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('guardians')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-              activeTab === 'guardians' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
-            }`}
-          >
-            Responsáveis ({guardians.length})
-          </button>
+        {/* Destaques da 10ª Turma */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#262626] text-xs">
+          <div className="p-3 rounded-xl bg-[#141414] border border-[#262626] flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
+              <Award className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Edição Vigente</span>
+              <span className="text-[#F5F5F5] font-bold">10ª Turma — Escola de Cristo</span>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[#141414] border border-[#262626] flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-500/15 text-blue-400 flex items-center justify-center shrink-0">
+              <Users className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Formato no ICEVES</span>
+              <span className="text-[#F5F5F5] font-bold">1 turma por vez • 2 por semestre</span>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[#141414] border border-[#262626] flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Calendário de Formatura</span>
+              <span className="text-emerald-400 font-bold">Início dia 27 • Término dia 30</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -167,8 +292,8 @@ export function StudentsAndGuardians({
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder={activeTab === 'students' ? "Buscar por aluno, matrícula ou turma..." : "Buscar por responsável, CPF ou telefone..."}
-          className="w-full pl-9 pr-4 py-2 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-[#8B7CFF]"
+          placeholder={activeTab === 'students' ? "Buscar aluno por nome ou código (ex: EC10-001)..." : "Buscar por responsável, CPF ou telefone..."}
+          className="w-full pl-9 pr-4 py-2 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-emerald-500"
         />
       </div>
 
@@ -178,101 +303,114 @@ export function StudentsAndGuardians({
             <table className="w-full text-left text-xs">
               <thead className="bg-[#151515] text-[#71717A] font-bold uppercase tracking-wider border-b border-[#282828]">
                 <tr>
-                  <th className="py-3 px-4">Aluno</th>
-                  <th className="py-3 px-4">Matrícula / Turma</th>
-                  <th className="py-3 px-4">Consumo Atual (Mês)</th>
-                  <th className="py-3 px-4">Mensalidade Base</th>
-                  <th className="py-3 px-4">Quem Paga as Faturas</th>
-                  <th className="py-3 px-4">Destinatário Relatórios</th>
-                  <th className="py-3 px-4">Responsáveis Vinculados</th>
-                  <th className="py-3 px-4 text-right">Ação</th>
+                  <th className="py-3 px-4">Aluno & Foto de Perfil</th>
+                  <th className="py-3 px-4">Código Matrícula</th>
+                  <th className="py-3 px-4">Consumo Aberto (Lojinha)</th>
+                  <th className="py-3 px-4">Contato</th>
+                  <th className="py-3 px-4">Quem Paga</th>
+                  <th className="py-3 px-4 text-right">Foto / Configurar</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#242424]">
                 {filteredStudents.map(student => {
-                  const linkedGuardians = student.guardians
-                    .map(link => {
-                      const g = guardians.find(grd => grd.id === link.guardianId);
-                      return g ? `${g.name} (${link.relationship})` : null;
-                    })
-                    .filter(Boolean);
+                  const avatarSrc = student.avatar || getInitialsAvatar(student.name);
+                  const isRowUploading = uploadingRowId === student.id;
 
                   return (
                     <tr key={student.id} className="hover:bg-[#202020] transition">
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2.5">
-                          <img 
-                            src={student.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
-                            alt={student.name}
-                            className="w-8 h-8 rounded-full object-cover border border-[#303030]" 
-                          />
+                        <div className="flex items-center gap-3">
+                          <label
+                            className="relative group cursor-pointer shrink-0"
+                            title="Clique na foto para enviar nova foto de perfil"
+                          >
+                            <img 
+                              src={avatarSrc} 
+                              alt={student.name}
+                              className="w-10 h-10 rounded-full object-cover border border-[#383838] group-hover:border-emerald-500 transition" 
+                            />
+                            {isAdmin && (
+                              <>
+                                <span className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                                  <Camera className="w-3.5 h-3.5 text-white" />
+                                </span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  disabled={isRowUploading}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleQuickPhotoUpload(student, file);
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </>
+                            )}
+                          </label>
                           <div>
-                            <span className="font-bold text-[#F5F5F5] block">{student.name}</span>
+                            <span className="font-bold text-[#F5F5F5] block text-xs">{student.name}</span>
                             <span className="text-[10px] text-[#71717A]">{student.email}</span>
                           </div>
                         </div>
                       </td>
 
                       <td className="py-3 px-4">
-                        <span className="font-mono font-bold text-[#D4D4D8] block">{student.registrationNumber}</span>
-                        <span className="text-[11px] text-[#A1A1AA]">{student.classGroup}</span>
+                        <span className="font-mono font-bold text-[#D4D4D8] bg-[#151515] border border-[#2C2C2C] px-2 py-0.5 rounded-md">
+                          {student.registrationNumber}
+                        </span>
                       </td>
 
                       <td className="py-3 px-4">
-                        <span className="font-mono font-extrabold text-[#8B7CFF] block">
+                        <span className="font-mono font-extrabold text-emerald-400 block">
                           {formatCurrency(student.currentConsumptionBalance)}
                         </span>
                         <span className="text-[10px] text-[#71717A]">Em aberto no PDV</span>
                       </td>
 
-                      <td className="py-3 px-4 font-mono font-bold text-[#F5F5F5]">
-                        {student.defaultTuition === 0 ? (
-                          <span className="inline-flex items-center gap-1 text-amber-400 font-semibold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md text-[10px]">
-                            Isento (R$ 0,00)
-                          </span>
-                        ) : (
-                          formatCurrency(student.defaultTuition)
-                        )}
+                      <td className="py-3 px-4 text-[#A1A1AA]">
+                        <span className="block text-[11px]">{student.phone}</span>
                       </td>
 
                       <td className="py-3 px-4">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          student.payerRule === 'BOTH' ? 'bg-[#8B7CFF]/10 text-[#8B7CFF] border border-[#8B7CFF]/20' :
-                          student.payerRule === 'STUDENT' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                          student.payerRule === 'BOTH' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                          student.payerRule === 'STUDENT' || student.payerRule === 'STUDENT_ONLY' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                         }`}>
-                          {student.payerRule === 'BOTH' ? 'Aluno & Responsável' :
-                           student.payerRule === 'STUDENT' ? 'Somente Aluno' : 'Somente Responsável'}
+                          {student.payerRule === 'BOTH' ? 'Aluno & Resp.' :
+                           student.payerRule === 'STUDENT' || student.payerRule === 'STUDENT_ONLY' ? 'Próprio Aluno' : 'Responsável'}
                         </span>
-                      </td>
-
-                      <td className="py-3 px-4 text-[#A1A1AA]">
-                        {student.reportRecipientRule === 'BOTH' ? 'Aluno e Responsável' :
-                         student.reportRecipientRule === 'STUDENT' ? 'Somente Aluno' : 'Somente Responsável'}
-                      </td>
-
-                      <td className="py-3 px-4 max-w-xs">
-                        {linkedGuardians.length > 0 ? (
-                          <div className="space-y-0.5">
-                            {linkedGuardians.map((lg, i) => (
-                              <span key={i} className="block text-[#D4D4D8] truncate text-[11px]">
-                                • {lg}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-amber-400 text-[11px]">Nenhum vinculado</span>
-                        )}
                       </td>
 
                       <td className="py-3 px-4 text-right">
                         {isAdmin && (
-                          <button
-                            onClick={() => openSettingsModal(student)}
-                            className="p-1.5 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-[#A1A1AA] hover:text-[#8B7CFF] border border-[#303030] transition cursor-pointer"
-                            title="Configurar regras individuais"
-                          >
-                            <Settings2 className="w-4 h-4" />
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            <label
+                              className="px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-[#D4D4D8] hover:text-white border border-[#303030] transition cursor-pointer inline-flex items-center gap-1 text-[11px] font-semibold"
+                              title="Enviar foto de perfil"
+                            >
+                              <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>{isRowUploading ? '...' : 'Foto'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={isRowUploading}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleQuickPhotoUpload(student, file);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                            <button
+                              onClick={() => openSettingsModal(student)}
+                              className="p-1.5 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-[#A1A1AA] hover:text-emerald-400 border border-[#303030] transition cursor-pointer"
+                              title="Editar foto, dados e regras do aluno"
+                            >
+                              <Settings2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -289,10 +427,10 @@ export function StudentsAndGuardians({
             <table className="w-full text-left text-xs">
               <thead className="bg-[#151515] text-[#71717A] font-bold uppercase tracking-wider border-b border-[#282828]">
                 <tr>
-                  <th className="py-3 px-4">Responsável Financeiro</th>
+                  <th className="py-3 px-4">Responsável</th>
                   <th className="py-3 px-4">CPF</th>
                   <th className="py-3 px-4">Contato (E-mail & WhatsApp)</th>
-                  <th className="py-3 px-4">Alunos Vinculados Autorizados</th>
+                  <th className="py-3 px-4">Alunos Vinculados</th>
                   <th className="py-3 px-4">Acesso ao Portal</th>
                 </tr>
               </thead>
@@ -325,13 +463,9 @@ export function StudentsAndGuardians({
                       </td>
 
                       <td className="py-3 px-4">
-                        <div className="flex flex-wrap gap-1.5">
-                          {authorizedStudents.map(st => (
-                            <span key={st.id} className="inline-block bg-[#222222] text-[#F5F5F5] border border-[#333333] text-[11px] font-bold px-2 py-0.5 rounded-md">
-                              {st.name} ({st.registrationNumber})
-                            </span>
-                          ))}
-                        </div>
+                        <span className="inline-block bg-[#222222] text-[#F5F5F5] border border-[#333333] text-[11px] font-bold px-2.5 py-1 rounded-md">
+                          {authorizedStudents.length} alunos vinculados (10ª Turma)
+                        </span>
                       </td>
 
                       <td className="py-3 px-4">
@@ -349,7 +483,7 @@ export function StudentsAndGuardians({
         </div>
       )}
 
-      {/* Individual Rules Modal */}
+      {/* Individual Student Profile & Photo Modal */}
       {editingStudent && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-[#1A1A1A] rounded-2xl shadow-2xl border border-[#303030] max-w-lg w-full p-6 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
@@ -357,10 +491,10 @@ export function StudentsAndGuardians({
             <div className="flex items-center justify-between mb-4 border-b border-[#282828] pb-3">
               <div>
                 <h3 className="font-extrabold text-[#F5F5F5] text-base">
-                  Regras Individuais de Cobrança e Notificação
+                  Perfil, Foto e Configurações do Aluno
                 </h3>
                 <p className="text-xs text-[#A1A1AA]">
-                  Aluno: <strong className="text-white">{editingStudent.name}</strong> ({editingStudent.registrationNumber})
+                  Código: <strong className="font-mono text-white">{editingStudent.registrationNumber}</strong> • 10ª Turma Escola de Cristo
                 </p>
               </div>
               <button 
@@ -374,23 +508,107 @@ export function StudentsAndGuardians({
             {saveSuccess && (
               <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl flex items-center gap-2">
                 <Check className="w-4 h-4 text-emerald-400" />
-                <span>Configurações salvas e aplicadas com sucesso!</span>
+                <span>Foto e configurações salvas com sucesso!</span>
               </div>
             )}
 
             <form onSubmit={handleSaveStudentSettings} className="space-y-4 text-xs">
               
+              {/* Foto de Perfil do Aluno */}
+              <div className="bg-[#151515] p-4 rounded-xl border border-[#282828] space-y-3">
+                <label className="block font-bold text-[#F5F5F5]">
+                  Foto de Perfil do Aluno
+                </label>
+                <div className="flex items-center gap-4">
+                  <img
+                    src={editAvatar || getInitialsAvatar(editName || editingStudent.name)}
+                    alt={editName}
+                    className="w-16 h-16 rounded-full object-cover border-2 border-emerald-500/50 shrink-0"
+                  />
+                  <div className="space-y-2 flex-1">
+                    <div className="flex flex-wrap gap-2">
+                      <label className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-lg font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer transition">
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Enviar Foto do Dispositivo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleModalPhotoFile(file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setEditAvatar(getInitialsAvatar(editName || editingStudent.name))}
+                        className="px-2.5 py-1.5 bg-[#222222] hover:bg-[#2C2C2C] text-zinc-300 rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Iniciais</span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={editAvatar.startsWith('data:') ? '' : editAvatar}
+                      onChange={(e) => setEditAvatar(e.target.value)}
+                      placeholder="Ou cole aqui o link (URL) de uma foto..."
+                      className="w-full p-2 bg-[#101010] border border-[#2C2C2C] rounded-lg text-[11px] text-white focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Dados Cadastrais */}
+              <div className="bg-[#151515] p-3.5 rounded-xl border border-[#282828] space-y-3">
+                <label className="block font-bold text-[#F5F5F5]">
+                  Dados do Aluno (10ª Turma)
+                </label>
+                <div>
+                  <label className="block text-[11px] text-[#A1A1AA] mb-1">Nome Completo</label>
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full p-2 bg-[#101010] border border-[#2C2C2C] rounded-lg text-white font-semibold focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] text-[#A1A1AA] mb-1">E-mail</label>
+                    <input
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      className="w-full p-2 bg-[#101010] border border-[#2C2C2C] rounded-lg text-white focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-[#A1A1AA] mb-1">Telefone / WhatsApp</label>
+                    <input
+                      type="text"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      className="w-full p-2 bg-[#101010] border border-[#2C2C2C] rounded-lg text-white focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Quem pode pagar */}
               <div className="bg-[#151515] p-3 rounded-xl border border-[#282828] space-y-2">
                 <label className="block font-bold text-[#F5F5F5]">
-                  1. Quem pode pagar as faturas deste aluno?
+                  Quem realiza os pagamentos do consumo na Lojinha?
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setPayerRule('BOTH')}
                     className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
-                      payerRule === 'BOTH' ? 'bg-[#282828] text-white border-[#8B7CFF]' : 'bg-[#181818] text-[#71717A] border-[#262626]'
+                      payerRule === 'BOTH' ? 'bg-[#282828] text-white border-emerald-500' : 'bg-[#181818] text-[#71717A] border-[#262626]'
                     }`}
                   >
                     Aluno e Resp.
@@ -399,7 +617,7 @@ export function StudentsAndGuardians({
                     type="button"
                     onClick={() => setPayerRule('STUDENT')}
                     className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
-                      payerRule === 'STUDENT' ? 'bg-[#282828] text-white border-[#8B7CFF]' : 'bg-[#181818] text-[#71717A] border-[#262626]'
+                      payerRule === 'STUDENT' ? 'bg-[#282828] text-white border-emerald-500' : 'bg-[#181818] text-[#71717A] border-[#262626]'
                     }`}
                   >
                     Apenas Aluno
@@ -408,43 +626,7 @@ export function StudentsAndGuardians({
                     type="button"
                     onClick={() => setPayerRule('GUARDIAN')}
                     className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
-                      payerRule === 'GUARDIAN' ? 'bg-[#282828] text-white border-[#8B7CFF]' : 'bg-[#181818] text-[#71717A] border-[#262626]'
-                    }`}
-                  >
-                    Apenas Resp.
-                  </button>
-                </div>
-              </div>
-
-              {/* Quem recebe relatórios */}
-              <div className="bg-[#151515] p-3 rounded-xl border border-[#282828] space-y-2">
-                <label className="block font-bold text-[#F5F5F5]">
-                  2. Quem recebe os relatórios mensais e extratos?
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setReportRule('BOTH')}
-                    className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
-                      reportRule === 'BOTH' ? 'bg-[#282828] text-white border-[#8B7CFF]' : 'bg-[#181818] text-[#71717A] border-[#262626]'
-                    }`}
-                  >
-                    Ambos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReportRule('STUDENT')}
-                    className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
-                      reportRule === 'STUDENT' ? 'bg-[#282828] text-white border-[#8B7CFF]' : 'bg-[#181818] text-[#71717A] border-[#262626]'
-                    }`}
-                  >
-                    Apenas Aluno
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReportRule('GUARDIAN')}
-                    className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
-                      reportRule === 'GUARDIAN' ? 'bg-[#282828] text-white border-[#8B7CFF]' : 'bg-[#181818] text-[#71717A] border-[#262626]'
+                      payerRule === 'GUARDIAN' ? 'bg-[#282828] text-white border-emerald-500' : 'bg-[#181818] text-[#71717A] border-[#262626]'
                     }`}
                   >
                     Apenas Resp.
@@ -455,7 +637,7 @@ export function StudentsAndGuardians({
               {/* Canais de Comunicação */}
               <div className="bg-[#151515] p-3 rounded-xl border border-[#282828] space-y-2">
                 <label className="block font-bold text-[#F5F5F5]">
-                  3. Canais de Comunicação Habilitados
+                  Canais de Comunicação Habilitados
                 </label>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 cursor-pointer text-[#D4D4D8]">
@@ -479,92 +661,6 @@ export function StudentsAndGuardians({
                 </div>
               </div>
 
-              {/* 4. Mensalidade Escolar Fixa & Isenção */}
-              <div className="bg-[#151515] p-3.5 rounded-xl border border-[#282828] space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="block font-bold text-[#F5F5F5]">
-                      4. Mensalidade Escolar deste Aluno
-                    </label>
-                    <span className="text-[11px] text-[#A1A1AA] block">
-                      Defina o valor base cobrado na fatura mensal ou marque isenção total.
-                    </span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    isTuitionExempt || tuitionAmount === 0 
-                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
-                      : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                  }`}>
-                    {isTuitionExempt || tuitionAmount === 0 ? 'Isento (R$ 0,00)' : formatCurrency(tuitionAmount)}
-                  </span>
-                </div>
-
-                <div className="space-y-2 pt-1 border-t border-[#242424]">
-                  <div className="flex items-center gap-2.5">
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!isTuitionExempt}
-                        onChange={(e) => {
-                          const enabled = e.target.checked;
-                          setIsTuitionExempt(!enabled);
-                          if (enabled && tuitionAmount === 0) {
-                            setTuitionAmount(750);
-                          }
-                        }}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-[#282828] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                    </label>
-                    <span className="text-xs text-[#D4D4D8] font-medium">
-                      {isTuitionExempt ? 'Cobrar Apenas Consumo da Lojinha (Mensalidade R$ 0,00)' : 'Cobrar Mensalidade Escolar'}
-                    </span>
-                  </div>
-
-                  {!isTuitionExempt && (
-                    <div className="space-y-2 pt-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-400 font-mono font-bold">R$</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={tuitionAmount}
-                          onChange={(e) => setTuitionAmount(Math.max(0, parseFloat(e.target.value) || 0))}
-                          placeholder="0.00"
-                          className="flex-1 p-2 bg-[#1A1A1A] border border-[#303030] focus:border-[#8B7CFF] rounded-lg text-white font-mono font-bold text-xs outline-none"
-                        />
-                      </div>
-
-                      {/* Presets rápidos */}
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => { setIsTuitionExempt(true); setTuitionAmount(0); }}
-                          className="px-2 py-1 bg-[#222222] hover:bg-[#2A2A2A] text-amber-300 border border-amber-500/20 rounded-md text-[10px] font-bold cursor-pointer transition"
-                        >
-                          Remover / Isento (R$ 0)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setIsTuitionExempt(false); setTuitionAmount(375); }}
-                          className="px-2 py-1 bg-[#222222] hover:bg-[#2A2A2A] text-purple-300 border border-purple-500/20 rounded-md text-[10px] font-bold cursor-pointer transition"
-                        >
-                          Bolsa 50% (R$ 375,00)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setIsTuitionExempt(false); setTuitionAmount(750); }}
-                          className="px-2 py-1 bg-[#222222] hover:bg-[#2A2A2A] text-emerald-300 border border-emerald-500/20 rounded-md text-[10px] font-bold cursor-pointer transition"
-                        >
-                          Padrão (R$ 750,00)
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               {/* Observações */}
               <div>
                 <label className="block font-bold text-[#D4D4D8] mb-1">
@@ -574,8 +670,8 @@ export function StudentsAndGuardians({
                   type="text"
                   value={studentNotes}
                   onChange={(e) => setStudentNotes(e.target.value)}
-                  placeholder="Ex: Limite de R$ 30,00 diário ou restrição alimentar..."
-                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                  placeholder="Ex: Observação sobre consumo na Lojinha Iceves..."
+                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
                 />
               </div>
 
@@ -592,10 +688,115 @@ export function StudentsAndGuardians({
                   disabled={isSaving}
                   className="flex-1 py-2.5 px-3 bg-[#F5F5F5] hover:bg-white text-[#101010] rounded-xl font-bold transition disabled:opacity-40 cursor-pointer"
                 >
-                  {isSaving ? 'Salvando...' : 'Gravar Regras'}
+                  {isSaving ? 'Salvando...' : 'Salvar Alterações'}
                 </button>
               </div>
 
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* New Student Modal */}
+      {showNewModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1A1A1A] rounded-2xl shadow-2xl border border-[#303030] max-w-md w-full p-6 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between mb-4 border-b border-[#282828] pb-3">
+              <div>
+                <h3 className="font-extrabold text-[#F5F5F5] text-base">
+                  Adicionar Aluno à 10ª Turma
+                </h3>
+                <p className="text-xs text-[#A1A1AA]">
+                  Escola de Cristo - ICEVES (Formatura 27 a 30)
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowNewModal(false)}
+                className="text-[#71717A] hover:text-white text-xl font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateStudent} className="space-y-4 text-xs">
+              <div className="flex items-center gap-3 bg-[#151515] p-3 rounded-xl border border-[#282828]">
+                <img
+                  src={newAvatar || getInitialsAvatar(newName || 'Novo Aluno')}
+                  alt="Preview"
+                  className="w-14 h-14 rounded-full object-cover border border-[#383838]"
+                />
+                <div>
+                  <label className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-lg font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer transition">
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Escolher Foto de Perfil</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleNewModalPhotoFile(file);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  <span className="block text-[10px] text-[#71717A] mt-1">
+                    Opcional — gera avatar com iniciais automaticamente.
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#F5F5F5] mb-1">Nome Completo do Aluno</label>
+                <input
+                  type="text"
+                  required
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Ex: Nome Completo"
+                  className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-[#F5F5F5] mb-1">E-mail</label>
+                  <input
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="aluno@gmail.com"
+                    className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-[#F5F5F5] mb-1">WhatsApp / Telefone</label>
+                  <input
+                    type="text"
+                    value={newPhone}
+                    onChange={(e) => setNewPhone(e.target.value)}
+                    placeholder="(11) 99100-0000"
+                    className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewModal(false)}
+                  className="flex-1 py-2.5 px-3 border border-[#303030] text-[#A1A1AA] hover:text-white rounded-xl font-semibold hover:bg-[#222222] cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreating}
+                  className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl font-bold transition disabled:opacity-40 cursor-pointer"
+                >
+                  {isCreating ? 'Cadastrando...' : 'Cadastrar Aluno'}
+                </button>
+              </div>
             </form>
           </div>
         </div>

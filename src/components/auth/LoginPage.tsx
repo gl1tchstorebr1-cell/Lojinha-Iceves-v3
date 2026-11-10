@@ -68,21 +68,25 @@ export function LoginPage() {
       
       {/* Background ambient glow */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-white/[0.03] blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-gradient-to-tr from-emerald-500/15 via-teal-500/10 to-transparent blur-[120px] rounded-full" />
       </div>
 
       <div className="w-full max-w-md relative z-10 space-y-6">
         
         {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-white text-black font-bold shadow-lg mb-2">
-            <Command className="w-6 h-6" />
+        <div className="text-center space-y-2.5">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shadow-xl shadow-emerald-500/20 mb-1 overflow-hidden">
+            <img
+              src="/assets/aistudio/image_e4461e45.png"
+              alt="Logo ICEVES"
+              className="w-full h-full rounded-full object-cover"
+            />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">
-            Lojinha do Campus
+            Lojinha Iceves — Escola de Cristo
           </h1>
           <p className="text-xs text-zinc-400 max-w-xs mx-auto">
-            Plataforma Integrada de Ponto de Venda, Controle de Estoque & Faturamento Mensal
+            10ª Turma (Formatura: 27 a 30) • Ponto de Venda, Estoque & Faturamento
           </p>
         </div>
 
@@ -109,8 +113,8 @@ export function LoginPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@campus.edu.br ou 2026-A104"
-                  className="w-full pl-9 pr-3 py-2 bg-[#18181b] border border-white/[0.1] rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-white/[0.4] transition-all"
+                  placeholder="admin@iceves.edu.br ou EC10-001"
+                  className="w-full pl-9 pr-3 py-2 bg-[#18181b] border border-white/[0.1] rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
                 />
               </div>
             </div>
@@ -124,7 +128,7 @@ export function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowForgotModal(true)}
-                  className="text-[11px] text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
                 >
                   Esqueceu a senha?
                 </button>
@@ -137,7 +141,7 @@ export function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-9 py-2 bg-[#18181b] border border-white/[0.1] rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-white/[0.4] transition-all"
+                  className="w-full pl-9 pr-9 py-2 bg-[#18181b] border border-white/[0.1] rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
                 />
                 <button
                   type="button"
@@ -156,7 +160,7 @@ export function LoginPage() {
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="rounded border-zinc-700 bg-zinc-800 text-white focus:ring-0"
+                  className="rounded border-zinc-700 bg-zinc-800 text-emerald-500 focus:ring-0"
                 />
                 <span>Lembrar meu acesso</span>
               </label>
@@ -166,10 +170,10 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 text-black font-semibold text-xs py-2.5 px-4 rounded-lg transition-all shadow-md cursor-pointer disabled:opacity-50 mt-2"
+              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs py-2.5 px-4 rounded-lg transition-all shadow-md shadow-emerald-950/60 cursor-pointer disabled:opacity-50 mt-2"
             >
               {isLoading ? (
-                <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
                   <span>Entrar no Sistema</span>
@@ -185,16 +189,16 @@ export function LoginPage() {
               <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
                 Acesso Rápido para Avaliação (1 Clique)
               </span>
-              <Sparkles className="w-3.5 h-3.5 text-zinc-400" />
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               {initialUsers.map((u) => {
                 const roleLabels: Record<string, { label: string; badge: string }> = {
-                  ADMIN: { label: 'Administrador', badge: 'bg-white text-black' },
-                  CASHIER: { label: 'Operador Caixa', badge: 'bg-zinc-800 text-zinc-300' },
-                  STUDENT: { label: 'Aluno', badge: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },
-                  GUARDIAN: { label: 'Responsável', badge: 'bg-purple-500/10 text-purple-400 border border-purple-500/20' }
+                  ADMIN: { label: 'Administrador', badge: 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white' },
+                  CASHIER: { label: 'Operador Caixa', badge: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' },
+                  STUDENT: { label: 'Aluno (10ª Turma)', badge: 'bg-teal-500/15 text-teal-300 border border-teal-500/30' },
+                  GUARDIAN: { label: 'Responsável', badge: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' }
                 };
 
                 const meta = roleLabels[u.role] || { label: u.role, badge: 'bg-zinc-800' };
@@ -227,8 +231,13 @@ export function LoginPage() {
         </div>
 
         {/* Footer info */}
-        <div className="text-center text-[11px] text-zinc-500">
-          Lojinha do Campus • Em conformidade com a LGPD e Segurança por Perfil
+        <div className="flex items-center justify-center gap-2 text-center text-[11px] text-zinc-500">
+          <img
+            src="/assets/aistudio/image_e4461e45.png"
+            alt="ICEVES"
+            className="w-4 h-4 rounded-full object-cover bg-white ring-1 ring-emerald-500/30"
+          />
+          <span>Escola de Cristo — ICEVES • Em conformidade com a LGPD e Segurança por Perfil</span>
         </div>
 
       </div>

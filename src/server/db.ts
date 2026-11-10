@@ -13,9 +13,11 @@ import {
   WhatsAppNotification, 
   AuditLog, 
   SystemSettings,
-  MonthlyClosingPreview 
+  MonthlyClosingPreview,
+  ProductCategory
 } from '../types/index.ts';
 import { generateBacenPixPayload } from '../utils/pix.ts';
+import { getInitialsAvatar } from '../utils/avatar.ts';
 import { 
   initialUsers, 
   initialGuardians, 
@@ -65,20 +67,141 @@ class DatabaseService {
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
-        return {
-          settings: parsed.settings || initialSettings,
-          users: parsed.users || initialUsers,
-          guardians: parsed.guardians || initialGuardians,
-          students: parsed.students || initialStudents,
-          products: parsed.products || initialProducts,
+
+        // Verificar se a base ainda contém os alunos fictícios antigos (ex: Lucas Andrade) e migrar para os 17 alunos da 10ª Turma
+        const existingStudents: Student[] = Array.isArray(parsed.students) ? parsed.students : [];
+        const hasOldFictionalStudents = existingStudents.some(s => s.name === 'Lucas Andrade' || s.name === 'Sofia Andrade');
+        const hasAllDecimaTurma = initialStudents.every(seedSt =>
+          existingStudents.some(s => s.name.toLowerCase() === seedSt.name.toLowerCase())
+        );
+
+        let finalStudents = existingStudents;
+        let finalSales = parsed.sales || initialSales;
+        let finalInvoices = parsed.invoices || initialInvoices;
+        let finalLedger = parsed.financialLedger || initialFinancialLedger;
+        let needsSave = false;
+
+        if (hasOldFictionalStudents || !hasAllDecimaTurma) {
+          finalStudents = initialStudents.map(seedSt => {
+            const match = existingStudents.find(s => s.name.toLowerCase() === seedSt.name.toLowerCase());
+            if (match) {
+              return {
+                ...seedSt,
+                ...match,
+                name: seedSt.name,
+                registrationNumber: seedSt.registrationNumber,
+                classGroup: '10ª Turma • Escola de Cristo (Formatura 27 a 30)',
+                avatar: match.avatar || seedSt.avatar,
+              };
+            }
+            return seedSt;
+          });
+          if (hasOldFictionalStudents) {
+            finalSales = [];
+            finalInvoices = [];
+            finalLedger = [];
+          }
+          needsSave = true;
+        }
+
+        // Atualizar avatares SVG antigos que ainda tinham cores roxas/indigo para o degradê verde ICEVES
+        finalStudents = finalStudents.map(st => {
+          if (
+            !st.avatar ||
+            (st.avatar.startsWith('data:image/svg+xml') &&
+              (st.avatar.includes('6366F1') || st.avatar.includes('8B5CF6') || st.avatar.includes('4F46E5') || st.avatar.includes('7C3AED')))
+          ) {
+            needsSave = true;
+            return {
+              ...st,
+              avatar: getInitialsAvatar(st.name),
+            };
+          }
+          return st;
+        });
+
+        const loadedSettings: SystemSettings = {
+          ...initialSettings,
+          ...(parsed.settings || {}),
+          institutionName:
+            !parsed.settings?.institutionName || parsed.settings.institutionName === 'Lojinha Iceves' || parsed.settings.institutionName.includes('Campus')
+              ? 'Escola de Cristo - ICEVES'
+              : parsed.settings.institutionName,
+          storeName: parsed.settings?.storeName || 'Lojinha Iceves',
+          tuitionBillingActive: false,
+          defaultTuitionAmount: 0,
+        };
+
+        // Migração de produtos para as 4 categorias oficiais:
+        // 'Alimentícios' | 'Papelaria' | 'Produtos de Limpeza' | 'Cosméticos'
+        // e estruturação de até 3 imagens por produto
+        const VALID_CATEGORIES: ProductCategory[] = ['Alimentícios', 'Papelaria', 'Produtos de Limpeza', 'Cosméticos'];
+        let productsNeedsSave = false;
+        let finalProducts: Product[] = (parsed.products || initialProducts).map((p: any) => {
+          let cat: ProductCategory = 'Alimentícios';
+          if (p.category === 'Papelaria' || p.category === 'Papelaria & Material') {
+            cat = 'Papelaria';
+          } else if (p.category === 'Produtos de Limpeza') {
+            cat = 'Produtos de Limpeza';
+          } else if (p.category === 'Cosméticos') {
+            cat = 'Cosméticos';
+          } else {
+            cat = 'Alimentícios';
+          }
+
+          if (p.category !== cat) {
+            productsNeedsSave = true;
+          }
+
+          let images: string[] = [];
+          if (Array.isArray(p.images) && p.images.length > 0) {
+            images = p.images.filter(Boolean).slice(0, 3);
+          } else if (p.imageUrl) {
+            images = [p.imageUrl];
+          }
+
+          return {
+            ...p,
+            category: cat,
+            images,
+            imageUrl: images[0] || p.imageUrl || undefined,
+          };
+        });
+
+        // Se faltar itens em 'Produtos de Limpeza' ou 'Cosméticos', adiciona os da semente
+        const presentCategories = new Set(finalProducts.map(p => p.category));
+        for (const cat of VALID_CATEGORIES) {
+          if (!presentCategories.has(cat)) {
+            const seedItems = initialProducts.filter(p => p.category === cat);
+            finalProducts.push(...seedItems);
+            productsNeedsSave = true;
+          }
+        }
+
+        if (productsNeedsSave) {
+          needsSave = true;
+        }
+
+        const loadedData: DatabaseSchema = {
+          settings: loadedSettings,
+          users: hasOldFictionalStudents ? initialUsers : (parsed.users || initialUsers),
+          guardians: hasOldFictionalStudents ? initialGuardians : (parsed.guardians || initialGuardians),
+          students: finalStudents,
+          products: finalProducts,
           stockMovements: parsed.stockMovements || initialStockMovements,
-          sales: parsed.sales || initialSales,
-          financialLedger: parsed.financialLedger || initialFinancialLedger,
-          invoices: parsed.invoices || initialInvoices,
+          sales: finalSales,
+          financialLedger: finalLedger,
+          invoices: finalInvoices,
           pixPayments: parsed.pixPayments || initialPixPayments,
           whatsappNotifications: parsed.whatsappNotifications || initialWhatsAppNotifications,
           auditLogs: parsed.auditLogs || initialAuditLogs,
         };
+
+        if (needsSave) {
+          this.saveDatabase(loadedData);
+        }
+
+        return loadedData;
       }
     } catch (err) {
       console.error('Erro ao ler base de dados JSON, iniciando com dados semente:', err);
@@ -524,9 +647,15 @@ class DatabaseService {
       if (idx === -1) throw new Error('Produto não encontrado');
       
       const oldPrice = this.data.products[idx].price;
+      const images: string[] = Array.isArray(productData.images)
+        ? productData.images.filter(Boolean).slice(0, 3)
+        : (this.data.products[idx].images || (productData.imageUrl ? [productData.imageUrl] : []));
+
       this.data.products[idx] = {
         ...this.data.products[idx],
         ...productData,
+        images,
+        imageUrl: images[0] || productData.imageUrl || this.data.products[idx].imageUrl || undefined,
         updatedAt: new Date().toISOString()
       };
 
@@ -543,16 +672,22 @@ class DatabaseService {
       this.triggerSupabaseSync('products', this.data.products[idx], 'mapProductToSupabase');
       return this.data.products[idx];
     } else {
+      const images: string[] = Array.isArray(productData.images)
+        ? productData.images.filter(Boolean).slice(0, 3)
+        : (productData.imageUrl ? [productData.imageUrl] : []);
+
       const newProduct: Product = {
         id: `prod-${Date.now().toString().slice(-4)}`,
         name: productData.name || 'Novo Produto',
-        category: productData.category || 'Salgados & Lanches',
+        category: (productData.category as ProductCategory) || 'Alimentícios',
         price: Number(productData.price) || 0,
         internalCode: productData.internalCode || `INT-${Math.floor(Math.random() * 9000 + 1000)}`,
         barcode: productData.barcode || undefined,
         currentStock: Number(productData.currentStock) || 0,
         minStock: Number(productData.minStock) || 5,
         status: productData.status || 'ACTIVE',
+        images,
+        imageUrl: images[0] || productData.imageUrl || undefined,
         unit: productData.unit || 'un',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -1090,25 +1225,77 @@ class DatabaseService {
     return { payment, invoice };
   }
 
-  // 10. Atualização de Vínculos e Regras de Aluno / Responsável
+  // 10. Atualização de Cadastro, Foto de Perfil e Regras de Aluno
   public updateStudentSettings(studentId: string, updates: Partial<Student>, user: { id: string; name: string; role: any }) {
     const student = this.data.students.find(s => s.id === studentId);
     if (!student) throw new Error('Aluno não encontrado.');
 
     Object.assign(student, updates);
 
+    // Sincronizar nome e avatar caso exista usuário vinculado ao aluno
+    for (const u of this.data.users) {
+      if (u.studentId === student.id) {
+        if (updates.name) u.name = updates.name;
+        if (updates.avatar) u.avatar = updates.avatar;
+        if (updates.email) u.email = updates.email;
+      }
+    }
+
     this.logAudit(
       user.id,
       user.name,
       user.role,
-      'ATUALIZAR_REGRAS_ALUNO',
+      'ATUALIZAR_CADASTRO_ALUNO',
       'CONFIGURACOES',
-      `Configurações individuais e regras de cobrança do aluno ${student.name} foram atualizadas.`
+      `Cadastro, foto de perfil ou regras do aluno ${student.name} foram atualizados.`
     );
 
     this.saveDatabase();
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     return student;
+  }
+
+  public createStudent(studentData: Partial<Student>, user: { id: string; name: string; role: any }) {
+    const nextNum = this.data.students.length + 1;
+    const regCode = studentData.registrationNumber || `EC10-${String(nextNum).padStart(3, '0')}`;
+    const fullName = (studentData.name || 'Novo Aluno').trim();
+
+    const newStudent: Student = {
+      id: `student-${Date.now().toString().slice(-5)}`,
+      name: fullName,
+      registrationNumber: regCode,
+      classGroup: studentData.classGroup || '10ª Turma • Escola de Cristo (Formatura 27 a 30)',
+      email: studentData.email || `aluno.${nextNum}@gmail.com`,
+      phone: studentData.phone || '(11) 99100-0000',
+      avatar: studentData.avatar || initialStudents[0]?.avatar,
+      status: 'ACTIVE',
+      defaultTuition: 0,
+      currentConsumptionBalance: 0,
+      totalOpenDebt: 0,
+      payerRule: studentData.payerRule || 'BOTH',
+      reportRecipientRule: studentData.reportRecipientRule || 'BOTH',
+      dueReminderRecipientRule: 'BOTH',
+      paymentConfirmationRecipientRule: 'BOTH',
+      allowedChannels: studentData.allowedChannels || ['WHATSAPP', 'EMAIL'],
+      guardians: studentData.guardians || [],
+      notes: studentData.notes || '10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)',
+      createdAt: new Date().toISOString()
+    };
+
+    this.data.students.push(newStudent);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'CADASTRAR_ALUNO',
+      'CONFIGURACOES',
+      `Aluno ${newStudent.name} (${newStudent.registrationNumber}) adicionado à 10ª Turma.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('students', newStudent, 'mapStudentToSupabase');
+    return newStudent;
   }
 
   // 10.1 Atualização flexível de Mensalidade e Ajustes na Fatura

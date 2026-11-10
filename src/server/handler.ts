@@ -200,6 +200,13 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         }
         return { status: 200, data: students };
       }
+      if (method === 'POST') {
+        if (currentUser.role !== 'ADMIN') {
+          return { status: 403, data: { error: 'Apenas Administradores podem cadastrar alunos.' } };
+        }
+        const created = db.createStudent(req.body, currentUser);
+        return { status: 201, data: created };
+      }
     }
 
     if (pathname.startsWith('/api/students/') && method === 'PUT') {

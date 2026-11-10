@@ -44,7 +44,7 @@ export function Navigation({ activeTab, setActiveTab, pendingPixCount = 0, lowSt
         label: 'Conferência Pix', 
         icon: QrCode, 
         badge: pendingPixCount > 0 ? pendingPixCount : undefined,
-        badgeColor: 'bg-indigo-600'
+        badgeColor: 'bg-emerald-600'
       },
       { id: 'whatsapp', label: 'Automação WhatsApp', icon: MessageSquare },
       { id: 'audit', label: 'Auditoria & Livro Razão', icon: ShieldAlert },
@@ -86,7 +86,7 @@ export function Navigation({ activeTab, setActiveTab, pendingPixCount = 0, lowSt
                 onClick={() => setActiveTab(item.id)}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap cursor-pointer ${
                   isActive
-                    ? 'bg-indigo-600 text-white shadow-sm'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >

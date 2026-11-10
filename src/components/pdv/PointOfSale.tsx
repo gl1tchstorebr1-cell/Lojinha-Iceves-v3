@@ -17,12 +17,14 @@ import {
   ArrowRight,
   CreditCard,
   Building2,
-  X
+  X,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Product, Student, Sale, ProductCategory } from '../../types';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { getProductImages, getCategoryBadgeColor } from '../../utils/productImages';
 
 interface PointOfSaleProps {
   products: Product[];
@@ -66,27 +68,25 @@ export function PointOfSale({
   // Active view tab in PDV: 'terminal' or 'history'
   const [pdvTab, setPdvTab] = useState<'terminal' | 'history'>('terminal');
 
-  // Filter students
+  // Filter students (mostra todos os 17 alunos da 10ª Turma)
   const filteredStudents = useMemo(() => {
-    if (!studentSearch.trim()) return students.filter(s => s.status === 'ACTIVE').slice(0, 5);
+    if (!studentSearch.trim()) return students.filter(s => s.status === 'ACTIVE');
     const q = studentSearch.toLowerCase();
     return students.filter(
       s => s.status === 'ACTIVE' && (
         s.name.toLowerCase().includes(q) || 
-        s.registrationNumber.toLowerCase().includes(q) ||
-        s.classGroup.toLowerCase().includes(q)
+        s.registrationNumber.toLowerCase().includes(q)
       )
     );
   }, [students, studentSearch]);
 
-  // Categories
+  // 4 Categorias exclusivas da Lojinha
   const categories: (ProductCategory | 'TODAS')[] = [
     'TODAS',
-    'Bebidas',
-    'Salgados & Lanches',
-    'Doces & Sobremesas',
-    'Papelaria & Material',
-    'Uniformes & Merch'
+    'Alimentícios',
+    'Papelaria',
+    'Produtos de Limpeza',
+    'Cosméticos'
   ];
 
   // Filter products
@@ -264,7 +264,7 @@ export function PointOfSale({
             <div className="bg-[#1B1B1B] rounded-2xl p-4 border border-[#282828] shadow-xs">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-[#8B7CFF]/20 text-[#8B7CFF] border border-[#8B7CFF]/30 flex items-center justify-center text-[10px] font-bold">1</span>
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-[10px] font-bold">1</span>
                   <h3 className="font-bold text-[#F5F5F5] text-xs uppercase tracking-wider">Identificação do Aluno</h3>
                 </div>
                 {selectedStudent && (
@@ -288,12 +288,12 @@ export function PointOfSale({
                       type="text"
                       value={studentSearch}
                       onChange={(e) => setStudentSearch(e.target.value)}
-                      placeholder="Pesquisar por nome, matrícula (ex: 2024-0412) ou turma..."
-                      className="w-full pl-9 pr-4 py-2 bg-[#151515] border border-[#282828] rounded-xl text-xs text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-[#8B7CFF] transition"
+                      placeholder="Pesquisar aluno da 10ª Turma por nome ou código (ex: EC10-001)..."
+                      className="w-full pl-9 pr-4 py-2 bg-[#151515] border border-[#282828] rounded-xl text-xs text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-emerald-500 transition"
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1">
                     {filteredStudents.map(student => (
                       <button
                         key={student.id}
@@ -311,10 +311,9 @@ export function PointOfSale({
                         />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-[#F5F5F5] truncate">{student.name}</p>
-                          <p className="text-[11px] text-[#A1A1AA] font-mono">Matrícula: {student.registrationNumber}</p>
-                          <p className="text-[10px] text-[#71717A] truncate">{student.classGroup}</p>
+                          <p className="text-[11px] text-[#A1A1AA] font-mono">Código: {student.registrationNumber}</p>
                         </div>
-                        <span className="text-[10px] font-semibold text-[#8B7CFF] bg-[#8B7CFF]/10 border border-[#8B7CFF]/20 px-2 py-0.5 rounded-full">
+                        <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                           Selecionar
                         </span>
                       </button>
@@ -337,7 +336,7 @@ export function PointOfSale({
                         </span>
                       </div>
                       <p className="text-xs text-[#A1A1AA] mt-0.5">
-                        {selectedStudent.classGroup} • Responsável: {selectedStudent.guardians[0]?.relationship || 'Cadastrado'}
+                        10ª Turma • Escola de Cristo - ICEVES (Formatura: 27 a 30)
                       </p>
                       {selectedStudent.notes && (
                         <p className="text-[11px] text-amber-400 font-medium mt-1">
@@ -349,7 +348,7 @@ export function PointOfSale({
 
                   <div className="text-right">
                     <span className="text-[10px] uppercase font-bold text-[#71717A]">Consumo no Mês</span>
-                    <span className="block text-base font-extrabold text-[#8B7CFF] font-mono">
+                    <span className="block text-base font-extrabold text-emerald-400 font-mono">
                       {formatCurrency(selectedStudent.currentConsumptionBalance)}
                     </span>
                     <span className="text-[10px] text-[#71717A]">Lançamento direto</span>
@@ -362,7 +361,7 @@ export function PointOfSale({
             <div className="bg-[#1B1B1B] rounded-2xl p-4 border border-[#282828] shadow-xs space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-[#8B7CFF]/20 text-[#8B7CFF] border border-[#8B7CFF]/30 flex items-center justify-center text-[10px] font-bold">2</span>
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-[10px] font-bold">2</span>
                   <h3 className="font-bold text-[#F5F5F5] text-xs uppercase tracking-wider">Produtos Disponíveis</h3>
                 </div>
 
@@ -374,7 +373,7 @@ export function PointOfSale({
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
                     placeholder="Buscar produto ou código..."
-                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-[#8B7CFF]"
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
@@ -401,6 +400,9 @@ export function PointOfSale({
                 {filteredProducts.map(product => {
                   const isOutOfStock = product.currentStock <= 0;
                   const isLowStock = product.currentStock > 0 && product.currentStock <= product.minStock;
+                  const imgs = getProductImages(product);
+                  const coverImg = imgs[0];
+                  const badge = getCategoryBadgeColor(product.category);
 
                   return (
                     <button
@@ -408,16 +410,43 @@ export function PointOfSale({
                       type="button"
                       disabled={isOutOfStock}
                       onClick={() => addToCart(product)}
-                      className={`text-left p-3 rounded-2xl border flex flex-col justify-between transition cursor-pointer group ${
+                      className={`text-left p-2.5 rounded-2xl border flex flex-col justify-between transition cursor-pointer group ${
                         isOutOfStock 
                           ? 'bg-[#141414] border-[#222222] opacity-50 cursor-not-allowed'
                           : 'bg-[#151515] hover:bg-[#1E1E1E] border-[#262626] hover:border-[#383838]'
                       }`}
                     >
                       <div>
-                        <div className="flex items-start justify-between gap-1 mb-1">
-                          <span className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider">
-                            {product.category.split(' ')[0]}
+                        {/* Imagem do Produto com tag da Categoria */}
+                        <div className="relative aspect-4/3 w-full rounded-xl overflow-hidden bg-[#101010] border border-[#222222] mb-2 flex items-center justify-center">
+                          {coverImg ? (
+                            <img
+                              src={coverImg}
+                              alt={product.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-[#444]">
+                              <Package className="w-6 h-6 text-[#333]" />
+                            </div>
+                          )}
+
+                          {/* Tag da categoria com cor correspondente */}
+                          <span className={`absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md text-[9px] font-bold border backdrop-blur-md ${badge.bg} ${badge.text} ${badge.border}`}>
+                            {product.category}
+                          </span>
+
+                          {/* Indicador de fotos (até 3) */}
+                          {imgs.length > 1 && (
+                            <span className="absolute bottom-1.5 right-1.5 bg-black/80 backdrop-blur-xs text-white text-[9px] font-mono font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 border border-white/10">
+                              📷 {imgs.length}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className="text-[10px] font-mono text-[#71717A]">
+                            {product.internalCode}
                           </span>
                           {isOutOfStock ? (
                             <span className="text-[9px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.2 rounded border border-rose-500/20">
@@ -433,20 +462,18 @@ export function PointOfSale({
                             </span>
                           )}
                         </div>
-                        <h4 className="text-xs font-bold text-[#F5F5F5] group-hover:text-[#8B7CFF] transition line-clamp-2">
+
+                        <h4 className="text-xs font-bold text-[#F5F5F5] group-hover:text-emerald-400 transition line-clamp-2 leading-snug">
                           {product.name}
                         </h4>
-                        <span className="text-[10px] font-mono text-[#71717A] block mt-0.5">
-                          {product.internalCode}
-                        </span>
                       </div>
 
-                      <div className="mt-3 pt-2 border-t border-[#222222] flex items-center justify-between">
+                      <div className="mt-2.5 pt-2 border-t border-[#222222] flex items-center justify-between">
                         <span className="text-sm font-extrabold text-[#F5F5F5] font-mono">
                           {formatCurrency(product.price)}
                         </span>
                         <div className={`p-1.5 rounded-lg text-white transition ${
-                          isOutOfStock ? 'bg-[#282828] text-[#555]' : 'bg-[#282828] group-hover:bg-[#8B7CFF] group-hover:text-white'
+                          isOutOfStock ? 'bg-[#282828] text-[#555]' : 'bg-[#282828] group-hover:bg-gradient-to-r group-hover:from-emerald-500 group-hover:to-teal-600 group-hover:text-white'
                         }`}>
                           <Plus className="w-3.5 h-3.5" />
                         </div>
@@ -465,7 +492,7 @@ export function PointOfSale({
               
               <div className="flex items-center justify-between border-b border-[#242424] pb-3">
                 <div className="flex items-center gap-2">
-                  <ShoppingCart className="w-4 h-4 text-[#8B7CFF]" />
+                  <ShoppingCart className="w-4 h-4 text-emerald-400" />
                   <h3 className="font-extrabold text-[#F5F5F5] text-sm">Carrinho de Compras</h3>
                 </div>
                 {cart.length > 0 && (
@@ -497,7 +524,7 @@ export function PointOfSale({
                     onClick={() => setBillingMethod('MONTHLY_ACCOUNT')}
                     className={`p-2 rounded-xl border text-center font-bold text-xs transition cursor-pointer ${
                       billingMethod === 'MONTHLY_ACCOUNT'
-                        ? 'bg-[#222222] border-[#8B7CFF] text-[#F5F5F5]'
+                        ? 'bg-[#222222] border-emerald-500 text-[#F5F5F5]'
                         : 'bg-[#151515] border-[#262626] text-[#71717A]'
                     }`}
                   >
@@ -508,7 +535,7 @@ export function PointOfSale({
                     onClick={() => setBillingMethod('IMMEDIATE_CASH')}
                     className={`p-2 rounded-xl border text-center font-bold text-xs transition cursor-pointer ${
                       billingMethod === 'IMMEDIATE_CASH'
-                        ? 'bg-[#222222] border-[#8B7CFF] text-[#F5F5F5]'
+                        ? 'bg-[#222222] border-emerald-500 text-[#F5F5F5]'
                         : 'bg-[#151515] border-[#262626] text-[#71717A]'
                     }`}
                   >
@@ -580,7 +607,7 @@ export function PointOfSale({
                 </div>
                 <div className="flex justify-between text-base font-extrabold text-[#F5F5F5] pt-1 border-t border-[#242424]">
                   <span>Total da Venda:</span>
-                  <span className="text-[#8B7CFF] font-mono">{formatCurrency(cartTotal)}</span>
+                  <span className="text-emerald-400 font-mono">{formatCurrency(cartTotal)}</span>
                 </div>
               </div>
 
@@ -632,7 +659,7 @@ export function PointOfSale({
             </div>
             <button
               onClick={() => setPdvTab('terminal')}
-              className="text-xs font-bold text-[#8B7CFF] hover:underline flex items-center gap-1 cursor-pointer"
+              className="text-xs font-bold text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
             >
               Voltar ao Terminal <ArrowRight className="w-3.5 h-3.5" />
             </button>
@@ -730,9 +757,14 @@ export function PointOfSale({
 
             {/* Receipt Box */}
             <div className="bg-[#141414] p-4 rounded-xl border border-[#262626] font-mono text-xs space-y-2 text-[#D4D4D8]">
-              <div className="text-center border-b border-dashed border-[#333333] pb-2">
-                <p className="font-bold text-[#F5F5F5]">LOJINHA DO CAMPUS</p>
-                <p className="text-[10px] text-[#71717A]">COMPROVANTE DE CONSUMO ESCOLAR</p>
+              <div className="text-center border-b border-dashed border-[#333333] pb-2.5">
+                <img
+                  src="/assets/aistudio/image_e4461e45.png"
+                  alt="Logo ICEVES"
+                  className="w-11 h-11 rounded-full object-cover bg-white p-0.5 ring-1 ring-emerald-500/40 mx-auto mb-1.5"
+                />
+                <p className="font-bold text-[#F5F5F5]">LOJINHA ICEVES — ESCOLA DE CRISTO</p>
+                <p className="text-[10px] text-[#71717A]">COMPROVANTE DE CONSUMO • 10ª TURMA</p>
               </div>
 
               <div className="space-y-0.5 text-[11px]">
@@ -754,7 +786,7 @@ export function PointOfSale({
 
               <div className="flex justify-between text-sm font-bold text-[#F5F5F5] pt-1">
                 <span>TOTAL A FATURAR:</span>
-                <span className="text-[#8B7CFF]">{formatCurrency(completedSale.total)}</span>
+                <span className="text-emerald-400">{formatCurrency(completedSale.total)}</span>
               </div>
             </div>
 

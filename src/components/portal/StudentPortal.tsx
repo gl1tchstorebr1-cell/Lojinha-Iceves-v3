@@ -148,17 +148,24 @@ export function StudentPortal({
             <img 
               src={student.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120'} 
               alt={student.name}
-              className="w-16 h-16 rounded-2xl object-cover border-2 border-[#8B7CFF]/40 shadow-lg"
+              className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500/40 shadow-lg"
             />
             <div>
-              <span className="text-[11px] bg-[#8B7CFF]/15 text-[#8B7CFF] font-semibold px-2.5 py-0.5 rounded-md border border-[#8B7CFF]/30 inline-block mb-1">
-                Portal Individual do Aluno
-              </span>
+              <div className="flex items-center gap-2 mb-1">
+                <img
+                  src="/assets/aistudio/image_e4461e45.png"
+                  alt="ICEVES"
+                  className="w-5 h-5 rounded-full object-cover bg-white ring-1 ring-emerald-500/40"
+                />
+                <span className="text-[11px] bg-emerald-500/15 text-emerald-400 font-semibold px-2.5 py-0.5 rounded-md border border-emerald-500/30 inline-block">
+                  Portal Individual do Aluno • ICEVES
+                </span>
+              </div>
               <h2 className="text-xl sm:text-2xl font-bold text-[#F5F5F5] tracking-tight">
                 {student.name}
               </h2>
               <p className="text-xs text-[#A1A1AA]">
-                Matrícula: <strong className="font-mono text-[#F5F5F5]">{student.registrationNumber}</strong> • Turma: {student.classGroup}
+                Código: <strong className="font-mono text-[#F5F5F5]">{student.registrationNumber}</strong> • 10ª Turma — Escola de Cristo ICEVES (Formatura: 27 a 30)
               </p>
             </div>
           </div>
@@ -167,7 +174,7 @@ export function StudentPortal({
           <div className="flex flex-wrap gap-3 text-xs">
             <div className="bg-[#151515] px-4 py-3 rounded-xl border border-[#282828] min-w-[140px]">
               <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Consumo Aberto</span>
-              <span className="text-lg font-bold text-[#8B7CFF]">{formatCurrency(student.currentConsumptionBalance)}</span>
+              <span className="text-lg font-bold text-emerald-400">{formatCurrency(student.currentConsumptionBalance)}</span>
             </div>
             <div className="bg-[#151515] px-4 py-3 rounded-xl border border-[#282828] min-w-[140px]">
               <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Saldo Devedor Total</span>
@@ -184,7 +191,7 @@ export function StudentPortal({
               activeTab === 'consumption' ? 'bg-[#222222] text-[#F5F5F5] shadow-xs border border-[#303030]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
             }`}
           >
-            <ShoppingBag className="w-4 h-4 text-[#8B7CFF]" />
+            <ShoppingBag className="w-4 h-4 text-emerald-400" />
             Consumo no Balcão ({studentSales.length})
           </button>
           <button
@@ -193,7 +200,7 @@ export function StudentPortal({
               activeTab === 'invoices' ? 'bg-[#222222] text-[#F5F5F5] shadow-xs border border-[#303030]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
             }`}
           >
-            <QrCode className="w-4 h-4 text-[#8B7CFF]" />
+            <QrCode className="w-4 h-4 text-emerald-400" />
             Faturas & Pagamentos ({studentInvoices.length})
           </button>
         </div>
@@ -228,7 +235,7 @@ export function StudentPortal({
                 <div key={sale.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#1A1A1A] transition">
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-[#8B7CFF]">{sale.id}</span>
+                      <span className="font-mono text-xs font-semibold text-emerald-400">{sale.id}</span>
                       <span className="text-[11px] text-[#A1A1AA]">• {formatDateTime(sale.createdAt)}</span>
                       {sale.status === 'REVERSED' && (
                         <span className="text-[10px] bg-red-950/60 text-red-400 border border-red-800/50 font-semibold px-2 py-0.5 rounded-full">
@@ -283,7 +290,7 @@ export function StudentPortal({
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#242424] pb-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-semibold text-[#8B7CFF]">{invoice.id}</span>
+                        <span className="font-mono text-xs font-semibold text-emerald-400">{invoice.id}</span>
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
                           invoice.status === 'PAGA' 
                             ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40' 
@@ -313,7 +320,7 @@ export function StudentPortal({
                     </div>
                     <div>
                       <span className="text-[10px] text-[#A1A1AA] block">Consumo Lojinha:</span>
-                      <span className="font-semibold text-[#8B7CFF]">{formatCurrency(invoice.canteenConsumptionTotal)}</span>
+                      <span className="font-semibold text-emerald-400">{formatCurrency(invoice.canteenConsumptionTotal)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-[#A1A1AA] block">Total Faturado:</span>
@@ -331,9 +338,9 @@ export function StudentPortal({
                   {invoice.remainingBalance > 0 && (
                     <div className="space-y-4">
                       {/* Stripe Checkout button banner */}
-                      <div className="p-4 bg-gradient-to-r from-indigo-950/70 via-slate-900 to-indigo-950/70 rounded-xl border border-indigo-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="p-4 bg-gradient-to-r from-emerald-950/70 via-slate-900 to-teal-950/70 rounded-xl border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
                             <CreditCard className="w-5 h-5" />
                           </div>
                           <div>
@@ -373,7 +380,7 @@ export function StudentPortal({
                             <button
                               type="button"
                               onClick={() => copyPix(invoice.pixCopyPasteCode, invoice.id)}
-                              className="px-3.5 py-2 bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white rounded-lg text-xs font-semibold transition flex items-center gap-1 shrink-0 cursor-pointer"
+                              className="px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1 shrink-0 cursor-pointer"
                             >
                               {copiedPixId === invoice.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                               {copiedPixId === invoice.id ? 'Copiado!' : 'Copiar'}
@@ -407,7 +414,7 @@ export function StudentPortal({
           <div className="bg-[#141414] rounded-2xl shadow-2xl border border-white/[0.12] max-w-md w-full p-6 animate-in fade-in zoom-in-95 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center font-bold">S</div>
+                <div className="w-7 h-7 rounded-lg bg-emerald-600/20 text-emerald-400 flex items-center justify-center font-bold">S</div>
                 <h3 className="font-bold text-white text-base">Stripe Checkout (Test Mode)</h3>
               </div>
               <button 
@@ -418,7 +425,7 @@ export function StudentPortal({
               </button>
             </div>
 
-            <div className="p-3 bg-indigo-950/40 rounded-xl border border-indigo-500/20 text-xs space-y-1 text-zinc-300">
+            <div className="p-3 bg-emerald-950/40 rounded-xl border border-emerald-500/20 text-xs space-y-1 text-zinc-300">
               <p>Fatura: <strong className="text-white font-mono">{stripeModalInvoice.id}</strong></p>
               <p>Valor a Pagar: <strong className="text-emerald-400 text-sm font-bold">{formatCurrency(stripeModalInvoice.remainingBalance)}</strong></p>
             </div>
@@ -480,7 +487,7 @@ export function StudentPortal({
                 type="button"
                 disabled={isStripeLoading}
                 onClick={handleConfirmStripePayment}
-                className="flex-1 py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition disabled:opacity-50 cursor-pointer shadow-lg"
+                className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl font-bold transition disabled:opacity-50 cursor-pointer shadow-lg"
               >
                 {isStripeLoading ? 'Processando...' : `Pagar ${formatCurrency(stripeModalInvoice.remainingBalance)}`}
               </button>
@@ -521,7 +528,7 @@ export function StudentPortal({
             <div className="p-3 bg-[#151515] rounded-xl border border-[#282828] text-xs space-y-1 mb-4 text-[#A1A1AA]">
               <p>Fatura: <strong className="text-[#F5F5F5]">{selectedInvoiceForPayment.id}</strong></p>
               <p>Competência: <strong className="text-[#F5F5F5]">{formatPeriod(selectedInvoiceForPayment.billingPeriod)}</strong></p>
-              <p>Saldo Restante: <strong className="text-[#8B7CFF]">{formatCurrency(selectedInvoiceForPayment.remainingBalance)}</strong></p>
+              <p>Saldo Restante: <strong className="text-emerald-400">{formatCurrency(selectedInvoiceForPayment.remainingBalance)}</strong></p>
             </div>
 
             {pixSuccess && (
@@ -547,7 +554,7 @@ export function StudentPortal({
                   max={selectedInvoiceForPayment.remainingBalance}
                   value={paymentAmount || ''}
                   onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
-                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none font-bold"
+                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-bold"
                   required
                 />
                 <p className="text-[10px] text-[#A1A1AA] mt-0.5">Pagamentos parciais são aceitos.</p>
@@ -560,7 +567,7 @@ export function StudentPortal({
                   value={transactionRef}
                   onChange={(e) => setTransactionRef(e.target.value)}
                   placeholder="Ex: E1842389120261029..."
-                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl font-mono text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl font-mono text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
                   required
                 />
               </div>
@@ -572,7 +579,7 @@ export function StudentPortal({
                   onChange={(e) => setPaymentNotes(e.target.value)}
                   placeholder="Ex: Pagamento efetuado via Nubank / Banco do Brasil às 14:20..."
                   rows={2}
-                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-[#8B7CFF] focus:outline-none"
+                  className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
                 />
               </div>
 
@@ -587,7 +594,7 @@ export function StudentPortal({
                 <button
                   type="submit"
                   disabled={isSubmittingPix}
-                  className="flex-1 py-2 px-3 bg-[#8B7CFF] hover:bg-[#7A6AE6] text-white rounded-xl font-semibold transition disabled:opacity-50 cursor-pointer"
+                  className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl font-semibold transition disabled:opacity-50 cursor-pointer"
                 >
                   {isSubmittingPix ? 'Enviando...' : 'Enviar Comprovante'}
                 </button>

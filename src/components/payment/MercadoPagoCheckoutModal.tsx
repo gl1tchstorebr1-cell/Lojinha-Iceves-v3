@@ -394,12 +394,16 @@ export function MercadoPagoCheckoutModal({
         {/* Modal Top Header */}
         <div className="p-5 border-b border-white/[0.08] flex items-center justify-between bg-[#19191D]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#009EE3]/15 text-[#009EE3] border border-[#009EE3]/30 flex items-center justify-center font-bold">
-              <span className="text-lg">MP</span>
+            <div className="w-10 h-10 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 flex items-center justify-center shrink-0 overflow-hidden shadow-md">
+              <img
+                src="/assets/aistudio/image_e4461e45.png"
+                alt="Logo ICEVES"
+                className="w-full h-full rounded-full object-cover"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-white text-base">Checkout Transparente</h3>
+                <h3 className="font-bold text-white text-base">Lojinha Iceves • Checkout</h3>
                 {gatewayStatus?.isProduction ? (
                   <span className="text-[10px] bg-emerald-500/15 text-emerald-400 font-semibold px-2 py-0.5 rounded-full border border-emerald-500/30">
                     Produção
@@ -411,7 +415,7 @@ export function MercadoPagoCheckoutModal({
                 )}
               </div>
               <p className="text-xs text-zinc-400">
-                Mercado Pago Pagamentos Integrados
+                Escola de Cristo ICEVES • Mercado Pago Pagamentos Integrados
               </p>
             </div>
           </div>
@@ -425,7 +429,7 @@ export function MercadoPagoCheckoutModal({
         </div>
 
         {/* Invoice Summary Banner */}
-        <div className="px-5 py-3.5 bg-gradient-to-r from-[#009EE3]/10 to-indigo-900/20 border-b border-white/[0.06] flex items-center justify-between text-xs">
+        <div className="px-5 py-3.5 bg-gradient-to-r from-[#009EE3]/10 to-emerald-900/20 border-b border-white/[0.06] flex items-center justify-between text-xs">
           <div>
             <span className="text-zinc-400 block text-[11px]">Cobrança Selecionada</span>
             <span className="font-mono font-semibold text-white">{invoice.id}</span>
