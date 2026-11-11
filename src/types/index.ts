@@ -13,6 +13,7 @@ export interface User {
   guardianId?: string; // If role is GUARDIAN
   createdAt: string;
   lastLogin?: string;
+  password?: string;
 }
 
 export type PayerOption = 'STUDENT' | 'GUARDIAN' | 'BOTH' | 'STUDENT_ONLY' | 'GUARDIAN_ONLY';
@@ -294,7 +295,7 @@ export interface SystemSettings {
   cnpj: string;
   storeName: string;
   currentCohortName?: string; // ex: '10ª Turma'
-  cohortsPerSemester?: number; // ex: 2 (1 turma por vez)
+  cohortsPerSemester?: number; // ex: 1 (1 turma por semestre / 1 turma por vez)
   graduationStartDay?: number; // ex: 27
   graduationEndDay?: number; // ex: 30
   closingDay: 'LAST_DAY' | number; // 'LAST_DAY' ou número de 1 a 30

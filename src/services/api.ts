@@ -53,6 +53,13 @@ export const api = {
     });
   },
 
+  async register(userData: { email: string; password: string; name: string; role?: string; phone?: string }) {
+    return request<{ user: User; token: string }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(userData)
+    });
+  },
+
   async resetPassword(email: string) {
     return request<{ message: string; maskedEmail: string }>('/api/auth/reset-password', {
       method: 'POST',

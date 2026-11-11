@@ -409,7 +409,7 @@ export function SystemSettingsView({
           <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828] grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div>
               <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Regime de Turmas</span>
-              <span className="text-[#F5F5F5] font-semibold mt-0.5 block">1 turma por vez (2 turmas por semestre)</span>
+              <span className="text-[#F5F5F5] font-semibold mt-0.5 block">1 turma por vez (1 turma por semestre)</span>
             </div>
             <div>
               <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Turma Atual</span>

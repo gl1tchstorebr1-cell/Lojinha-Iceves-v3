@@ -234,7 +234,7 @@ export function Dashboard({
               </span>
             </div>
             <p className="text-[11px] text-zinc-400 mt-0.5">
-              1 turma por vez • 2 turmas por semestre • {students.length} alunos ativos cadastrados na Lojinha Iceves
+              1 turma por vez • 1 turma por semestre • {students.length} alunos ativos cadastrados na Lojinha Iceves
             </p>
           </div>
         </div>

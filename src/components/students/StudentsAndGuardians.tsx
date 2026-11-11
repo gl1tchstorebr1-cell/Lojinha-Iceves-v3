@@ -214,7 +214,7 @@ export function StudentsAndGuardians({
               </span>
             </div>
             <p className="text-xs text-[#A1A1AA] mt-1">
-              Na Escola de Cristo no ICEVES opera-se 1 turma por vez (2 turmas por semestre). No momento encontra-se na <strong>10ª Turma</strong>, com formatura do <strong>dia 27 ao dia 30</strong>.
+              Na Escola de Cristo no ICEVES opera-se 1 turma por vez (1 turma por semestre). No momento encontra-se na <strong>10ª Turma</strong>, com formatura do <strong>dia 27 ao dia 30</strong>.
             </p>
           </div>
 
@@ -269,7 +269,7 @@ export function StudentsAndGuardians({
             </div>
             <div>
               <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Formato no ICEVES</span>
-              <span className="text-[#F5F5F5] font-bold">1 turma por vez • 2 por semestre</span>
+              <span className="text-[#F5F5F5] font-bold">1 turma por vez • 1 por semestre</span>
             </div>
           </div>
 

@@ -535,43 +535,39 @@ export function Sidebar({
                 <MoreVertical className="w-4 h-4" />
               </button>
 
-              {/* User Persona & Logout Popover */}
+              {/* User Account & Logout Popover */}
               <AnimatePresence>
                 {showUserMenu && (
                   <motion.div
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-full left-0 right-0 mb-2 p-2 bg-[#18181b] border border-white/[0.12] rounded-xl shadow-2xl z-50 text-xs space-y-1"
+                    className="absolute bottom-full left-0 right-0 mb-2 p-3 bg-[#18181b] border border-white/[0.12] rounded-xl shadow-2xl z-50 text-xs space-y-2.5"
                   >
-                    <div className="px-2 py-1 text-[10px] font-medium text-zinc-400 uppercase tracking-wider border-b border-white/[0.06]">
-                      Alternar Perfil Demo
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Sessão Ativa
+                      </div>
+                      <div className="font-semibold text-white truncate text-xs">{user?.name}</div>
+                      <div className="text-[11px] text-zinc-400 truncate">{user?.email}</div>
+                      <div className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                        {user?.role === 'ADMIN' ? 'Administrador' :
+                         user?.role === 'CASHIER' ? 'Operador de Caixa' :
+                         user?.role === 'STUDENT' ? 'Aluno (10ª Turma)' : 'Responsável'}
+                      </div>
                     </div>
-                    {allDemoUsers.map(u => (
-                      <button
-                        key={u.id}
-                        onClick={() => {
-                          switchPersona(u.id);
-                          setShowUserMenu(false);
-                        }}
-                        className={`w-full text-left px-2 py-1.5 rounded-lg flex items-center justify-between text-xs transition cursor-pointer ${
-                          user?.id === u.id ? 'bg-white text-black font-semibold' : 'text-zinc-300 hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        <span className="truncate">{u.name}</span>
-                        <span className="text-[10px] opacity-70 ml-1">{u.role}</span>
-                      </button>
-                    ))}
-                    <div className="border-t border-white/[0.06] pt-1 mt-1">
+
+                    <div className="border-t border-white/[0.08] pt-2">
                       <button
                         onClick={() => {
                           logout();
                           setShowUserMenu(false);
                         }}
-                        className="w-full text-left px-2 py-1.5 text-xs text-red-400 hover:bg-red-500/10 rounded-lg flex items-center gap-2 cursor-pointer font-medium"
+                        className="w-full text-left px-2.5 py-2 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg flex items-center gap-2 cursor-pointer font-medium transition"
                       >
-                        <LogOut className="w-3.5 h-3.5" />
-                        <span>Sair do Sistema</span>
+                        <LogOut className="w-4 h-4 shrink-0" />
+                        <span>Encerrar Sessão (Sair)</span>
                       </button>
                     </div>
                   </motion.div>

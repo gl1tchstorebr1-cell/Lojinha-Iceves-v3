@@ -20,7 +20,8 @@ import {
   X,
   Bell,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  LogOut
 } from 'lucide-react';
 import { SystemSettings, Product, PixPayment } from '../../types';
 
@@ -209,14 +210,30 @@ export function TopBar({
             <Settings className="w-4 h-4" />
           </button>
 
-          {/* User Profile Avatar */}
-          <div className="flex items-center gap-2 pl-1 border-l border-white/[0.08]">
+          {/* User Profile & Logout */}
+          <div className="flex items-center gap-2.5 pl-2 border-l border-white/[0.08]">
+            <div className="hidden sm:flex flex-col items-end leading-tight">
+              <span className="text-xs font-semibold text-zinc-200 max-w-[140px] truncate">
+                {user?.name}
+              </span>
+              <span className="text-[10px] text-emerald-400 font-medium">
+                {user?.registrationNumber || user?.role}
+              </span>
+            </div>
             <img
               src={user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
               alt={user?.name || 'Perfil'}
               className="w-7 h-7 rounded-full object-cover border border-white/20 shrink-0"
               title={`${user?.name} (${user?.role})`}
             />
+            <button
+              onClick={logout}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors cursor-pointer text-xs font-medium"
+              title="Encerrar sessão e voltar ao login"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Sair</span>
+            </button>
           </div>
         </div>
       </header>

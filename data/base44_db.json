@@ -37,6 +37,7 @@
       "name": "Coordenação ICEVES",
       "email": "admin.lojinha@gmail.com",
       "role": "ADMIN",
+      "password": "Admin#Iceves2026",
       "phone": "(11) 98765-4321",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%233B82F6%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%231D4ED8%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3ECI%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "createdAt": "2026-01-15T08:00:00Z"
@@ -46,6 +47,7 @@
       "name": "Atendimento Lojinha Iceves",
       "email": "caixa.lojinha@gmail.com",
       "role": "CASHIER",
+      "password": "Caixa#Iceves2026",
       "phone": "(11) 97654-3210",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23F59E0B%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23B45309%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3ELI%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "createdAt": "2026-02-01T08:00:00Z"
@@ -55,6 +57,7 @@
       "name": "Ana Vitória Lisboa",
       "email": "ana.lisboa@gmail.com",
       "role": "STUDENT",
+      "password": "Aluno#Iceves2026",
       "studentId": "student-1",
       "phone": "(11) 99100-1001",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EAL%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
@@ -65,6 +68,7 @@
       "name": "Beatriz Gomes Ramos",
       "email": "beatriz.ramos@gmail.com",
       "role": "STUDENT",
+      "password": "Aluno#Iceves2026",
       "studentId": "student-2",
       "phone": "(11) 99100-1002",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EBR%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
@@ -75,6 +79,7 @@
       "name": "Responsável / Família ICEVES",
       "email": "familia.iceves@gmail.com",
       "role": "GUARDIAN",
+      "password": "Familia#Iceves2026",
       "guardianId": "guardian-1",
       "phone": "(11) 98111-2233",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%236366F1%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%234338CA%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EFI%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
@@ -146,8 +151,8 @@
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EBR%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "status": "ACTIVE",
       "defaultTuition": 0,
-      "currentConsumptionBalance": 0,
-      "totalOpenDebt": 0,
+      "currentConsumptionBalance": 24,
+      "totalOpenDebt": 24,
       "payerRule": "BOTH",
       "reportRecipientRule": "BOTH",
       "dueReminderRecipientRule": "BOTH",
@@ -167,7 +172,7 @@
       "classGroup": "10ª Turma • Escola de Cristo (Formatura 27 a 30)",
       "email": "calebe.viana@gmail.com",
       "phone": "(11) 99100-1003",
-      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%236366F1%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%234338CA%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3ECV%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
+      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3ECV%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "status": "ACTIVE",
       "defaultTuition": 0,
       "currentConsumptionBalance": 0,
@@ -215,7 +220,7 @@
       "classGroup": "10ª Turma • Escola de Cristo (Formatura 27 a 30)",
       "email": "daniel.ferreira@gmail.com",
       "phone": "(11) 99100-1005",
-      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%238B5CF6%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%236D28D9%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EDF%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
+      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23059669%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23064E3B%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EDF%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "status": "ACTIVE",
       "defaultTuition": 0,
       "currentConsumptionBalance": 0,
@@ -287,7 +292,7 @@
       "classGroup": "10ª Turma • Escola de Cristo (Formatura 27 a 30)",
       "email": "ezequiel.goona@gmail.com",
       "phone": "(11) 99100-1008",
-      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%236366F1%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%234338CA%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EEG%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
+      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EEG%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "status": "ACTIVE",
       "defaultTuition": 0,
       "currentConsumptionBalance": 0,
@@ -407,7 +412,7 @@
       "classGroup": "10ª Turma • Escola de Cristo (Formatura 27 a 30)",
       "email": "maria.serra@gmail.com",
       "phone": "(11) 99100-1013",
-      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%238B5CF6%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%236D28D9%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EMS%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
+      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23059669%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23064E3B%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EMS%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "status": "ACTIVE",
       "defaultTuition": 0,
       "currentConsumptionBalance": 0,
@@ -431,7 +436,7 @@
       "classGroup": "10ª Turma • Escola de Cristo (Formatura 27 a 30)",
       "email": "pedro.lima@gmail.com",
       "phone": "(11) 99100-1014",
-      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%236366F1%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%234338CA%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EPL%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
+      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EPL%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "status": "ACTIVE",
       "defaultTuition": 0,
       "currentConsumptionBalance": 0,
@@ -503,7 +508,7 @@
       "classGroup": "10ª Turma • Escola de Cristo (Formatura 27 a 30)",
       "email": "victoria.lozada@gmail.com",
       "phone": "(11) 99100-1017",
-      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%236366F1%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%234338CA%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EVL%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
+      "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EVL%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "status": "ACTIVE",
       "defaultTuition": 0,
       "currentConsumptionBalance": 0,
@@ -569,12 +574,12 @@
       "price": 12,
       "internalCode": "SAL-003",
       "barcode": "7891000103",
-      "currentStock": 17,
+      "currentStock": 15,
       "minStock": 8,
       "status": "ACTIVE",
       "unit": "un",
       "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-29T19:16:32.524Z",
+      "updatedAt": "2026-11-11T16:52:31.100Z",
       "images": [
         "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1553909489-cd47e0907980?w=500&auto=format&fit=crop&q=80",
@@ -723,7 +728,7 @@
       "imageUrl": "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80"
     },
     {
-      "id": "prod-8",
+      "id": "prod-14",
       "name": "Detergente Líquido Neutro Concentrado 500ml",
       "category": "Produtos de Limpeza",
       "price": 4.8,
@@ -743,7 +748,7 @@
       "updatedAt": "2026-10-20T08:00:00Z"
     },
     {
-      "id": "prod-9",
+      "id": "prod-15",
       "name": "Álcool 70% Spray Higienizador 500ml",
       "category": "Produtos de Limpeza",
       "price": 9.9,
@@ -763,7 +768,7 @@
       "updatedAt": "2026-10-20T08:00:00Z"
     },
     {
-      "id": "prod-10",
+      "id": "prod-16",
       "name": "Pano de Microfibra Multiuso (Kit 3 unidades)",
       "category": "Produtos de Limpeza",
       "price": 14.5,
@@ -864,6 +869,20 @@
   ],
   "stockMovements": [
     {
+      "id": "MOV-1794415951100-597",
+      "productId": "prod-3",
+      "productName": "Sanduíche Natural Peito de Frango",
+      "type": "SAIDA_VENDA",
+      "quantity": -2,
+      "previousStock": 17,
+      "newStock": 15,
+      "reason": "Venda VEN-951100 - Aluno: Beatriz Gomes Ramos",
+      "performedByUserId": "user-admin",
+      "performedByUserName": "Coordenação ICEVES",
+      "referenceId": "VEN-951100",
+      "timestamp": "2026-11-11T16:52:31.100Z"
+    },
+    {
       "id": "MOV-1793301392524-166",
       "productId": "prod-3",
       "productName": "Sanduíche Natural Peito de Frango",
@@ -961,8 +980,44 @@
       "timestamp": "2026-10-20T09:00:00Z"
     }
   ],
-  "sales": [],
-  "financialLedger": [],
+  "sales": [
+    {
+      "id": "VEN-951100",
+      "studentId": "student-2",
+      "studentName": "Beatriz Gomes Ramos",
+      "registrationNumber": "EC10-002",
+      "items": [
+        {
+          "productId": "prod-3",
+          "name": "Sanduíche Natural Peito de Frango",
+          "category": "Alimentícios",
+          "unitPrice": 12,
+          "quantity": 2,
+          "subtotal": 24
+        }
+      ],
+      "total": 24,
+      "operatorUserId": "user-admin",
+      "operatorUserName": "Coordenação ICEVES",
+      "status": "COMPLETED",
+      "billingPeriod": "2026-11",
+      "idempotencyKey": "IDEMP-1794415951218-4507",
+      "createdAt": "2026-11-11T16:52:31.100Z"
+    }
+  ],
+  "financialLedger": [
+    {
+      "id": "LED-1794415951100-78",
+      "timestamp": "2026-11-11T16:52:31.100Z",
+      "studentId": "student-2",
+      "type": "DEBITO",
+      "category": "CONSUMO_LOJINHA",
+      "amount": 24,
+      "description": "Consumo Lojinha - Venda VEN-951100 (1 itens)",
+      "documentRef": "VEN-951100",
+      "performedByUserName": "Coordenação ICEVES"
+    }
+  ],
   "invoices": [],
   "pixPayments": [],
   "whatsappNotifications": [
@@ -981,6 +1036,72 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "AUD-1794418437684-275",
+      "timestamp": "2026-11-11T17:33:57.684Z",
+      "userId": "user-guardian-1",
+      "userName": "Responsável / Família ICEVES",
+      "userRole": "GUARDIAN",
+      "action": "LOGIN_USUARIO",
+      "module": "AUTH",
+      "details": "Login realizado com sucesso (familia.iceves@gmail.com - perfil GUARDIAN)",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794418437679-577",
+      "timestamp": "2026-11-11T17:33:57.679Z",
+      "userId": "user-cashier",
+      "userName": "Atendimento Lojinha Iceves",
+      "userRole": "CASHIER",
+      "action": "LOGIN_USUARIO",
+      "module": "AUTH",
+      "details": "Login realizado com sucesso (caixa.lojinha@gmail.com - perfil CASHIER)",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794418437675-132",
+      "timestamp": "2026-11-11T17:33:57.675Z",
+      "userId": "user-student-1",
+      "userName": "Ana Vitória Lisboa",
+      "userRole": "STUDENT",
+      "action": "LOGIN_USUARIO",
+      "module": "AUTH",
+      "details": "Login realizado com sucesso (ana.lisboa@gmail.com - perfil STUDENT)",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794418437671-614",
+      "timestamp": "2026-11-11T17:33:57.671Z",
+      "userId": "user-student-1",
+      "userName": "Ana Vitória Lisboa",
+      "userRole": "STUDENT",
+      "action": "LOGIN_USUARIO",
+      "module": "AUTH",
+      "details": "Login realizado com sucesso (ana.lisboa@gmail.com - perfil STUDENT)",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794418437651-163",
+      "timestamp": "2026-11-11T17:33:57.651Z",
+      "userId": "user-admin",
+      "userName": "Coordenação ICEVES",
+      "userRole": "ADMIN",
+      "action": "LOGIN_USUARIO",
+      "module": "AUTH",
+      "details": "Login realizado com sucesso (admin.lojinha@gmail.com - perfil ADMIN)",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794415951100-100",
+      "timestamp": "2026-11-11T16:52:31.100Z",
+      "userId": "user-admin",
+      "userName": "Coordenação ICEVES",
+      "userRole": "ADMIN",
+      "action": "REGISTRO_VENDA_PDV",
+      "module": "VENDAS",
+      "details": "Venda VEN-951100 (R$ 24.00) para o aluno Beatriz Gomes Ramos registrada na conta mensal.",
+      "status": "SUCESSO"
+    },
     {
       "id": "AUD-1794334316004-658",
       "timestamp": "2026-11-10T18:11:56.004Z",

@@ -33,15 +33,22 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  username TEXT,
   email TEXT NOT NULL UNIQUE,
+  password TEXT,
   role TEXT NOT NULL CHECK (role IN ('ADMIN', 'CASHIER', 'STUDENT', 'GUARDIAN')),
   phone TEXT,
   avatar TEXT,
   student_id TEXT,
+  registration_number TEXT,
   guardian_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   last_login TIMESTAMPTZ
 );
+
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS registration_number TEXT;
 
 -- 4. Tabela de Responsáveis (Guardians)
 CREATE TABLE IF NOT EXISTS guardians (

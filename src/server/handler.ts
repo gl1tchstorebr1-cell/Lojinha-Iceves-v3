@@ -1,5 +1,5 @@
 import { db } from './db.ts';
-import { UserRole } from '../types/index.ts';
+import { User, UserRole } from '../types/index.ts';
 import { checkSupabaseConnection, syncAllToSupabase, syncFromSupabase } from './supabase.ts';
 import {
   getMercadoPagoStatus,
@@ -49,19 +49,126 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     if (pathname === '/api/auth/login' && method === 'POST') {
       const { email, password } = req.body || {};
       const users = db.getUsers();
-      const user = users.find(u => u.email.toLowerCase() === (email || '').toLowerCase().trim());
+      const cleanEmail = (email || '').toLowerCase().trim();
       
-      if (!user) {
-        return { status: 401, data: { error: 'E-mail ou credenciais não encontrados.' } };
+      if (!cleanEmail) {
+        return { status: 400, data: { error: 'Informe seu e-mail ou matrícula para continuar.' } };
       }
 
-      // Check simple passwords (in demo all accounts use their pre-established passwords)
+      if (!password) {
+        return { status: 400, data: { error: 'A senha é obrigatória para efetuar o login.' } };
+      }
+
+      // Check direct email match or alias
+      let user = users.find(u => 
+        u.email.toLowerCase() === cleanEmail ||
+        (cleanEmail === 'admin@iceves.edu.br' && u.email === 'admin.lojinha@gmail.com') ||
+        (cleanEmail === 'caixa@iceves.edu.br' && u.email === 'caixa.lojinha@gmail.com') ||
+        (cleanEmail === 'familia@iceves.edu.br' && u.email === 'familia.iceves@gmail.com')
+      );
+      
+      // If not found directly, check if a student was referenced by matricula or email
+      if (!user) {
+        const student = db.getStudents().find(
+          s => s.registrationNumber.toLowerCase() === cleanEmail || 
+               s.email.toLowerCase() === cleanEmail ||
+               s.name.toLowerCase() === cleanEmail
+        );
+        if (student) {
+          user = users.find(u => u.studentId === student.id || u.email.toLowerCase() === student.email.toLowerCase());
+          if (!user) {
+            user = {
+              id: `user-${student.id}`,
+              name: student.name,
+              email: student.email,
+              role: 'STUDENT',
+              studentId: student.id,
+              phone: student.phone,
+              avatar: student.avatar,
+              password: 'Aluno#Iceves2026',
+              createdAt: student.createdAt,
+            };
+            users.push(user);
+          }
+        }
+      }
+
+      if (!user) {
+        return { status: 401, data: { error: 'E-mail, matrícula ou usuário não encontrados no sistema.' } };
+      }
+
+      // Check real passwords strictly
+      const expectedPassword = user.password || (
+        user.role === 'ADMIN' ? 'Admin#Iceves2026' :
+        user.role === 'CASHIER' ? 'Caixa#Iceves2026' :
+        user.role === 'STUDENT' ? 'Aluno#Iceves2026' :
+        'Familia#Iceves2026'
+      );
+
+      if (password.trim() !== expectedPassword.trim()) {
+        return { 
+          status: 401, 
+          data: { error: 'Senha incorreta para esta conta. Verifique a senha digitada.' } 
+        };
+      }
+
+      db.logAudit(
+        user.id,
+        user.name,
+        user.role,
+        'LOGIN_USUARIO',
+        'AUTH',
+        `Login realizado com sucesso (${user.email} - perfil ${user.role})`
+      );
+
       return { 
         status: 200, 
         data: { 
           user, 
           token: `token_${user.id}_${Date.now()}` 
         } 
+      };
+    }
+
+    if (pathname === '/api/auth/register' && method === 'POST') {
+      const { email, password, name, role, phone } = req.body || {};
+      if (!email || !password || !name) {
+        return { status: 400, data: { error: 'Nome, e-mail e senha são obrigatórios.' } };
+      }
+
+      const users = db.getUsers();
+      if (users.some(u => u.email.toLowerCase() === email.toLowerCase().trim())) {
+        return { status: 409, data: { error: 'Já existe uma conta cadastrada com este e-mail.' } };
+      }
+
+      const newUser: User = {
+        id: `user-${Date.now()}`,
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
+        role: role || 'STUDENT',
+        phone: phone || '',
+        password: password.trim(),
+        createdAt: new Date().toISOString()
+      };
+
+      users.push(newUser);
+      (db as any).saveDatabase?.();
+
+      db.logAudit(
+        newUser.id,
+        newUser.name,
+        newUser.role,
+        'CRIAR_CONTA',
+        'AUTH',
+        `Nova conta registrada no sistema: ${newUser.email} (${newUser.role})`
+      );
+
+      return {
+        status: 201,
+        data: {
+          user: newUser,
+          token: `token_${newUser.id}_${Date.now()}`
+        }
       };
     }
 

@@ -30,7 +30,9 @@ import {
   initialPixPayments, 
   initialWhatsAppNotifications, 
   initialAuditLogs, 
-  initialSettings 
+  initialSettings,
+  slugifyUsername,
+  slugifyEmail
 } from './seedData.ts';
 
 export interface DatabaseSchema {
@@ -104,20 +106,29 @@ class DatabaseService {
           needsSave = true;
         }
 
-        // Atualizar avatares SVG antigos que ainda tinham cores roxas/indigo para o degradê verde ICEVES
+        // Atualizar avatares SVG antigos e garantir vínculo com responsável e e-mail institucional ICEVES
         finalStudents = finalStudents.map(st => {
+          let updatedSt = { ...st };
           if (
-            !st.avatar ||
-            (st.avatar.startsWith('data:image/svg+xml') &&
-              (st.avatar.includes('6366F1') || st.avatar.includes('8B5CF6') || st.avatar.includes('4F46E5') || st.avatar.includes('7C3AED')))
+            !updatedSt.avatar ||
+            (updatedSt.avatar.startsWith('data:image/svg+xml') &&
+              (updatedSt.avatar.includes('6366F1') || updatedSt.avatar.includes('8B5CF6') || updatedSt.avatar.includes('4F46E5') || updatedSt.avatar.includes('7C3AED')))
           ) {
             needsSave = true;
-            return {
-              ...st,
-              avatar: getInitialsAvatar(st.name),
-            };
+            updatedSt.avatar = getInitialsAvatar(updatedSt.name);
           }
-          return st;
+          if (!Array.isArray(updatedSt.guardians) || updatedSt.guardians.length === 0) {
+            needsSave = true;
+            updatedSt.guardians = [
+              {
+                guardianId: 'guardian-1',
+                relationship: 'Responsável',
+                isPrimaryPayer: true,
+                canAccessPortal: true
+              }
+            ];
+          }
+          return updatedSt;
         });
 
         const loadedSettings: SystemSettings = {
@@ -130,6 +141,7 @@ class DatabaseService {
           storeName: parsed.settings?.storeName || 'Lojinha Iceves',
           tuitionBillingActive: false,
           defaultTuitionAmount: 0,
+          cohortsPerSemester: 1,
         };
 
         // Migração de produtos para as 4 categorias oficiais:
@@ -168,12 +180,48 @@ class DatabaseService {
           };
         });
 
-        // Se faltar itens em 'Produtos de Limpeza' ou 'Cosméticos', adiciona os da semente
+        // Garantir unicidade absoluta de IDs em finalProducts
+        const seenProductIds = new Set<string>();
+        const uniqueProducts: Product[] = [];
+        for (const p of finalProducts) {
+          if (!seenProductIds.has(p.id)) {
+            seenProductIds.add(p.id);
+            uniqueProducts.push(p);
+          } else {
+            // Se encontrar ID duplicado, gera novo ID sequencial único
+            let counter = 1;
+            let uniqueId = `${p.id}-alt-${counter}`;
+            while (seenProductIds.has(uniqueId)) {
+              counter++;
+              uniqueId = `${p.id}-alt-${counter}`;
+            }
+            seenProductIds.add(uniqueId);
+            uniqueProducts.push({
+              ...p,
+              id: uniqueId,
+            });
+            productsNeedsSave = true;
+          }
+        }
+        finalProducts = uniqueProducts;
+
+        // Se faltar itens em 'Produtos de Limpeza' ou 'Cosméticos', adiciona os da semente com verificação de unicidade
         const presentCategories = new Set(finalProducts.map(p => p.category));
         for (const cat of VALID_CATEGORIES) {
           if (!presentCategories.has(cat)) {
             const seedItems = initialProducts.filter(p => p.category === cat);
-            finalProducts.push(...seedItems);
+            for (const item of seedItems) {
+              let itemId = item.id;
+              if (seenProductIds.has(itemId)) {
+                let counter = 1;
+                while (seenProductIds.has(`${itemId}-${counter}`)) {
+                  counter++;
+                }
+                itemId = `${itemId}-${counter}`;
+              }
+              seenProductIds.add(itemId);
+              finalProducts.push({ ...item, id: itemId });
+            }
             productsNeedsSave = true;
           }
         }
@@ -182,9 +230,58 @@ class DatabaseService {
           needsSave = true;
         }
 
+        // Garantir que todos os perfis reais (Admin, Caixa, Responsável e os 17 Alunos da 10ª Turma) tenham usuário e senha estruturados
+        const existingUsers: User[] = Array.isArray(parsed.users) ? parsed.users : [];
+        const baseRoles = initialUsers.filter(u => u.role !== 'STUDENT');
+        const finalUsers: User[] = [];
+
+        for (const seedStaff of baseRoles) {
+          const found = existingUsers.find(u => u.id === seedStaff.id || u.role === seedStaff.role);
+          if (!found || !found.username || !found.password) {
+            needsSave = true;
+          }
+          finalUsers.push({
+            ...seedStaff,
+            lastLogin: found?.lastLogin,
+            password: found?.password || seedStaff.password,
+            username: seedStaff.username,
+            email: seedStaff.email,
+            avatar: getInitialsAvatar(seedStaff.name),
+          });
+        }
+
+        // Vincular cada um dos 17 alunos (e eventuais alunos extras) a uma conta de usuário individual real
+        finalStudents.forEach((st, idx) => {
+          const num = idx + 1;
+          const uname = slugifyUsername(st.name);
+          const instEmail = `${uname}@iceves.com.br`;
+          const foundUser = existingUsers.find(
+            u => u.studentId === st.id || u.id === `user-student-${num}` || u.name.toLowerCase() === st.name.toLowerCase()
+          );
+
+          if (!foundUser || !foundUser.username || !foundUser.password || !foundUser.registrationNumber) {
+            needsSave = true;
+          }
+
+          finalUsers.push({
+            id: foundUser?.id || `user-student-${num}`,
+            name: st.name,
+            username: foundUser?.username || uname,
+            email: instEmail,
+            password: foundUser?.password || `Aluno@${1000 + num}`,
+            role: 'STUDENT',
+            studentId: st.id,
+            registrationNumber: st.registrationNumber,
+            phone: st.phone,
+            avatar: st.avatar || getInitialsAvatar(st.name),
+            createdAt: foundUser?.createdAt || st.createdAt,
+            lastLogin: foundUser?.lastLogin,
+          });
+        });
+
         const loadedData: DatabaseSchema = {
           settings: loadedSettings,
-          users: hasOldFictionalStudents ? initialUsers : (parsed.users || initialUsers),
+          users: finalUsers,
           guardians: hasOldFictionalStudents ? initialGuardians : (parsed.guardians || initialGuardians),
           students: finalStudents,
           products: finalProducts,
@@ -676,8 +773,13 @@ class DatabaseService {
         ? productData.images.filter(Boolean).slice(0, 3)
         : (productData.imageUrl ? [productData.imageUrl] : []);
 
+      let generatedId = `prod-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      while (this.data.products.some(p => p.id === generatedId)) {
+        generatedId = `prod-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      }
+
       const newProduct: Product = {
-        id: `prod-${Date.now().toString().slice(-4)}`,
+        id: generatedId,
         name: productData.name || 'Novo Produto',
         category: (productData.category as ProductCategory) || 'Alimentícios',
         price: Number(productData.price) || 0,
@@ -1232,12 +1334,14 @@ class DatabaseService {
 
     Object.assign(student, updates);
 
-    // Sincronizar nome e avatar caso exista usuário vinculado ao aluno
+    // Sincronizar nome, avatar e credenciais caso exista usuário vinculado ao aluno
     for (const u of this.data.users) {
       if (u.studentId === student.id) {
         if (updates.name) u.name = updates.name;
         if (updates.avatar) u.avatar = updates.avatar;
         if (updates.email) u.email = updates.email;
+        if (updates.registrationNumber) u.registrationNumber = updates.registrationNumber;
+        this.triggerSupabaseSync('users', u, 'mapUserToSupabase');
       }
     }
 
@@ -1253,6 +1357,15 @@ class DatabaseService {
     this.saveDatabase();
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     return student;
+  }
+
+  public recordUserLogin(userId: string) {
+    const u = this.data.users.find(item => item.id === userId);
+    if (u) {
+      u.lastLogin = new Date().toISOString();
+      this.saveDatabase();
+      this.triggerSupabaseSync('users', u, 'mapUserToSupabase');
+    }
   }
 
   public createStudent(studentData: Partial<Student>, user: { id: string; name: string; role: any }) {
@@ -1284,17 +1397,34 @@ class DatabaseService {
 
     this.data.students.push(newStudent);
 
+    const uname = slugifyUsername(fullName);
+    const newStudentUser: User = {
+      id: `user-student-${nextNum}-${Date.now().toString().slice(-3)}`,
+      name: newStudent.name,
+      username: uname,
+      email: newStudent.email,
+      password: `Aluno@${1000 + nextNum}`,
+      role: 'STUDENT',
+      studentId: newStudent.id,
+      registrationNumber: newStudent.registrationNumber,
+      phone: newStudent.phone,
+      avatar: newStudent.avatar,
+      createdAt: newStudent.createdAt
+    };
+    this.data.users.push(newStudentUser);
+
     this.logAudit(
       user.id,
       user.name,
       user.role,
       'CADASTRAR_ALUNO',
       'CONFIGURACOES',
-      `Aluno ${newStudent.name} (${newStudent.registrationNumber}) adicionado à 10ª Turma.`
+      `Aluno ${newStudent.name} (${newStudent.registrationNumber}) adicionado à 10ª Turma com conta de acesso (${newStudentUser.username}).`
     );
 
     this.saveDatabase();
     this.triggerSupabaseSync('students', newStudent, 'mapStudentToSupabase');
+    this.triggerSupabaseSync('users', newStudentUser, 'mapUserToSupabase');
     return newStudent;
   }
 

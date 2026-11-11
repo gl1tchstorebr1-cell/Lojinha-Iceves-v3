@@ -108,6 +108,7 @@ export const initialUsers: User[] = [
     name: 'Coordenação ICEVES',
     email: 'admin.lojinha@gmail.com',
     role: 'ADMIN',
+    password: 'Admin#Iceves2026',
     phone: '(11) 98765-4321',
     avatar: getInitialsAvatar('Coordenação ICEVES'),
     createdAt: '2026-01-15T08:00:00Z'
@@ -117,6 +118,7 @@ export const initialUsers: User[] = [
     name: 'Atendimento Lojinha Iceves',
     email: 'caixa.lojinha@gmail.com',
     role: 'CASHIER',
+    password: 'Caixa#Iceves2026',
     phone: '(11) 97654-3210',
     avatar: getInitialsAvatar('Lojinha Iceves'),
     createdAt: '2026-02-01T08:00:00Z'
@@ -126,6 +128,7 @@ export const initialUsers: User[] = [
     name: 'Ana Vitória Lisboa',
     email: 'ana.lisboa@gmail.com',
     role: 'STUDENT',
+    password: 'Aluno#Iceves2026',
     studentId: 'student-1',
     phone: '(11) 99100-1001',
     avatar: getInitialsAvatar('Ana Vitória Lisboa'),
@@ -136,6 +139,7 @@ export const initialUsers: User[] = [
     name: 'Beatriz Gomes Ramos',
     email: 'beatriz.ramos@gmail.com',
     role: 'STUDENT',
+    password: 'Aluno#Iceves2026',
     studentId: 'student-2',
     phone: '(11) 99100-1002',
     avatar: getInitialsAvatar('Beatriz Gomes Ramos'),
@@ -146,6 +150,7 @@ export const initialUsers: User[] = [
     name: 'Responsável / Família ICEVES',
     email: 'familia.iceves@gmail.com',
     role: 'GUARDIAN',
+    password: 'Familia#Iceves2026',
     guardianId: 'guardian-1',
     phone: '(11) 98111-2233',
     avatar: getInitialsAvatar('Família ICEVES'),
@@ -313,7 +318,7 @@ export const initialProducts: Product[] = [
 
   // --- PRODUTOS DE LIMPEZA ---
   {
-    id: 'prod-8',
+    id: 'prod-14',
     name: 'Detergente Líquido Neutro Concentrado 500ml',
     category: 'Produtos de Limpeza',
     price: 4.80,
@@ -333,7 +338,7 @@ export const initialProducts: Product[] = [
     updatedAt: '2026-10-20T08:00:00Z'
   },
   {
-    id: 'prod-9',
+    id: 'prod-15',
     name: 'Álcool 70% Spray Higienizador 500ml',
     category: 'Produtos de Limpeza',
     price: 9.90,
@@ -353,7 +358,7 @@ export const initialProducts: Product[] = [
     updatedAt: '2026-10-20T08:00:00Z'
   },
   {
-    id: 'prod-10',
+    id: 'prod-16',
     name: 'Pano de Microfibra Multiuso (Kit 3 unidades)',
     category: 'Produtos de Limpeza',
     price: 14.50,

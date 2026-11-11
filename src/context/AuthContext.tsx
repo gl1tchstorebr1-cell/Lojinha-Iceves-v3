@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { api, setApiUserId } from '../services/api';
-import { initialUsers } from '../server/seedData';
+import { supabase } from '../services/supabaseClient';
 
 interface AuthContextType {
   user: User | null;
@@ -11,6 +11,7 @@ interface AuthContextType {
   isStudent: boolean;
   isGuardian: boolean;
   login: (email: string, password?: string) => Promise<void>;
+  register: (userData: { email: string; password: string; name: string; role?: UserRole; phone?: string }) => Promise<void>;
   logout: () => void;
   switchPersona: (userId: string) => void;
   allDemoUsers: User[];
@@ -27,13 +28,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setApiUserId(parsed.id);
         return parsed;
       } catch (e) {
-        // fallback
+        localStorage.removeItem('campus_user');
       }
     }
-    // Default to Admin for immediate exploration
-    const defaultUser = initialUsers[0];
-    setApiUserId(defaultUser.id);
-    return defaultUser;
+    // Sem bypass: obriga o usuário a entrar com credenciais reais
+    return null;
   });
 
   useEffect(() => {
@@ -47,34 +46,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const login = async (email: string, password?: string) => {
-    try {
-      const res = await api.login(email, password);
-      setUser(res.user);
-      setApiUserId(res.user.id);
-    } catch (err: any) {
-      // If server check fails or offline, match demo user
-      const matched = initialUsers.find(
-        u => u.email.toLowerCase() === email.toLowerCase() || u.name.toLowerCase().includes(email.toLowerCase())
-      );
-      if (matched) {
-        setUser(matched);
-        setApiUserId(matched.id);
-        return;
+    const cleanEmail = email.trim();
+    const cleanPass = password?.trim() || '';
+
+    // Tentativa direta com Supabase Auth se for e-mail válido
+    if (cleanEmail.includes('@') && cleanPass) {
+      try {
+        const { data: supaData, error: supaErr } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: cleanPass,
+        });
+
+        if (supaData?.session?.user) {
+          console.info('[Supabase Auth] Autenticado via Supabase com sucesso:', supaData.user.email);
+        } else if (supaErr) {
+          console.warn('[Supabase Auth] Informação da conexão Supabase:', supaErr.message);
+        }
+      } catch (err: any) {
+        console.warn('[Supabase Auth] Tentando via banco do sistema:', err?.message);
       }
-      throw err;
     }
+
+    // Validação oficial com verificação de senha no servidor
+    const res = await api.login(cleanEmail, cleanPass);
+    setUser(res.user);
+    setApiUserId(res.user.id);
+  };
+
+  const register = async (userData: { email: string; password: string; name: string; role?: UserRole; phone?: string }) => {
+    const cleanEmail = userData.email.trim();
+    const cleanPass = userData.password.trim();
+
+    // Registrar no Supabase Auth
+    try {
+      const { data: supaData, error: supaErr } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: cleanPass,
+        options: {
+          data: {
+            name: userData.name.trim(),
+            role: userData.role || 'STUDENT',
+          }
+        }
+      });
+      if (supaErr) {
+        console.warn('[Supabase Auth SignUp]:', supaErr.message);
+      } else if (supaData?.user) {
+        console.info('[Supabase Auth SignUp] Conta provisionada no Supabase:', supaData.user.id);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase Auth] Falha no signup remoto:', err?.message);
+    }
+
+    // Registrar no sistema
+    const res = await api.register(userData);
+    setUser(res.user);
+    setApiUserId(res.user.id);
   };
 
   const logout = () => {
+    try {
+      supabase.auth.signOut().catch(() => {});
+    } catch (e) {
+      // ignore
+    }
     setUser(null);
+    localStorage.removeItem('campus_user');
+    setApiUserId('');
   };
 
+  // Mantido apenas por compatibilidade de tipo
   const switchPersona = (userId: string) => {
-    const found = initialUsers.find(u => u.id === userId);
-    if (found) {
-      setUser(found);
-      setApiUserId(found.id);
-    }
+    console.info('[Auth] Acesso rápido desabilitado. Utilize o formulário oficial de login.');
   };
 
   const role = user?.role || null;
@@ -93,9 +136,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isStudent,
         isGuardian,
         login,
+        register,
         logout,
         switchPersona,
-        allDemoUsers: initialUsers
+        allDemoUsers: []
       }}
     >
       {children}
