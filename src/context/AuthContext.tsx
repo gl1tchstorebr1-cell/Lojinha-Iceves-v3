@@ -13,8 +13,6 @@ interface AuthContextType {
   login: (email: string, password?: string) => Promise<void>;
   register: (userData: { email: string; password: string; name: string; role?: UserRole; phone?: string }) => Promise<void>;
   logout: () => void;
-  switchPersona: (userId: string) => void;
-  allDemoUsers: User[];
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,7 +29,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('campus_user');
       }
     }
-    // Sem bypass: obriga o usuário a entrar com credenciais reais
     return null;
   });
 
@@ -49,7 +46,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const cleanEmail = email.trim();
     const cleanPass = password?.trim() || '';
 
-    // Tentativa direta com Supabase Auth se for e-mail válido
     if (cleanEmail.includes('@') && cleanPass) {
       try {
         const { data: supaData, error: supaErr } = await supabase.auth.signInWithPassword({
@@ -67,7 +63,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Validação oficial com verificação de senha no servidor
     const res = await api.login(cleanEmail, cleanPass);
     setUser(res.user);
     setApiUserId(res.user.id);
@@ -77,7 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const cleanEmail = userData.email.trim();
     const cleanPass = userData.password.trim();
 
-    // Registrar no Supabase Auth
     try {
       const { data: supaData, error: supaErr } = await supabase.auth.signUp({
         email: cleanEmail,
@@ -98,7 +92,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn('[Supabase Auth] Falha no signup remoto:', err?.message);
     }
 
-    // Registrar no sistema
     const res = await api.register(userData);
     setUser(res.user);
     setApiUserId(res.user.id);
@@ -113,11 +106,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     localStorage.removeItem('campus_user');
     setApiUserId('');
-  };
-
-  // Mantido apenas por compatibilidade de tipo
-  const switchPersona = (userId: string) => {
-    console.info('[Auth] Acesso rápido desabilitado. Utilize o formulário oficial de login.');
   };
 
   const role = user?.role || null;
@@ -137,9 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isGuardian,
         login,
         register,
-        logout,
-        switchPersona,
-        allDemoUsers: []
+        logout
       }}
     >
       {children}

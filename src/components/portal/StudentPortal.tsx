@@ -13,33 +13,57 @@ import {
   ShoppingBag,
   ExternalLink,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  Bus,
+  MapPin,
+  Users,
+  Utensils,
+  BookOpen,
+  Droplets,
+  Package,
+  Filter
 } from 'lucide-react';
-import { Student, Sale, Invoice, PixPayment } from '../../types';
+import { Student, Sale, Invoice, PixPayment, Passeio, Product, ProductCategory } from '../../types';
 import { formatCurrency, formatDate, formatDateTime, formatPeriod } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { MercadoPagoCheckoutModal } from '../payment/MercadoPagoCheckoutModal';
 import { QrCodeDisplay } from '../common/QrCodeDisplay';
 
+const STUDENT_CATEGORIES: ProductCategory[] = [
+  'Alimentícios',
+  'Papelaria',
+  'Produtos de Limpeza',
+  'Cosméticos'
+];
+
 interface StudentPortalProps {
   student: Student;
+  allStudents?: Student[];
+  onSelectStudent?: (studentId: string) => void;
+  products?: Product[];
   sales: Sale[];
   invoices: Invoice[];
   pixPayments: PixPayment[];
+  passeios: Passeio[];
   onPaymentSubmitted: (payment: PixPayment) => void;
 }
 
 export function StudentPortal({ 
   student, 
+  allStudents = [],
+  onSelectStudent,
+  products = [],
   sales, 
   invoices, 
   pixPayments, 
+  passeios,
   onPaymentSubmitted 
 }: StudentPortalProps) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'consumption' | 'invoices'>('consumption');
+  const [activeTab, setActiveTab] = useState<'consumption' | 'invoices' | 'passeios'>('consumption');
+  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [copiedPixId, setCopiedPixId] = useState<string | null>(null);
 
   // Pix payment notification form
@@ -58,8 +82,57 @@ export function StudentPortal({
 
   // Student's own sales (unbilled consumption)
   const studentSales = sales.filter(s => s.studentId === student.id);
+  const completedStudentSales = studentSales.filter(s => s.status === 'COMPLETED');
   const studentInvoices = invoices.filter(i => i.studentId === student.id && i.status !== 'CANCELADA');
   const studentPix = pixPayments.filter(p => p.studentId === student.id);
+  // Active passeios automatically distributed to all students
+  const activePasseios = passeios.filter(p => p.ativo);
+
+  // Resolve product category from catalog or item name
+  const resolveItemCategory = (productId: string, itemName: string): ProductCategory => {
+    const found = products.find(p => p.id === productId);
+    if (found) return found.category;
+    const lower = itemName.toLowerCase();
+    if (lower.includes('caderno') || lower.includes('caneta') || lower.includes('marca-texto') || lower.includes('papel')) {
+      return 'Papelaria';
+    }
+    if (lower.includes('detergente') || lower.includes('álcool') || lower.includes('alcool') || lower.includes('pano') || lower.includes('limpeza')) {
+      return 'Produtos de Limpeza';
+    }
+    if (lower.includes('sabonete') || lower.includes('hidratante') || lower.includes('creme') || lower.includes('labial')) {
+      return 'Cosméticos';
+    }
+    return 'Alimentícios';
+  };
+
+  // Real category breakdown strictly from THIS student's own completed purchases
+  const categoryBreakdown = STUDENT_CATEGORIES.reduce(
+    (acc, cat) => {
+      acc[cat] = { spent: 0, items: 0, orders: 0 };
+      return acc;
+    },
+    {} as Record<ProductCategory, { spent: number; items: number; orders: number }>
+  );
+
+  let totalStudentSpentAllCategories = 0;
+  for (const sale of completedStudentSales) {
+    const catsInOrder = new Set<ProductCategory>();
+    for (const item of sale.items) {
+      const cat = resolveItemCategory(item.productId, item.name);
+      categoryBreakdown[cat].spent += item.subtotal;
+      categoryBreakdown[cat].items += item.quantity;
+      totalStudentSpentAllCategories += item.subtotal;
+      catsInOrder.add(cat);
+    }
+    catsInOrder.forEach(c => {
+      categoryBreakdown[c].orders += 1;
+    });
+  }
+
+  const filteredStudentSales = studentSales.filter(sale => {
+    if (selectedCategory === 'ALL') return true;
+    return sale.items.some(it => resolveItemCategory(it.productId, it.name) === selectedCategory);
+  });
 
   const copyPix = (code: string, id: string) => {
     navigator.clipboard.writeText(code);
@@ -177,96 +250,379 @@ export function StudentPortal({
               <span className="text-lg font-bold text-emerald-400">{formatCurrency(student.currentConsumptionBalance)}</span>
             </div>
             <div className="bg-[#151515] px-4 py-3 rounded-xl border border-[#282828] min-w-[140px]">
+              <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Passeios Disponíveis</span>
+              <span className="text-lg font-bold text-emerald-400">{activePasseios.length} passeio(s)</span>
+            </div>
+            <div className="bg-[#151515] px-4 py-3 rounded-xl border border-[#282828] min-w-[140px]">
               <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Saldo Devedor Total</span>
               <span className="text-lg font-bold text-[#F5F5F5]">{formatCurrency(student.totalOpenDebt)}</span>
             </div>
           </div>
         </div>
 
+        {/* Admin Student Selector to inspect any student's individual portal */}
+        {isAdmin && allStudents.length > 1 && onSelectStudent && (
+          <div className="mt-5 pt-4 border-t border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs text-[#A1A1AA]">
+              <Users className="w-4 h-4 text-emerald-400" />
+              <span>Visualizar área individual de outro aluno (10ª Turma):</span>
+            </div>
+            <select
+              value={student.id}
+              onChange={(e) => onSelectStudent(e.target.value)}
+              className="bg-[#151515] border border-[#303030] focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-[#F5F5F5] font-semibold outline-none cursor-pointer"
+            >
+              {allStudents.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name} ({st.registrationNumber})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Tab Toggle */}
-        <div className="flex bg-[#151515] p-1 rounded-xl mt-6 border border-[#282828] max-w-md">
+        <div className="flex flex-wrap bg-[#151515] p-1 rounded-xl mt-6 border border-[#282828] max-w-xl gap-1">
           <button
             onClick={() => setActiveTab('consumption')}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center justify-center gap-2 ${
               activeTab === 'consumption' ? 'bg-[#222222] text-[#F5F5F5] shadow-xs border border-[#303030]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
             }`}
           >
             <ShoppingBag className="w-4 h-4 text-emerald-400" />
-            Consumo no Balcão ({studentSales.length})
+            <span>Consumo no Balcão ({studentSales.length})</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('passeios')}
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center justify-center gap-2 ${
+              activeTab === 'passeios' ? 'bg-[#222222] text-[#F5F5F5] shadow-xs border border-[#303030]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
+            }`}
+          >
+            <Bus className="w-4 h-4 text-emerald-400" />
+            <span>Passeios ({activePasseios.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('invoices')}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center justify-center gap-2 ${
               activeTab === 'invoices' ? 'bg-[#222222] text-[#F5F5F5] shadow-xs border border-[#303030]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
             }`}
           >
             <QrCode className="w-4 h-4 text-emerald-400" />
-            Faturas & Pagamentos ({studentInvoices.length})
+            <span>Faturas & Pagamentos ({studentInvoices.length})</span>
           </button>
         </div>
       </div>
 
-      {activeTab === 'consumption' ? (
-        /* Detailed Consumption History */
+      {/* Seção Passeios (Visível na aba Passeios e em destaque na área individual do aluno) */}
+      {(activeTab === 'passeios' || activeTab === 'consumption') && (
         <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="font-bold text-[#F5F5F5] text-base">Extrato de Compras na Lojinha</h3>
-              <p className="text-xs text-[#A1A1AA]">
-                Itens consumidos no balcão consolidados na sua conta individual
-              </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <Bus className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-[#F5F5F5] text-base">Passeios</h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                    {activePasseios.length} disponível(is)
+                  </span>
+                </div>
+                <p className="text-xs text-[#A1A1AA]">
+                  Programação oficial de passeios e excursões da 10ª Turma — Escola de Cristo ICEVES
+                </p>
+              </div>
             </div>
-            <button
-              onClick={() => window.print()}
-              className="px-3.5 py-1.5 bg-[#222222] hover:bg-[#2A2A2A] border border-[#303030] rounded-xl text-xs font-medium text-[#F5F5F5] flex items-center gap-2 transition cursor-pointer self-start sm:self-auto"
-            >
-              <Printer className="w-3.5 h-3.5 text-[#A1A1AA]" />
-              Imprimir Extrato
-            </button>
           </div>
 
-          {studentSales.length === 0 ? (
-            <div className="py-12 text-center text-[#A1A1AA] text-xs">
-              Nenhuma compra registrada no seu nome até o momento.
+          {activePasseios.length === 0 ? (
+            <div className="py-10 text-center text-[#A1A1AA] text-xs bg-[#151515] rounded-xl border border-[#262626]">
+              Nenhum passeio ativo disponível no momento.
             </div>
           ) : (
-            <div className="divide-y divide-[#242424] border border-[#282828] rounded-xl overflow-hidden bg-[#151515]">
-              {studentSales.map(sale => (
-                <div key={sale.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#1A1A1A] transition">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {activePasseios.map((passeio) => (
+                <div
+                  key={passeio.id}
+                  className="p-4 rounded-xl bg-[#151515] border border-[#282828] hover:border-emerald-500/40 transition flex flex-col justify-between gap-3"
+                >
                   <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-emerald-400">{sale.id}</span>
-                      <span className="text-[11px] text-[#A1A1AA]">• {formatDateTime(sale.createdAt)}</span>
-                      {sale.status === 'REVERSED' && (
-                        <span className="text-[10px] bg-red-950/60 text-red-400 border border-red-800/50 font-semibold px-2 py-0.5 rounded-full">
-                          Compra Estornada
-                        </span>
-                      )}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <h4 className="font-bold text-[#F5F5F5] text-sm">
+                          {passeio.nome}
+                        </h4>
+                      </div>
+                      <span className="font-mono font-extrabold text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 rounded-lg shrink-0">
+                        {formatCurrency(passeio.valor)}
+                      </span>
                     </div>
-                    <div className="space-y-0.5">
-                      {sale.items.map((it, idx) => (
-                        <div key={idx} className="text-xs text-[#D4D4D8] flex items-center gap-2">
-                          <span className="font-semibold text-[#F5F5F5]">{it.quantity}x</span>
-                          <span>{it.name}</span>
-                          <span className="text-[#A1A1AA] font-mono text-[11px]">({formatCurrency(it.unitPrice)} un.)</span>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-[11px] text-[#71717A]">Atendido por: {sale.operatorUserName}</p>
+
+                    {passeio.descricao && (
+                      <p className="text-xs text-[#A1A1AA] leading-relaxed pl-6">
+                        {passeio.descricao}
+                      </p>
+                    )}
                   </div>
 
-                  <div className="text-right">
-                    <span className={`text-base font-bold ${sale.status === 'REVERSED' ? 'line-through text-[#71717A]' : 'text-[#F5F5F5]'}`}>
-                      {formatCurrency(sale.total)}
+                  <div className="pt-2 border-t border-[#222222] flex items-center justify-between text-[11px] pl-6">
+                    {passeio.dataPasseio ? (
+                      <span className="inline-flex items-center gap-1.5 text-[#D4D4D8] font-mono">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Data: {formatDate(passeio.dataPasseio)}</span>
+                      </span>
+                    ) : (
+                      <span className="text-[#71717A]">Data a confirmar pela coordenação</span>
+                    )}
+
+                    <span className="text-[10px] font-semibold text-emerald-400">
+                      10ª Turma ICEVES
                     </span>
-                    <span className="block text-[10px] text-[#A1A1AA]">Conta Mensal</span>
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
-      ) : (
+      )}
+
+      {activeTab === 'consumption' ? (
+        <div className="space-y-6">
+          {/* Student's Own Real Spending Dashboard by Category */}
+          <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <Package className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[#F5F5F5] text-base">
+                    Meu Dashboard de Gastos por Categoria — {student.name}
+                  </h3>
+                  <p className="text-xs text-[#A1A1AA]">
+                    Valores calculados exclusivamente a partir do seu próprio consumo real na Lojinha Iceves (Total: <strong className="text-emerald-400 font-mono">{formatCurrency(totalStudentSpentAllCategories)}</strong>)
+                  </p>
+                </div>
+              </div>
+
+              {selectedCategory !== 'ALL' && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory('ALL')}
+                  className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>Ver Todas as Categorias</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              {STUDENT_CATEGORIES.map((cat) => {
+                const stat = categoryBreakdown[cat];
+                const pct =
+                  totalStudentSpentAllCategories > 0
+                    ? (stat.spent / totalStudentSpentAllCategories) * 100
+                    : 0;
+                const isSelected = selectedCategory === cat;
+                const Icon =
+                  cat === 'Alimentícios'
+                    ? Utensils
+                    : cat === 'Papelaria'
+                    ? BookOpen
+                    : cat === 'Produtos de Limpeza'
+                    ? Droplets
+                    : Sparkles;
+
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setSelectedCategory(isSelected ? 'ALL' : cat)}
+                    className={`text-left p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                      isSelected
+                        ? 'bg-emerald-950/35 border-emerald-500 ring-1 ring-emerald-500/40'
+                        : 'bg-[#151515] border-[#282828] hover:border-emerald-500/40'
+                    }`}
+                  >
+                    <div className="space-y-2 w-full">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          <Icon className="w-3.5 h-3.5" />
+                          {cat}
+                        </span>
+                        <span className="text-[11px] font-mono text-[#A1A1AA]">
+                          {pct.toFixed(1)}%
+                        </span>
+                      </div>
+
+                      <div className="pt-1">
+                        <div className="text-xl font-bold text-[#F5F5F5] font-mono">
+                          {formatCurrency(stat.spent)}
+                        </div>
+                        <div className="text-[11px] text-[#A1A1AA] mt-0.5">
+                          {stat.items} item(ns) • {stat.orders} compra(s)
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="w-full space-y-1">
+                      <div className="w-full h-1.5 bg-[#242424] rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                          style={{ width: `${Math.min(100, Math.max(pct, stat.spent > 0 ? 6 : 0))}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-[#71717A]">
+                        <span>{stat.spent === 0 ? 'Sem gasto nesta categoria' : 'Seu consumo real'}</span>
+                        {isSelected && <span className="text-emerald-400 font-semibold">Filtrado</span>}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Detailed Consumption History */}
+          <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-[#F5F5F5] text-base">
+                  Extrato de Compras na Lojinha {selectedCategory !== 'ALL' ? `(${selectedCategory})` : ''}
+                </h3>
+                <p className="text-xs text-[#A1A1AA]">
+                  Itens consumidos no balcão consolidados na sua conta individual
+                </p>
+              </div>
+              <button
+                onClick={() => window.print()}
+                className="px-3.5 py-1.5 bg-[#222222] hover:bg-[#2A2A2A] border border-[#303030] rounded-xl text-xs font-medium text-[#F5F5F5] flex items-center gap-2 transition cursor-pointer self-start sm:self-auto"
+              >
+                <Printer className="w-3.5 h-3.5 text-[#A1A1AA]" />
+                Imprimir Extrato
+              </button>
+            </div>
+
+            {filteredStudentSales.length === 0 ? (
+              <div className="py-12 text-center text-[#A1A1AA] text-xs">
+                {selectedCategory === 'ALL'
+                  ? 'Nenhuma compra registrada no seu nome até o momento (R$ 0,00).'
+                  : `Nenhuma compra registrada na categoria "${selectedCategory}" no seu nome até o momento (R$ 0,00).`}
+              </div>
+            ) : (
+              <div className="divide-y divide-[#242424] border border-[#282828] rounded-xl overflow-hidden bg-[#151515]">
+                {filteredStudentSales.map(sale => {
+                  const displayItems =
+                    selectedCategory === 'ALL'
+                      ? sale.items
+                      : sale.items.filter(it => resolveItemCategory(it.productId, it.name) === selectedCategory);
+                  const displayTotal = displayItems.reduce((acc, it) => acc + it.subtotal, 0);
+                  const isTripLaunch = sale.origin === 'PDV_PASSEIOS';
+
+                  return (
+                    <div key={sale.id} className="p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3 hover:bg-[#1A1A1A] transition">
+                      <div className="space-y-2 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-semibold text-emerald-400">{sale.id}</span>
+                          <span className="text-[11px] text-[#A1A1AA]">• {formatDateTime(sale.createdAt)}</span>
+                          {isTripLaunch ? (
+                            <span className="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold px-2.5 py-0.5 rounded-md">
+                              Origem: PDV de Passeios
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-[#222222] text-[#A1A1AA] border border-[#303030] font-semibold px-2 py-0.5 rounded-md">
+                              Origem: Balcão PDV
+                            </span>
+                          )}
+                          {sale.status === 'REVERSED' && (
+                            <span className="text-[10px] bg-red-950/60 text-red-400 border border-red-800/50 font-semibold px-2 py-0.5 rounded-full">
+                              Lançamento Estornado
+                            </span>
+                          )}
+                        </div>
+
+                        {isTripLaunch && sale.tripName && (
+                          <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/25 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/15 pb-1.5">
+                              <h4 className="font-bold text-[#F5F5F5] text-sm">
+                                {sale.tripName} {sale.tripDate ? `— ${formatDate(sale.tripDate)}` : ''}
+                              </h4>
+                              {sale.tripDestination && (
+                                <span className="text-[11px] text-emerald-300 font-medium flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />
+                                  {sale.tripDestination}
+                                </span>
+                              )}
+                            </div>
+
+                            <ul className="space-y-1 pl-1">
+                              {displayItems.map((it, idx) => (
+                                <li key={idx} className="text-xs text-[#D4D4D8] flex items-center justify-between gap-3">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-emerald-400 font-bold">•</span>
+                                    <span className="font-semibold text-[#F5F5F5]">{it.name}:</span>
+                                    <span className="font-mono font-bold text-emerald-300">{formatCurrency(it.subtotal)}</span>
+                                    {it.category && (
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-white/[0.05] text-[#A1A1AA]">
+                                        {it.category}
+                                      </span>
+                                    )}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+
+                            <div className="pt-1.5 border-t border-emerald-500/15 flex flex-wrap items-center justify-between gap-2 text-xs">
+                              <span className="font-bold text-emerald-300">
+                                Valor total do passeio: {formatCurrency(displayTotal)}
+                              </span>
+                              <span className="text-[11px] text-[#A1A1AA]">
+                                Responsável pelo lançamento: {sale.operatorUserName}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {!isTripLaunch && (
+                          <>
+                            <div className="space-y-1">
+                              {displayItems.map((it, idx) => {
+                                const cat = resolveItemCategory(it.productId, it.name);
+                                return (
+                                  <div key={idx} className="text-xs text-[#D4D4D8] flex flex-wrap items-center gap-2">
+                                    <span className="font-semibold text-[#F5F5F5]">{it.quantity}x</span>
+                                    <span>{it.name}</span>
+                                    <span className="text-[#A1A1AA] font-mono text-[11px]">({formatCurrency(it.unitPrice)} un.)</span>
+                                    <span className="text-[10px] px-2 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                      {cat}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <p className="text-[11px] text-[#71717A]">Atendido por: {sale.operatorUserName}</p>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className={`text-base font-bold font-mono ${sale.status === 'REVERSED' ? 'line-through text-[#71717A]' : 'text-[#F5F5F5]'}`}>
+                          {formatCurrency(displayTotal)}
+                        </span>
+                        <span className="block text-[10px] text-[#A1A1AA]">
+                          {isTripLaunch ? 'PDV de Passeios' : selectedCategory === 'ALL' ? 'Conta Mensal' : `Subtotal ${selectedCategory}`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : activeTab === 'invoices' ? (
         /* Invoices & Payment Gateway */
         <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
           <div>
@@ -406,7 +762,7 @@ export function StudentPortal({
             )}
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Stripe Test Checkout Modal */}
       {stripeModalInvoice && (

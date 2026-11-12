@@ -29,7 +29,9 @@ import {
   CreditCard,
   Building2,
   Store,
-  UserCheck
+  UserCheck,
+  Bus,
+  Compass
 } from 'lucide-react';
 import { SystemSettings } from '../../types';
 
@@ -58,11 +60,20 @@ export function Sidebar({
   setIsMobileOpen,
   onOpenQuickSale
 }: SidebarProps) {
-  const { user, role, isAdmin, isCashier, isStudent, isGuardian, switchPersona, allDemoUsers, logout } = useAuth();
+  const { user, role, isAdmin, isCashier, isStudent, isGuardian, logout } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [authExpanded, setAuthExpanded] = useState(false);
 
   const storeName = settings?.storeName || 'Lojinha do Campus';
+  const canAccessPdvPasseios =
+    isAdmin ||
+    (isCashier &&
+      Boolean(
+        settings?.pdvPasseiosPermissions?.cashierCanViewPasseios ||
+          settings?.pdvPasseiosPermissions?.cashierCanViewHistory ||
+          settings?.pdvPasseiosPermissions?.cashierCanCreatePasseios ||
+          settings?.pdvPasseiosPermissions?.cashierCanAddExpenses
+      ));
 
   const handleSelectTab = (tabId: string) => {
     setActiveTab(tabId);
@@ -125,30 +136,34 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Action Buttons (ICEVES Green Gradient) */}
-        <div className="px-3 py-2.5 flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => {
-              onOpenQuickSale();
-              if (isMobileOpen) setIsMobileOpen(false);
-            }}
-            title="Abrir PDV e Registrar Venda"
-            className={`flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs py-2 px-3 rounded-lg transition-all shadow-sm shadow-emerald-950/50 cursor-pointer ${
-              isCollapsed ? 'p-2' : ''
-            }`}
-          >
-            <Plus className="w-4 h-4 shrink-0" />
-            {!isCollapsed && <span>Nova Venda</span>}
-          </button>
+        {/* Action Buttons (ICEVES Green Gradient) - Only for Admin / Cashier */}
+        {(isAdmin || isCashier) && (
+          <div className="px-3 py-2.5 flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                onOpenQuickSale();
+                if (isMobileOpen) setIsMobileOpen(false);
+              }}
+              title="Abrir PDV e Registrar Venda"
+              className={`flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs py-2 px-3 rounded-lg transition-all shadow-sm shadow-emerald-950/50 cursor-pointer ${
+                isCollapsed ? 'p-2' : ''
+              }`}
+            >
+              <Plus className="w-4 h-4 shrink-0" />
+              {!isCollapsed && <span>Nova Venda</span>}
+            </button>
 
-          <button
-            onClick={() => handleSelectTab('whatsapp')}
-            title="Automações e Comunicação"
-            className="flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/15 transition-colors shrink-0 cursor-pointer"
-          >
-            <Mail className="w-4 h-4" />
-          </button>
-        </div>
+            {isAdmin && (
+              <button
+                onClick={() => handleSelectTab('whatsapp')}
+                title="Automações e Comunicação"
+                className="flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/15 transition-colors shrink-0 cursor-pointer"
+              >
+                <Mail className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Navigation Links */}
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-5 scrollbar-thin">
@@ -177,7 +192,7 @@ export function Sidebar({
                   />
                 )}
                 <LayoutGrid className="w-4 h-4 shrink-0 z-10" />
-                {!isCollapsed && <span className="z-10">Visão Geral</span>}
+                {!isCollapsed && <span className="z-10">{isStudent ? 'Meu Dashboard' : 'Visão Geral'}</span>}
               </button>
             </nav>
           </div>
@@ -213,6 +228,30 @@ export function Sidebar({
                   </div>
                 </button>
 
+                {/* PDV DE PASSEIOS */}
+                {canAccessPdvPasseios && (
+                  <button
+                    onClick={() => handleSelectTab('pdv_passeios')}
+                    className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                      activeTab === 'pdv_passeios'
+                        ? 'text-white'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    {activeTab === 'pdv_passeios' && (
+                      <motion.div
+                        layoutId="activeTabBadge"
+                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
+                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                      />
+                    )}
+                    <div className="flex items-center gap-3 z-10">
+                      <Compass className="w-4 h-4 shrink-0 text-emerald-400" />
+                      {!isCollapsed && <span className="font-semibold">PDV de Passeios</span>}
+                    </div>
+                  </button>
+                )}
+
                 {/* Produtos & Estoque */}
                 <button
                   onClick={() => handleSelectTab('products')}
@@ -239,6 +278,30 @@ export function Sidebar({
                     </span>
                   )}
                 </button>
+
+                {/* Passeios (Exclusivo para Administradores autorizados) */}
+                {isAdmin && (
+                  <button
+                    onClick={() => handleSelectTab('passeios')}
+                    className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                      activeTab === 'passeios'
+                        ? 'text-white'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    {activeTab === 'passeios' && (
+                      <motion.div
+                        layoutId="activeTabBadge"
+                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
+                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                      />
+                    )}
+                    <div className="flex items-center gap-3 z-10">
+                      <Bus className="w-4 h-4 shrink-0" />
+                      {!isCollapsed && <span>Passeios</span>}
+                    </div>
+                  </button>
+                )}
               </nav>
             </div>
           )}
@@ -477,13 +540,7 @@ export function Sidebar({
                       onClick={() => logout()}
                       className="block w-full text-left py-1.5 hover:text-zinc-300 cursor-pointer"
                     >
-                      Tela de Login
-                    </button>
-                    <button
-                      onClick={() => setShowUserMenu(true)}
-                      className="block w-full text-left py-1.5 hover:text-zinc-300 cursor-pointer"
-                    >
-                      Trocar Perfil
+                      Sair / Trocar Conta
                     </button>
                   </motion.div>
                 )}
@@ -519,10 +576,10 @@ export function Sidebar({
                 />
                 <div className="text-left min-w-0">
                   <div className="text-xs font-semibold text-zinc-200 truncate">
-                    {user?.name || 'Carlos Silva'}
+                    {user?.name || 'Usuário'}
                   </div>
                   <div className="text-[10px] text-zinc-500 truncate">
-                    {user?.email || 'admin@campus.edu.br'}
+                    {user?.email || ''}
                   </div>
                 </div>
               </div>
@@ -542,32 +599,22 @@ export function Sidebar({
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-full left-0 right-0 mb-2 p-3 bg-[#18181b] border border-white/[0.12] rounded-xl shadow-2xl z-50 text-xs space-y-2.5"
+                    className="absolute bottom-full left-0 right-0 mb-2 p-2 bg-[#18181b] border border-white/[0.12] rounded-xl shadow-2xl z-50 text-xs space-y-1"
                   >
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        Sessão Ativa
-                      </div>
-                      <div className="font-semibold text-white truncate text-xs">{user?.name}</div>
-                      <div className="text-[11px] text-zinc-400 truncate">{user?.email}</div>
-                      <div className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                        {user?.role === 'ADMIN' ? 'Administrador' :
-                         user?.role === 'CASHIER' ? 'Operador de Caixa' :
-                         user?.role === 'STUDENT' ? 'Aluno (10ª Turma)' : 'Responsável'}
-                      </div>
+                    <div className="px-2 py-1.5 border-b border-white/[0.06]">
+                      <div className="text-xs font-semibold text-white truncate">{user?.name}</div>
+                      <div className="text-[10px] text-emerald-400 font-medium">{role}</div>
                     </div>
-
-                    <div className="border-t border-white/[0.08] pt-2">
+                    <div className="pt-1">
                       <button
                         onClick={() => {
                           logout();
                           setShowUserMenu(false);
                         }}
-                        className="w-full text-left px-2.5 py-2 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg flex items-center gap-2 cursor-pointer font-medium transition"
+                        className="w-full text-left px-2 py-1.5 text-xs text-red-400 hover:bg-red-500/10 rounded-lg flex items-center gap-2 cursor-pointer font-medium"
                       >
-                        <LogOut className="w-4 h-4 shrink-0" />
-                        <span>Encerrar Sessão (Sair)</span>
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Sair do Sistema</span>
                       </button>
                     </div>
                   </motion.div>

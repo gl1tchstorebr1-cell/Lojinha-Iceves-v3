@@ -103,12 +103,13 @@ export async function checkSupabaseConnection(): Promise<SupabaseStatus> {
       client.from('students').select('id', { count: 'exact', head: true }),
       client.from('invoices').select('id', { count: 'exact', head: true }),
       client.from('sales').select('id', { count: 'exact', head: true }),
+      client.from('passeios').select('id', { count: 'exact', head: true }),
     ]);
 
     const tablesFound: string[] = [];
     const recordsCount: Record<string, number> = {};
 
-    const tableNames = ['settings', 'products', 'students', 'invoices', 'sales'];
+    const tableNames = ['settings', 'products', 'students', 'invoices', 'sales', 'passeios'];
     testQueries.forEach((res, idx) => {
       const tbl = tableNames[idx];
       if (res.status === 'fulfilled' && !res.value.error) {
@@ -365,14 +366,89 @@ export function mapAuditLogToSupabase(a: any) {
   };
 }
 
+export function mapPasseioToSupabase(p: any) {
+  return {
+    id: p.id,
+    nome: p.nome,
+    valor: Number(p.valor) || 0,
+    descricao: p.descricao || null,
+    data_passeio: p.dataPasseio || p.data_passeio || null,
+    ativo: p.ativo !== undefined ? Boolean(p.ativo) : true,
+    created_at: p.createdAt || p.created_at || new Date().toISOString(),
+    updated_at: p.updatedAt || p.updated_at || new Date().toISOString(),
+  };
+}
+
+export function mapPasseioFromSupabase(row: any) {
+  return {
+    id: row.id,
+    nome: row.nome,
+    valor: Number(row.valor) || 0,
+    descricao: row.descricao || null,
+    dataPasseio: row.data_passeio || null,
+    ativo: row.ativo !== undefined ? Boolean(row.ativo) : true,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
 // ============================================================================
 // SINGLE RECORD ASYNC SYNC HELPER (Auto-Sync)
 // ============================================================================
+
+const permissionDeniedBackoff = new Map<string, number>();
 
 export async function syncRecordToSupabase(
   table: string,
   record: any,
   mapper?: (item: any) => any
+): Promise<boolean> {
+  const settings = db.getSettings();
+  if (settings.supabaseActive === false) {
+    return false;
+  }
+
+  // Evita spam no console caso o usuário ainda não tenha executado o GRANT ALL no Supabase SQL Editor
+  const blockedUntil = permissionDeniedBackoff.get(table);
+  if (blockedUntil && Date.now() < blockedUntil) {
+    return false;
+  }
+
+  const client = getSupabaseClient();
+  if (!client) {
+    return false;
+  }
+
+  try {
+    const payload = mapper ? mapper(record) : record;
+    let { error } = await client.from(table).upsert(payload, { onConflict: 'id' });
+    if (error && table === 'products' && error.message?.includes("'images' column") && payload && typeof payload === 'object') {
+      const { images, ...fallbackPayload } = payload;
+      const retry = await client.from(table).upsert(fallbackPayload, { onConflict: 'id' });
+      error = retry.error;
+    }
+    if (error) {
+      if (error.message?.toLowerCase().includes('permission denied')) {
+        permissionDeniedBackoff.set(table, Date.now() + 5 * 60 * 1000);
+        console.warn(
+          `[Supabase Auto-Sync] Permissão pendente na tabela "${table}" (${error.message}). Execute no SQL Editor do Supabase: GRANT ALL PRIVILEGES ON TABLE public.${table} TO anon, authenticated, service_role;`
+        );
+      } else {
+        console.warn(`[Supabase Auto-Sync] Erro ao sincronizar ${table}:`, error.message);
+      }
+      return false;
+    }
+    permissionDeniedBackoff.delete(table);
+    return true;
+  } catch (err: any) {
+    console.warn(`[Supabase Auto-Sync] Falha ao enviar para ${table}:`, err.message);
+    return false;
+  }
+}
+
+export async function deleteRecordFromSupabase(
+  table: string,
+  id: string
 ): Promise<boolean> {
   const settings = db.getSettings();
   if (settings.supabaseActive === false) {
@@ -385,15 +461,14 @@ export async function syncRecordToSupabase(
   }
 
   try {
-    const payload = mapper ? mapper(record) : record;
-    const { error } = await client.from(table).upsert(payload, { onConflict: 'id' });
+    const { error } = await client.from(table).delete().eq('id', id);
     if (error) {
-      console.warn(`[Supabase Auto-Sync] Erro ao sincronizar ${table}:`, error.message);
+      console.warn(`[Supabase Auto-Sync] Erro ao excluir em ${table}:`, error.message);
       return false;
     }
     return true;
   } catch (err: any) {
-    console.warn(`[Supabase Auto-Sync] Falha ao enviar para ${table}:`, err.message);
+    console.warn(`[Supabase Auto-Sync] Falha ao excluir em ${table}:`, err.message);
     return false;
   }
 }
@@ -411,6 +486,9 @@ export interface FullSyncResult {
 }
 
 export async function syncAllToSupabase(): Promise<FullSyncResult> {
+  // Limpa backoff para re-testar todas as tabelas imediatamente após o usuário rodar o SQL
+  permissionDeniedBackoff.clear();
+
   const client = getSupabaseClient();
   if (!client) {
     throw new Error('Supabase não configurado. Preencha SUPABASE_URL e SUPABASE_ANON_KEY nas configurações ou .env.');
@@ -473,7 +551,12 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const productsRows = db.getProducts().map(mapProductToSupabase);
     if (productsRows.length > 0) {
-      const { error } = await client.from('products').upsert(productsRows, { onConflict: 'id' });
+      let { error } = await client.from('products').upsert(productsRows, { onConflict: 'id' });
+      if (error && error.message?.includes("'images' column")) {
+        const fallbackRows = productsRows.map(({ images, ...rest }) => rest);
+        const retry = await client.from('products').upsert(fallbackRows, { onConflict: 'id' });
+        error = retry.error;
+      }
       if (error) throw error;
     }
     results['products'] = { count: productsRows.length, status: 'OK' };
@@ -558,6 +641,19 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
     totalCount += logsRows.length;
   } catch (e: any) {
     results['audit_logs'] = { count: 0, status: 'ERROR', error: e.message };
+  }
+
+  // 12. Passeios
+  try {
+    const passeiosRows = db.getPasseios().map(mapPasseioToSupabase);
+    if (passeiosRows.length > 0) {
+      const { error } = await client.from('passeios').upsert(passeiosRows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    results['passeios'] = { count: passeiosRows.length, status: 'OK' };
+    totalCount += passeiosRows.length;
+  } catch (e: any) {
+    results['passeios'] = { count: 0, status: 'ERROR', error: e.message };
   }
 
   const hasErrors = Object.values(results).some(r => r.status === 'ERROR');
@@ -692,6 +788,20 @@ export async function syncFromSupabase(): Promise<{
     }
     counts['invoices'] = invData.length;
     total += invData.length;
+  }
+
+  // 4. Passeios
+  const { data: passData } = await client.from('passeios').select('*').order('created_at', { ascending: false });
+  if (passData && passData.length > 0) {
+    const localPasseios = db.getPasseios();
+    for (const row of passData) {
+      const idx = localPasseios.findIndex(p => p.id === row.id);
+      const mapped = mapPasseioFromSupabase(row);
+      if (idx >= 0) localPasseios[idx] = mapped;
+      else localPasseios.push(mapped);
+    }
+    counts['passeios'] = passData.length;
+    total += passData.length;
   }
 
   // Persist locally

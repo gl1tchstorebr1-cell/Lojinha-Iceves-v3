@@ -37,7 +37,6 @@
       "name": "Coordenação ICEVES",
       "email": "admin.lojinha@gmail.com",
       "role": "ADMIN",
-      "password": "Admin#Iceves2026",
       "phone": "(11) 98765-4321",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%233B82F6%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%231D4ED8%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3ECI%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "createdAt": "2026-01-15T08:00:00Z"
@@ -47,7 +46,6 @@
       "name": "Atendimento Lojinha Iceves",
       "email": "caixa.lojinha@gmail.com",
       "role": "CASHIER",
-      "password": "Caixa#Iceves2026",
       "phone": "(11) 97654-3210",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23F59E0B%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23B45309%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3ELI%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
       "createdAt": "2026-02-01T08:00:00Z"
@@ -57,7 +55,6 @@
       "name": "Ana Vitória Lisboa",
       "email": "ana.lisboa@gmail.com",
       "role": "STUDENT",
-      "password": "Aluno#Iceves2026",
       "studentId": "student-1",
       "phone": "(11) 99100-1001",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EAL%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
@@ -68,7 +65,6 @@
       "name": "Beatriz Gomes Ramos",
       "email": "beatriz.ramos@gmail.com",
       "role": "STUDENT",
-      "password": "Aluno#Iceves2026",
       "studentId": "student-2",
       "phone": "(11) 99100-1002",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2310B981%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23047857%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EBR%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
@@ -79,7 +75,6 @@
       "name": "Responsável / Família ICEVES",
       "email": "familia.iceves@gmail.com",
       "role": "GUARDIAN",
-      "password": "Familia#Iceves2026",
       "guardianId": "guardian-1",
       "phone": "(11) 98111-2233",
       "avatar": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%20viewBox%3D%220%200%20160%20160%22%3E%0A%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%236366F1%22%20%2F%3E%0A%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%234338CA%22%20%2F%3E%0A%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%3Crect%20width%3D%22160%22%20height%3D%22160%22%20rx%3D%2280%22%20fill%3D%22url(%23g)%22%20%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2250%25%22%20y%3D%2253%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23FFFFFF%22%20font-family%3D%22Inter%2C%20system-ui%2C%20-apple-system%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2256%22%20letter-spacing%3D%221%22%3EFI%3C%2Ftext%3E%0A%20%20%3C%2Fsvg%3E",
@@ -1037,58 +1032,25 @@
   ],
   "auditLogs": [
     {
-      "id": "AUD-1794418437684-275",
-      "timestamp": "2026-11-11T17:33:57.684Z",
-      "userId": "user-guardian-1",
-      "userName": "Responsável / Família ICEVES",
-      "userRole": "GUARDIAN",
-      "action": "LOGIN_USUARIO",
-      "module": "AUTH",
-      "details": "Login realizado com sucesso (familia.iceves@gmail.com - perfil GUARDIAN)",
-      "status": "SUCESSO"
-    },
-    {
-      "id": "AUD-1794418437679-577",
-      "timestamp": "2026-11-11T17:33:57.679Z",
-      "userId": "user-cashier",
-      "userName": "Atendimento Lojinha Iceves",
-      "userRole": "CASHIER",
-      "action": "LOGIN_USUARIO",
-      "module": "AUTH",
-      "details": "Login realizado com sucesso (caixa.lojinha@gmail.com - perfil CASHIER)",
-      "status": "SUCESSO"
-    },
-    {
-      "id": "AUD-1794418437675-132",
-      "timestamp": "2026-11-11T17:33:57.675Z",
-      "userId": "user-student-1",
-      "userName": "Ana Vitória Lisboa",
-      "userRole": "STUDENT",
-      "action": "LOGIN_USUARIO",
-      "module": "AUTH",
-      "details": "Login realizado com sucesso (ana.lisboa@gmail.com - perfil STUDENT)",
-      "status": "SUCESSO"
-    },
-    {
-      "id": "AUD-1794418437671-614",
-      "timestamp": "2026-11-11T17:33:57.671Z",
-      "userId": "user-student-1",
-      "userName": "Ana Vitória Lisboa",
-      "userRole": "STUDENT",
-      "action": "LOGIN_USUARIO",
-      "module": "AUTH",
-      "details": "Login realizado com sucesso (ana.lisboa@gmail.com - perfil STUDENT)",
-      "status": "SUCESSO"
-    },
-    {
-      "id": "AUD-1794418437651-163",
-      "timestamp": "2026-11-11T17:33:57.651Z",
+      "id": "AUD-1794424757566-459",
+      "timestamp": "2026-11-11T19:19:17.566Z",
       "userId": "user-admin",
       "userName": "Coordenação ICEVES",
       "userRole": "ADMIN",
-      "action": "LOGIN_USUARIO",
-      "module": "AUTH",
-      "details": "Login realizado com sucesso (admin.lojinha@gmail.com - perfil ADMIN)",
+      "action": "EXCLUIR_PASSEIO",
+      "module": "PASSEIOS",
+      "details": "Passeio \"Passeio Teste Temporário\" (R$ 15.00) excluído pelo administrador.",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1794424757537-685",
+      "timestamp": "2026-11-11T19:19:17.537Z",
+      "userId": "user-admin",
+      "userName": "Coordenação ICEVES",
+      "userRole": "ADMIN",
+      "action": "CADASTRAR_PASSEIO",
+      "module": "PASSEIOS",
+      "details": "Passeio \"Passeio Teste Temporário\" (R$ 15.00) cadastrado e disponibilizado automaticamente para todos os alunos.",
       "status": "SUCESSO"
     },
     {
@@ -1244,6 +1206,28 @@
       "module": "ESTOQUE",
       "details": "Consulta ao relatório de produtos críticos. Notificação de estoque baixo disparada.",
       "status": "SUCESSO"
+    }
+  ],
+  "passeios": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "nome": "Passeio para a Cachoeira",
+      "valor": 35,
+      "descricao": "Excursão oficial da 10ª Turma da Escola de Cristo (ICEVES) com transporte e acompanhamento.",
+      "dataPasseio": "2026-11-21",
+      "ativo": true,
+      "createdAt": "2026-11-01T08:00:00Z",
+      "updatedAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "nome": "Passeio para a Cidade",
+      "valor": 20,
+      "descricao": "Saída em grupo com os alunos da 10ª Turma para compras e confraternização na cidade.",
+      "dataPasseio": "2026-11-25",
+      "ativo": true,
+      "createdAt": "2026-11-01T08:00:00Z",
+      "updatedAt": "2026-11-01T08:00:00Z"
     }
   ]
 }

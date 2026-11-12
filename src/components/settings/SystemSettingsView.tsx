@@ -1345,30 +1345,77 @@ export function SystemSettingsView({
               <div className="space-y-0.5">
                 <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-xs">
                   <FileCode className="w-4 h-4" />
-                  <span>Script SQL das Tabelas (supabase_schema.sql)</span>
+                  <span>Script SQL das Tabelas & Correção de Permissões RLS (supabase_schema.sql)</span>
                 </div>
                 <p className="text-[11px] text-[#A1A1AA]">
-                  Arquivo pronto com todas as 12 tabelas (alunos, responsáveis, produtos, estoque, faturas, pagamentos, auditoria).
+                  Arquivo pronto com todas as 12 tabelas e permissões <code className="text-emerald-300 font-mono">GRANT ALL</code> para corrigir erros <code className="text-amber-300 font-mono">permission denied for table users / audit_logs</code>.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  fetch('/supabase_schema.sql')
-                    .then(res => res.text())
-                    .then(sql => {
-                      navigator.clipboard.writeText(sql);
-                      setCopiedSql(true);
-                      setTimeout(() => setCopiedSql(false), 2500);
-                    })
-                    .catch(() => alert('Script gerado na raiz do projeto como supabase_schema.sql'));
-                }}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 cursor-pointer shadow-sm"
-              >
-                {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {copiedSql ? 'SQL Copiado!' : 'Copiar Script SQL'}
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const fixSql = `-- 1. CRIA A TABELA PASSEIOS CASO AINDA NÃO EXISTA NO SUPABASE
+CREATE TABLE IF NOT EXISTS public.passeios (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome TEXT NOT NULL,
+  valor NUMERIC(10,2) NOT NULL DEFAULT 0,
+  descricao TEXT,
+  data_passeio DATE,
+  ativo BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 2. CORREÇÃO DE PERMISSÕES SUPABASE (users, audit_logs, passeios e demais tabelas)
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+
+DO $$ 
+DECLARE
+  tbl text;
+  tbls text[] := ARRAY['settings', 'users', 'guardians', 'students', 'products', 'stock_movements', 'sales', 'invoices', 'pix_payments', 'whatsapp_notifications', 'audit_logs', 'passeios'];
+BEGIN
+  FOREACH tbl IN ARRAY tbls LOOP
+    IF to_regclass('public.' || tbl) IS NOT NULL THEN
+      EXECUTE format('GRANT ALL PRIVILEGES ON TABLE public.%I TO anon, authenticated, service_role;', tbl);
+      EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);
+      EXECUTE format('DROP POLICY IF EXISTS "Permitir acesso total à aplicação" ON public.%I;', tbl);
+      EXECUTE format('CREATE POLICY "Permitir acesso total à aplicação" ON public.%I FOR ALL TO anon, authenticated, service_role USING (true) WITH CHECK (true);', tbl);
+    END IF;
+  END LOOP;
+END $$;`;
+                    navigator.clipboard.writeText(fixSql);
+                    setCopiedSql(true);
+                    setTimeout(() => setCopiedSql(false), 2500);
+                  }}
+                  className="px-3.5 py-2 bg-amber-600/90 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                >
+                  {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedSql ? 'SQL Copiado!' : 'Copiar SQL Correção Permissões'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetch('/supabase_schema.sql')
+                      .then(res => res.text())
+                      .then(sql => {
+                        navigator.clipboard.writeText(sql);
+                        setCopiedSql(true);
+                        setTimeout(() => setCopiedSql(false), 2500);
+                      })
+                      .catch(() => alert('Script gerado na raiz do projeto como supabase_schema.sql'));
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                >
+                  {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedSql ? 'SQL Copiado!' : 'Copiar Script Completo'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

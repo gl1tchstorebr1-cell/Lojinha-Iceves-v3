@@ -20,7 +20,7 @@ app.all('/api/*', async (req, res) => {
     const userIdHeader = (req.headers['x-user-id'] as string) || '';
     let currentUser: any = undefined;
     if (userIdHeader) {
-      currentUser = db.getUsers().find(u => u.id === userIdHeader);
+      currentUser = db.resolveUserById(userIdHeader);
     }
 
     const apiReq: ApiRequest = {

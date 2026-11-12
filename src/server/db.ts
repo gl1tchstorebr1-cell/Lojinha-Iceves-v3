@@ -1,11 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { 
   User, 
   Student, 
   Guardian, 
   Product, 
   Sale, 
+  SaleItem,
   Invoice, 
   PixPayment, 
   StockMovement, 
@@ -14,7 +16,14 @@ import {
   AuditLog, 
   SystemSettings,
   MonthlyClosingPreview,
-  ProductCategory
+  ProductCategory,
+  Passeio,
+  TripOperation,
+  TripExpenseItem,
+  TripParticipantAllocation,
+  TripParticipantAllocationItem,
+  TripDistributionMethod,
+  PdvPasseiosPermissions
 } from '../types/index.ts';
 import { generateBacenPixPayload } from '../utils/pix.ts';
 import { getInitialsAvatar } from '../utils/avatar.ts';
@@ -31,8 +40,7 @@ import {
   initialWhatsAppNotifications, 
   initialAuditLogs, 
   initialSettings,
-  slugifyUsername,
-  slugifyEmail
+  initialPasseios
 } from './seedData.ts';
 
 export interface DatabaseSchema {
@@ -48,6 +56,8 @@ export interface DatabaseSchema {
   pixPayments: PixPayment[];
   whatsappNotifications: WhatsAppNotification[];
   auditLogs: AuditLog[];
+  passeios: Passeio[];
+  tripOperations: TripOperation[];
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -106,29 +116,20 @@ class DatabaseService {
           needsSave = true;
         }
 
-        // Atualizar avatares SVG antigos e garantir vínculo com responsável e e-mail institucional ICEVES
+        // Atualizar avatares SVG antigos que ainda tinham cores roxas/indigo para o degradê verde ICEVES
         finalStudents = finalStudents.map(st => {
-          let updatedSt = { ...st };
           if (
-            !updatedSt.avatar ||
-            (updatedSt.avatar.startsWith('data:image/svg+xml') &&
-              (updatedSt.avatar.includes('6366F1') || updatedSt.avatar.includes('8B5CF6') || updatedSt.avatar.includes('4F46E5') || updatedSt.avatar.includes('7C3AED')))
+            !st.avatar ||
+            (st.avatar.startsWith('data:image/svg+xml') &&
+              (st.avatar.includes('6366F1') || st.avatar.includes('8B5CF6') || st.avatar.includes('4F46E5') || st.avatar.includes('7C3AED')))
           ) {
             needsSave = true;
-            updatedSt.avatar = getInitialsAvatar(updatedSt.name);
+            return {
+              ...st,
+              avatar: getInitialsAvatar(st.name),
+            };
           }
-          if (!Array.isArray(updatedSt.guardians) || updatedSt.guardians.length === 0) {
-            needsSave = true;
-            updatedSt.guardians = [
-              {
-                guardianId: 'guardian-1',
-                relationship: 'Responsável',
-                isPrimaryPayer: true,
-                canAccessPortal: true
-              }
-            ];
-          }
-          return updatedSt;
+          return st;
         });
 
         const loadedSettings: SystemSettings = {
@@ -141,7 +142,6 @@ class DatabaseService {
           storeName: parsed.settings?.storeName || 'Lojinha Iceves',
           tuitionBillingActive: false,
           defaultTuitionAmount: 0,
-          cohortsPerSemester: 1,
         };
 
         // Migração de produtos para as 4 categorias oficiais:
@@ -230,58 +230,32 @@ class DatabaseService {
           needsSave = true;
         }
 
-        // Garantir que todos os perfis reais (Admin, Caixa, Responsável e os 17 Alunos da 10ª Turma) tenham usuário e senha estruturados
-        const existingUsers: User[] = Array.isArray(parsed.users) ? parsed.users : [];
-        const baseRoles = initialUsers.filter(u => u.role !== 'STUDENT');
-        const finalUsers: User[] = [];
-
-        for (const seedStaff of baseRoles) {
-          const found = existingUsers.find(u => u.id === seedStaff.id || u.role === seedStaff.role);
-          if (!found || !found.username || !found.password) {
-            needsSave = true;
-          }
-          finalUsers.push({
-            ...seedStaff,
-            lastLogin: found?.lastLogin,
-            password: found?.password || seedStaff.password,
-            username: seedStaff.username,
-            email: seedStaff.email,
-            avatar: getInitialsAvatar(seedStaff.name),
-          });
+        let finalPasseios: Passeio[] = Array.isArray(parsed.passeios)
+          ? parsed.passeios
+          : initialPasseios;
+        if (!Array.isArray(parsed.passeios)) {
+          needsSave = true;
         }
 
-        // Vincular cada um dos 17 alunos (e eventuais alunos extras) a uma conta de usuário individual real
-        finalStudents.forEach((st, idx) => {
-          const num = idx + 1;
-          const uname = slugifyUsername(st.name);
-          const instEmail = `${uname}@iceves.com.br`;
-          const foundUser = existingUsers.find(
-            u => u.studentId === st.id || u.id === `user-student-${num}` || u.name.toLowerCase() === st.name.toLowerCase()
-          );
+        const finalTripOperations: TripOperation[] = Array.isArray(parsed.tripOperations)
+          ? parsed.tripOperations
+          : [];
 
-          if (!foundUser || !foundUser.username || !foundUser.password || !foundUser.registrationNumber) {
-            needsSave = true;
-          }
-
-          finalUsers.push({
-            id: foundUser?.id || `user-student-${num}`,
-            name: st.name,
-            username: foundUser?.username || uname,
-            email: instEmail,
-            password: foundUser?.password || `Aluno@${1000 + num}`,
-            role: 'STUDENT',
-            studentId: st.id,
-            registrationNumber: st.registrationNumber,
-            phone: st.phone,
-            avatar: st.avatar || getInitialsAvatar(st.name),
-            createdAt: foundUser?.createdAt || st.createdAt,
-            lastLogin: foundUser?.lastLogin,
-          });
-        });
+        if (!loadedSettings.pdvPasseiosPermissions) {
+          loadedSettings.pdvPasseiosPermissions = {
+            cashierCanViewPasseios: false,
+            cashierCanCreatePasseios: false,
+            cashierCanAddExpenses: false,
+            cashierCanSelectStudents: false,
+            cashierCanConfirmLaunches: false,
+            cashierCanViewHistory: false,
+            cashierCanReverseLaunches: false,
+          };
+        }
 
         const loadedData: DatabaseSchema = {
           settings: loadedSettings,
-          users: finalUsers,
+          users: hasOldFictionalStudents ? initialUsers : (parsed.users || initialUsers),
           guardians: hasOldFictionalStudents ? initialGuardians : (parsed.guardians || initialGuardians),
           students: finalStudents,
           products: finalProducts,
@@ -292,6 +266,8 @@ class DatabaseService {
           pixPayments: parsed.pixPayments || initialPixPayments,
           whatsappNotifications: parsed.whatsappNotifications || initialWhatsAppNotifications,
           auditLogs: parsed.auditLogs || initialAuditLogs,
+          passeios: finalPasseios,
+          tripOperations: finalTripOperations,
         };
 
         if (needsSave) {
@@ -317,6 +293,8 @@ class DatabaseService {
       pixPayments: initialPixPayments,
       whatsappNotifications: initialWhatsAppNotifications,
       auditLogs: initialAuditLogs,
+      passeios: initialPasseios,
+      tripOperations: [],
     };
 
     this.saveDatabase(defaultData);
@@ -388,6 +366,44 @@ class DatabaseService {
     return this.data.users;
   }
 
+  public resolveUserById(userId: string): User | undefined {
+    if (!userId) return undefined;
+    const found = this.data.users.find(u => u.id === userId);
+    if (found) {
+      if (found.role === 'STUDENT' && !found.studentId) {
+        const matchedStudent = this.data.students.find(
+          s =>
+            s.email.toLowerCase() === found.email.toLowerCase() ||
+            s.name.toLowerCase() === found.name.toLowerCase()
+        );
+        if (matchedStudent) {
+          found.studentId = matchedStudent.id;
+          found.registrationNumber = matchedStudent.registrationNumber;
+        }
+      }
+      return found;
+    }
+
+    if (userId.startsWith('user-student-') || userId.startsWith('student-')) {
+      const rawStudentId = userId.replace(/^user-/, '');
+      const student = this.data.students.find(s => s.id === rawStudentId);
+      if (student) {
+        return {
+          id: `user-${student.id}`,
+          name: student.name,
+          email: student.email,
+          role: 'STUDENT',
+          studentId: student.id,
+          registrationNumber: student.registrationNumber,
+          avatar: student.avatar,
+          createdAt: student.createdAt || new Date().toISOString()
+        };
+      }
+    }
+
+    return undefined;
+  }
+
   public getStudents(): Student[] {
     return this.data.students;
   }
@@ -426,6 +442,31 @@ class DatabaseService {
 
   public getFinancialLedger(): FinancialTransaction[] {
     return this.data.financialLedger;
+  }
+
+  public getPasseios(): Passeio[] {
+    if (!Array.isArray(this.data.passeios)) {
+      this.data.passeios = [...initialPasseios];
+    }
+    return this.data.passeios;
+  }
+
+  public getTripOperations(): TripOperation[] {
+    if (!Array.isArray(this.data.tripOperations)) {
+      this.data.tripOperations = [];
+    }
+    return this.data.tripOperations;
+  }
+
+  public triggerSupabaseDelete(table: string, id: string) {
+    setTimeout(async () => {
+      try {
+        const supabaseMod = await import('./supabase.ts');
+        await supabaseMod.deleteRecordFromSupabase(table, id);
+      } catch (e) {
+        // quiet background delete
+      }
+    }, 0);
   }
 
   // --- REGRAS DE NEGÓCIO ---
@@ -927,12 +968,18 @@ class DatabaseService {
       // Agrupar itens de consumo para o extrato da cobrança
       const itemMap = new Map<string, { product: Product | undefined; name: string; category: any; qty: number; total: number }>();
       for (const sale of studentSales) {
+        const isTripSale = sale.origin === 'PDV_PASSEIOS';
+        const formattedTripDate = sale.tripDate ? sale.tripDate.split('-').reverse().join('/') : '';
+        const tripPrefix = isTripSale && sale.tripName
+          ? `[${sale.tripName}${formattedTripDate ? ` — ${formattedTripDate}` : ''}] `
+          : '';
         for (const item of sale.items) {
-          const key = item.productId;
+          const key = isTripSale ? `${sale.id}_${item.productId}` : item.productId;
+          const displayName = `${tripPrefix}${item.name}`;
           const current = itemMap.get(key) || {
             product: this.data.products.find(p => p.id === item.productId),
-            name: item.name,
-            category: item.category,
+            name: displayName,
+            category: isTripSale ? `PDV de Passeios • ${item.category}` : item.category,
             qty: 0,
             total: 0
           };
@@ -1334,14 +1381,12 @@ class DatabaseService {
 
     Object.assign(student, updates);
 
-    // Sincronizar nome, avatar e credenciais caso exista usuário vinculado ao aluno
+    // Sincronizar nome e avatar caso exista usuário vinculado ao aluno
     for (const u of this.data.users) {
       if (u.studentId === student.id) {
         if (updates.name) u.name = updates.name;
         if (updates.avatar) u.avatar = updates.avatar;
         if (updates.email) u.email = updates.email;
-        if (updates.registrationNumber) u.registrationNumber = updates.registrationNumber;
-        this.triggerSupabaseSync('users', u, 'mapUserToSupabase');
       }
     }
 
@@ -1357,15 +1402,6 @@ class DatabaseService {
     this.saveDatabase();
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     return student;
-  }
-
-  public recordUserLogin(userId: string) {
-    const u = this.data.users.find(item => item.id === userId);
-    if (u) {
-      u.lastLogin = new Date().toISOString();
-      this.saveDatabase();
-      this.triggerSupabaseSync('users', u, 'mapUserToSupabase');
-    }
   }
 
   public createStudent(studentData: Partial<Student>, user: { id: string; name: string; role: any }) {
@@ -1397,35 +1433,100 @@ class DatabaseService {
 
     this.data.students.push(newStudent);
 
-    const uname = slugifyUsername(fullName);
-    const newStudentUser: User = {
-      id: `user-student-${nextNum}-${Date.now().toString().slice(-3)}`,
-      name: newStudent.name,
-      username: uname,
-      email: newStudent.email,
-      password: `Aluno@${1000 + nextNum}`,
-      role: 'STUDENT',
-      studentId: newStudent.id,
-      registrationNumber: newStudent.registrationNumber,
-      phone: newStudent.phone,
-      avatar: newStudent.avatar,
-      createdAt: newStudent.createdAt
-    };
-    this.data.users.push(newStudentUser);
-
     this.logAudit(
       user.id,
       user.name,
       user.role,
       'CADASTRAR_ALUNO',
       'CONFIGURACOES',
-      `Aluno ${newStudent.name} (${newStudent.registrationNumber}) adicionado à 10ª Turma com conta de acesso (${newStudentUser.username}).`
+      `Aluno ${newStudent.name} (${newStudent.registrationNumber}) adicionado à 10ª Turma.`
     );
 
     this.saveDatabase();
     this.triggerSupabaseSync('students', newStudent, 'mapStudentToSupabase');
-    this.triggerSupabaseSync('users', newStudentUser, 'mapUserToSupabase');
     return newStudent;
+  }
+
+  public registerUser(userData: {
+    name: string;
+    email: string;
+    password: string;
+    role?: any;
+    phone?: string;
+  }) {
+    const cleanEmail = (userData.email || '').trim().toLowerCase();
+    const cleanName = (userData.name || '').trim();
+    const cleanPassword = (userData.password || '').trim();
+
+    if (!cleanName || !cleanEmail || !cleanPassword) {
+      throw new Error('Nome, e-mail e senha são obrigatórios para criar a conta.');
+    }
+    if (cleanPassword.length < 6) {
+      throw new Error('A senha deve possuir no mínimo 6 caracteres.');
+    }
+
+    const existing = this.data.users.find(u => u.email.toLowerCase() === cleanEmail);
+    if (existing) {
+      throw new Error('Já existe uma conta cadastrada com este e-mail. Utilize a aba "Entrar com Senha".');
+    }
+
+    // No cadastro público, apenas Aluno (STUDENT) ou Responsável Financeiro (GUARDIAN) são permitidos
+    const role: User['role'] = userData.role === 'GUARDIAN' ? 'GUARDIAN' : 'STUDENT';
+    let studentId: string | undefined;
+    let guardianId: string | undefined;
+    let registrationNumber: string | undefined;
+
+    if (role === 'STUDENT') {
+      // Verifica se já corresponde a um dos alunos da 10ª Turma pelo nome ou e-mail
+      let matchedStudent = this.data.students.find(
+        s => s.email.toLowerCase() === cleanEmail || s.name.toLowerCase() === cleanName.toLowerCase()
+      );
+      if (!matchedStudent) {
+        matchedStudent = this.createStudent(
+          {
+            name: cleanName,
+            email: cleanEmail,
+            phone: userData.phone || '(11) 99100-0000',
+            avatar: getInitialsAvatar(cleanName)
+          },
+          { id: 'system', name: cleanName, role: 'ADMIN' }
+        );
+      }
+      studentId = matchedStudent.id;
+      registrationNumber = matchedStudent.registrationNumber;
+    } else if (role === 'GUARDIAN') {
+      guardianId = this.data.guardians[0]?.id || 'guardian-1';
+    }
+
+    const newUser: User = {
+      id: `user-${Date.now().toString().slice(-6)}`,
+      name: cleanName,
+      email: cleanEmail,
+      password: cleanPassword,
+      role,
+      phone: userData.phone || undefined,
+      avatar: getInitialsAvatar(cleanName),
+      studentId,
+      guardianId,
+      registrationNumber,
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString()
+    };
+
+    this.data.users.push(newUser);
+
+    this.logAudit(
+      newUser.id,
+      newUser.name,
+      newUser.role,
+      'CRIAR_CONTA_USUARIO',
+      'AUTH',
+      `Nova conta criada via tela de login: ${newUser.name} (${newUser.email}) com perfil ${newUser.role}.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('users', newUser, 'mapUserToSupabase');
+    return newUser;
   }
 
   // 10.1 Atualização flexível de Mensalidade e Ajustes na Fatura
@@ -1520,6 +1621,875 @@ class DatabaseService {
     return notif;
   }
 
+  // 12. Gerenciamento de Passeios (Centralizado para todos os Alunos)
+  public createPasseio(
+    data: { nome: string; valor: number; descricao?: string | null; dataPasseio?: string | null; ativo?: boolean },
+    user: { id: string; name: string; role: any }
+  ): Passeio {
+    const nome = (data.nome || '').trim();
+    if (!nome) {
+      throw new Error('O nome do passeio é obrigatório.');
+    }
+    const valor = Number(data.valor);
+    if (isNaN(valor) || valor < 0) {
+      throw new Error('O valor do passeio deve ser um número válido maior ou igual a zero.');
+    }
+
+    const now = new Date().toISOString();
+    const newPasseio: Passeio = {
+      id: crypto.randomUUID(),
+      nome,
+      valor: Math.round(valor * 100) / 100,
+      descricao: data.descricao ? String(data.descricao).trim() : null,
+      dataPasseio: data.dataPasseio ? String(data.dataPasseio).trim() : null,
+      ativo: data.ativo !== undefined ? Boolean(data.ativo) : true,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    if (!Array.isArray(this.data.passeios)) {
+      this.data.passeios = [];
+    }
+
+    this.data.passeios.unshift(newPasseio);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'CADASTRAR_PASSEIO',
+      'PASSEIOS',
+      `Passeio "${newPasseio.nome}" (R$ ${newPasseio.valor.toFixed(2)}) cadastrado e disponibilizado automaticamente para todos os alunos.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('passeios', newPasseio, 'mapPasseioToSupabase');
+    return newPasseio;
+  }
+
+  public updatePasseio(
+    id: string,
+    updates: Partial<{ nome: string; valor: number; descricao?: string | null; dataPasseio?: string | null; ativo: boolean }>,
+    user: { id: string; name: string; role: any }
+  ): Passeio {
+    if (!Array.isArray(this.data.passeios)) {
+      this.data.passeios = [];
+    }
+    const passeio = this.data.passeios.find(p => p.id === id);
+    if (!passeio) {
+      throw new Error('Passeio não encontrado.');
+    }
+
+    if (updates.nome !== undefined) {
+      const trimmed = String(updates.nome).trim();
+      if (!trimmed) throw new Error('O nome do passeio não pode ficar vazio.');
+      passeio.nome = trimmed;
+    }
+
+    if (updates.valor !== undefined) {
+      const val = Number(updates.valor);
+      if (isNaN(val) || val < 0) throw new Error('O valor do passeio é inválido.');
+      passeio.valor = Math.round(val * 100) / 100;
+    }
+
+    if (updates.descricao !== undefined) {
+      passeio.descricao = updates.descricao ? String(updates.descricao).trim() : null;
+    }
+
+    if (updates.dataPasseio !== undefined) {
+      passeio.dataPasseio = updates.dataPasseio ? String(updates.dataPasseio).trim() : null;
+    }
+
+    if (updates.ativo !== undefined) {
+      passeio.ativo = Boolean(updates.ativo);
+    }
+
+    passeio.updatedAt = new Date().toISOString();
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'ATUALIZAR_PASSEIO',
+      'PASSEIOS',
+      `Passeio "${passeio.nome}" atualizado (Valor: R$ ${passeio.valor.toFixed(2)} | Status: ${passeio.ativo ? 'Ativo' : 'Inativo'}).`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('passeios', passeio, 'mapPasseioToSupabase');
+    return passeio;
+  }
+
+  public deletePasseio(
+    id: string,
+    user: { id: string; name: string; role: any }
+  ): { success: boolean; deletedId: string } {
+    if (!Array.isArray(this.data.passeios)) {
+      this.data.passeios = [];
+    }
+    const idx = this.data.passeios.findIndex(p => p.id === id);
+    if (idx === -1) {
+      throw new Error('Passeio não encontrado para exclusão.');
+    }
+
+    const removed = this.data.passeios[idx];
+    this.data.passeios.splice(idx, 1);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'EXCLUIR_PASSEIO',
+      'PASSEIOS',
+      `Passeio "${removed.nome}" (R$ ${removed.valor.toFixed(2)}) excluído pelo administrador.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseDelete('passeios', id);
+    return { success: true, deletedId: id };
+  }
+
+  // 13. PDV de Passeios — Lançamento Coletivo de Despesas e Produtos em Passeios
+  private mapTripCategoryToProductCategory(tripCategory: string): ProductCategory {
+    const lower = (tripCategory || '').toLowerCase();
+    if (lower.includes('papel') || lower.includes('material') || lower.includes('apostila') || lower.includes('kit')) {
+      return 'Papelaria';
+    }
+    if (lower.includes('limpeza') || lower.includes('higiene')) {
+      return 'Produtos de Limpeza';
+    }
+    if (lower.includes('cosm') || lower.includes('protetor') || lower.includes('repelente')) {
+      return 'Cosméticos';
+    }
+    return 'Alimentícios';
+  }
+
+  public saveTripOperationDraft(
+    payload: {
+      id?: string;
+      catalogPasseioId?: string;
+      name: string;
+      description?: string;
+      tripDate: string;
+      destination: string;
+      notes?: string;
+      responsibleUserId?: string;
+      responsibleUserName?: string;
+      selectionMode: 'ALL_STUDENTS' | 'SPECIFIC_STUDENTS';
+      distributionMethod: TripDistributionMethod;
+      fixedValuePerStudent?: number;
+      items: TripExpenseItem[];
+      participants: TripParticipantAllocation[];
+    },
+    user: { id: string; name: string; role: any }
+  ): TripOperation {
+    if (!Array.isArray(this.data.tripOperations)) {
+      this.data.tripOperations = [];
+    }
+
+    const cleanName = (payload.name || '').trim();
+    if (!cleanName) {
+      throw new Error('O nome da operação de passeio é obrigatório.');
+    }
+
+    const cleanDate = (payload.tripDate || '').trim() || new Date().toISOString().substring(0, 10);
+    const cleanDest = (payload.destination || '').trim() || 'Destino Externo ICEVES';
+
+    // Sanitizar itens com precisão em centavos
+    const sanitizedItems: TripExpenseItem[] = (payload.items || []).map((it, idx) => {
+      const qty = Math.max(1, Number(it.quantity) || 1);
+      const unitCents = Math.max(0, Math.round((Number(it.unitPrice) || 0) * 100));
+      const totalCents = qty * unitCents;
+      return {
+        id: it.id || `ITEM-${Date.now()}-${idx}`,
+        name: (it.name || 'Item de Passeio').trim(),
+        description: it.description ? String(it.description).trim() : '',
+        category: (it.category || 'Alimentação').trim(),
+        itemType: it.itemType || 'DESPESA_OPERACIONAL',
+        storeProductId: it.storeProductId || undefined,
+        deductFromStock: Boolean(it.deductFromStock),
+        quantity: qty,
+        unitPrice: unitCents / 100,
+        totalAmount: totalCents / 100,
+        notes: it.notes ? String(it.notes).trim() : '',
+      };
+    });
+
+    const totalExpensesCents = sanitizedItems.reduce(
+      (acc, it) => acc + Math.round(it.totalAmount * 100),
+      0
+    );
+
+    const sanitizedParticipants: TripParticipantAllocation[] = (payload.participants || []).map(p => {
+      const cents = Math.max(0, Math.round((Number(p.allocatedAmount) || 0) * 100));
+      return {
+        studentId: p.studentId,
+        studentName: p.studentName,
+        registrationNumber: p.registrationNumber,
+        classGroup: p.classGroup || '10ª Turma • Escola de Cristo',
+        allocatedAmount: cents / 100,
+        allocatedCents: cents,
+        items: (p.items || []).map(pi => ({
+          expenseItemId: pi.expenseItemId,
+          name: pi.name,
+          category: pi.category,
+          itemType: pi.itemType || 'DESPESA_OPERACIONAL',
+          quantity: Number(pi.quantity) || 1,
+          unitPrice: Math.round((Number(pi.unitPrice) || 0) * 100) / 100,
+          amount: Math.round((Number(pi.amount) || 0) * 100) / 100,
+          description: pi.description || '',
+          notes: pi.notes || '',
+        })),
+        status: 'PENDENTE',
+      };
+    });
+
+    const totalDistributedCents = sanitizedParticipants.reduce(
+      (acc, p) => acc + p.allocatedCents,
+      0
+    );
+
+    const now = new Date().toISOString();
+
+    if (payload.id) {
+      const existing = this.data.tripOperations.find(op => op.id === payload.id);
+      if (!existing) {
+        throw new Error('Operação de passeio não encontrada.');
+      }
+      if (existing.status !== 'RASCUNHO') {
+        throw new Error('Apenas operações em rascunho podem ser editadas diretamente. Para operações já lançadas, utilize a função de estorno auditável.');
+      }
+
+      existing.catalogPasseioId = payload.catalogPasseioId;
+      existing.name = cleanName;
+      existing.description = (payload.description || '').trim();
+      existing.tripDate = cleanDate;
+      existing.destination = cleanDest;
+      existing.notes = (payload.notes || '').trim();
+      existing.responsibleUserId = payload.responsibleUserId || user.id;
+      existing.responsibleUserName = (payload.responsibleUserName || user.name).trim();
+      existing.selectionMode = payload.selectionMode || 'ALL_STUDENTS';
+      existing.distributionMethod = payload.distributionMethod || 'IGUALITARIA';
+      existing.fixedValuePerStudent = payload.fixedValuePerStudent;
+      existing.items = sanitizedItems;
+      existing.participants = sanitizedParticipants;
+      existing.totalExpenses = totalExpensesCents / 100;
+      existing.totalDistributed = totalDistributedCents / 100;
+      existing.updatedAt = now;
+
+      existing.history.unshift({
+        id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: now,
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        action: 'RASCUNHO_ATUALIZADO',
+        details: `Rascunho "${existing.name}" atualizado (${sanitizedItems.length} itens, ${sanitizedParticipants.length} alunos, Total R$ ${existing.totalExpenses.toFixed(2)}).`,
+      });
+
+      this.logAudit(
+        user.id,
+        user.name,
+        user.role,
+        'ATUALIZAR_RASCUNHO_PDV_PASSEIO',
+        'PDV_PASSEIOS',
+        `Rascunho de passeio "${existing.name}" (${existing.id}) atualizado.`
+      );
+
+      this.saveDatabase();
+      return existing;
+    }
+
+    const opId = `PDV-PAS-${Date.now().toString().slice(-6)}`;
+    const newOp: TripOperation = {
+      id: opId,
+      catalogPasseioId: payload.catalogPasseioId,
+      name: cleanName,
+      description: (payload.description || '').trim(),
+      tripDate: cleanDate,
+      destination: cleanDest,
+      notes: (payload.notes || '').trim(),
+      responsibleUserId: payload.responsibleUserId || user.id,
+      responsibleUserName: (payload.responsibleUserName || user.name).trim(),
+      status: 'RASCUNHO',
+      selectionMode: payload.selectionMode || 'ALL_STUDENTS',
+      distributionMethod: payload.distributionMethod || 'IGUALITARIA',
+      fixedValuePerStudent: payload.fixedValuePerStudent,
+      items: sanitizedItems,
+      participants: sanitizedParticipants,
+      totalExpenses: totalExpensesCents / 100,
+      totalDistributed: totalDistributedCents / 100,
+      history: [
+        {
+          id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          timestamp: now,
+          userId: user.id,
+          userName: user.name,
+          userRole: user.role,
+          action: 'RASCUNHO_CRIADO',
+          details: `Operação "${cleanName}" salva como rascunho (${sanitizedItems.length} itens, ${sanitizedParticipants.length} alunos).`,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.data.tripOperations.unshift(newOp);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'CRIAR_RASCUNHO_PDV_PASSEIO',
+      'PDV_PASSEIOS',
+      `Rascunho de passeio "${newOp.name}" (${newOp.id}) criado com ${sanitizedParticipants.length} participantes.`
+    );
+
+    this.saveDatabase();
+    return newOp;
+  }
+
+  public deleteTripOperationDraft(
+    operationId: string,
+    user: { id: string; name: string; role: any }
+  ): { success: boolean; deletedId: string } {
+    if (!Array.isArray(this.data.tripOperations)) {
+      this.data.tripOperations = [];
+    }
+    const idx = this.data.tripOperations.findIndex(op => op.id === operationId);
+    if (idx === -1) {
+      throw new Error('Operação de passeio não encontrada.');
+    }
+    const target = this.data.tripOperations[idx];
+    if (target.status !== 'RASCUNHO') {
+      throw new Error('Operações já lançadas no financeiro não podem ser excluídas silenciosamente. Utilize o estorno auditável.');
+    }
+
+    this.data.tripOperations.splice(idx, 1);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'EXCLUIR_RASCUNHO_PDV_PASSEIO',
+      'PDV_PASSEIOS',
+      `Rascunho de passeio "${target.name}" (${target.id}) descartado antes do lançamento financeiro.`
+    );
+
+    this.saveDatabase();
+    return { success: true, deletedId: operationId };
+  }
+
+  public confirmAndLaunchTripOperation(
+    payload: {
+      id?: string;
+      catalogPasseioId?: string;
+      name: string;
+      description?: string;
+      tripDate: string;
+      destination: string;
+      notes?: string;
+      responsibleUserId?: string;
+      responsibleUserName?: string;
+      selectionMode: 'ALL_STUDENTS' | 'SPECIFIC_STUDENTS';
+      distributionMethod: TripDistributionMethod;
+      fixedValuePerStudent?: number;
+      items: TripExpenseItem[];
+      participants: TripParticipantAllocation[];
+      idempotencyKey?: string;
+    },
+    user: { id: string; name: string; role: any }
+  ): { operation: TripOperation; salesCreated: Sale[]; updatedStudents: Student[] } {
+    if (!Array.isArray(this.data.tripOperations)) {
+      this.data.tripOperations = [];
+    }
+
+    // 1. Verificar idempotência para evitar lançamentos duplicados
+    if (payload.idempotencyKey) {
+      const alreadyLaunched = this.data.tripOperations.find(
+        op => op.idempotencyKey === payload.idempotencyKey && op.status === 'LANCADO'
+      );
+      if (alreadyLaunched) {
+        const existingSales = this.data.sales.filter(s => s.tripOperationId === alreadyLaunched.id);
+        const existingStudents = this.data.students.filter(st =>
+          alreadyLaunched.participants.some(p => p.studentId === st.id)
+        );
+        return {
+          operation: alreadyLaunched,
+          salesCreated: existingSales,
+          updatedStudents: existingStudents,
+        };
+      }
+    }
+
+    if (payload.id) {
+      const existingById = this.data.tripOperations.find(op => op.id === payload.id);
+      if (existingById && existingById.status === 'LANCADO') {
+        throw new Error(`A operação ${existingById.id} ("${existingById.name}") já foi confirmada e lançada nas contas anteriormente.`);
+      }
+    }
+
+    // 2. Salvar/atualizar como rascunho validado antes de executar a transação
+    const draftOp = this.saveTripOperationDraft(payload, user);
+
+    if (draftOp.items.length === 0) {
+      throw new Error('Adicione pelo menos 1 produto ou despesa ao passeio antes de confirmar o lançamento.');
+    }
+
+    if (draftOp.participants.length === 0) {
+      throw new Error('Selecione pelo menos 1 aluno participante antes de confirmar o lançamento.');
+    }
+
+    // 3. Validar precisão em centavos e ausência de divergência financeira silenciosa
+    const totalExpensesCents = draftOp.items.reduce(
+      (acc, it) => acc + Math.round(it.totalAmount * 100),
+      0
+    );
+    const totalDistributedCents = draftOp.participants.reduce(
+      (acc, p) => acc + Math.round(p.allocatedAmount * 100),
+      0
+    );
+
+    if (totalDistributedCents <= 0) {
+      throw new Error('O valor total distribuído aos alunos deve ser maior que R$ 0,00.');
+    }
+
+    if (totalExpensesCents !== totalDistributedCents) {
+      const diffReais = ((totalDistributedCents - totalExpensesCents) / 100).toFixed(2);
+      throw new Error(
+        `Divergência financeira detectada: Total das Despesas (R$ ${(totalExpensesCents / 100).toFixed(2)}) difere do Total Distribuído aos Alunos (R$ ${(totalDistributedCents / 100).toFixed(2)}) em R$ ${diffReais}. Ajuste os valores antes de concluir.`
+      );
+    }
+
+    // 4. Validar elegibilidade dos alunos selecionados e estoque (se houver produto físico do estoque)
+    const targetStudentRecords: { participant: TripParticipantAllocation; student: Student }[] = [];
+    for (const part of draftOp.participants) {
+      if (part.allocatedCents <= 0) {
+        throw new Error(`O participante ${part.studentName} está com valor R$ 0,00. Remova-o da seleção ou atribua um valor válido.`);
+      }
+      const st = this.data.students.find(s => s.id === part.studentId);
+      if (!st) {
+        throw new Error(`Aluno participante "${part.studentName}" não encontrado no cadastro.`);
+      }
+      if (st.status !== 'ACTIVE') {
+        throw new Error(`O aluno "${st.name}" está INATIVO e não é elegível para receber lançamentos.`);
+      }
+      targetStudentRecords.push({ participant: part, student: st });
+    }
+
+    // Verificar estoque para itens físicos vinculados ao estoque da lojinha
+    for (const item of draftOp.items) {
+      if (item.storeProductId && item.deductFromStock) {
+        const product = this.data.products.find(p => p.id === item.storeProductId);
+        if (!product) {
+          throw new Error(`Produto do estoque vinculado "${item.name}" não encontrado.`);
+        }
+        if (this.data.settings.stockControlActive && this.data.settings.blockSaleWithoutStock) {
+          if (product.currentStock < item.quantity) {
+            throw new Error(
+              `Estoque insuficiente para "${product.name}". Disponível: ${product.currentStock}, Necessário no passeio: ${item.quantity}.`
+            );
+          }
+        }
+      }
+    }
+
+    // 5. Execução Transacional: Baixar estoque (se aplicável) + Gerar lançamentos individuais nas contas dos alunos
+    const now = new Date().toISOString();
+    const billingPeriod = (draftOp.tripDate && draftOp.tripDate.length >= 7)
+      ? draftOp.tripDate.substring(0, 7)
+      : now.substring(0, 7);
+
+    for (const item of draftOp.items) {
+      if (item.storeProductId && item.deductFromStock) {
+        const product = this.data.products.find(p => p.id === item.storeProductId)!;
+        const prevStock = product.currentStock;
+        product.currentStock = Math.max(0, product.currentStock - item.quantity);
+        product.updatedAt = now;
+
+        const movement: StockMovement = {
+          id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          productId: product.id,
+          productName: product.name,
+          type: 'SAIDA_VENDA',
+          quantity: -item.quantity,
+          previousStock: prevStock,
+          newStock: product.currentStock,
+          reason: `PDV de Passeios (${draftOp.id} - ${draftOp.name})`,
+          performedByUserId: user.id,
+          performedByUserName: user.name,
+          referenceId: draftOp.id,
+          timestamp: now,
+        };
+        this.data.stockMovements.unshift(movement);
+        this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+      }
+    }
+
+    const salesCreated: Sale[] = [];
+    const updatedStudents: Student[] = [];
+
+    targetStudentRecords.forEach(({ participant, student }, idx) => {
+      const saleId = `PAS-${Date.now().toString().slice(-6)}-${String(idx + 1).padStart(2, '0')}`;
+
+      // Garantir que cada aluno tenha os itens detalhados na sua conta
+      const rawItems = participant.items && participant.items.length > 0
+        ? participant.items
+        : draftOp.items.map(it => {
+            const ratio = totalExpensesCents > 0 ? participant.allocatedCents / totalExpensesCents : 1 / targetStudentRecords.length;
+            const itemAmount = Math.round(it.totalAmount * ratio * 100) / 100;
+            return {
+              expenseItemId: it.id,
+              name: it.name,
+              category: it.category,
+              itemType: it.itemType,
+              quantity: 1,
+              unitPrice: itemAmount,
+              amount: itemAmount,
+              description: it.description,
+              notes: it.notes,
+            };
+          });
+
+      const saleItems: SaleItem[] = rawItems.map(pi => ({
+        productId: pi.expenseItemId || `trip-item-${draftOp.id}`,
+        name: `${pi.name} (${draftOp.name})`,
+        category: this.mapTripCategoryToProductCategory(pi.category),
+        unitPrice: Math.round(pi.unitPrice * 100) / 100,
+        quantity: pi.quantity || 1,
+        subtotal: Math.round(pi.amount * 100) / 100,
+        tripItemType: pi.itemType,
+        tripCategory: pi.category,
+        description: pi.description || draftOp.description,
+        notes: pi.notes,
+      }));
+
+      // Ajuste fino de centavos no último item caso o detalhamento proporcional tenha 1 centavo de diferença para fechar exatamente com allocatedAmount
+      const sumSaleItemsCents = saleItems.reduce((acc, si) => acc + Math.round(si.subtotal * 100), 0);
+      if (saleItems.length > 0 && sumSaleItemsCents !== participant.allocatedCents) {
+        const diffCents = participant.allocatedCents - sumSaleItemsCents;
+        const lastItem = saleItems[saleItems.length - 1];
+        lastItem.subtotal = Math.round((lastItem.subtotal * 100 + diffCents)) / 100;
+        if (lastItem.quantity === 1) {
+          lastItem.unitPrice = lastItem.subtotal;
+        }
+      }
+
+      const saleTotal = participant.allocatedCents / 100;
+
+      const newSale: Sale = {
+        id: saleId,
+        studentId: student.id,
+        studentName: student.name,
+        registrationNumber: student.registrationNumber,
+        items: saleItems,
+        total: saleTotal,
+        operatorUserId: draftOp.responsibleUserId || user.id,
+        operatorUserName: draftOp.responsibleUserName || user.name,
+        status: 'COMPLETED',
+        billingPeriod,
+        idempotencyKey: payload.idempotencyKey ? `${payload.idempotencyKey}-${student.id}` : undefined,
+        origin: 'PDV_PASSEIOS',
+        tripOperationId: draftOp.id,
+        tripName: draftOp.name,
+        tripDate: draftOp.tripDate,
+        tripDestination: draftOp.destination,
+        createdAt: now,
+      };
+
+      // Atualizar saldo de consumo aberto e dívida total na conta individual do aluno
+      student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance + saleTotal) * 100) / 100;
+      student.totalOpenDebt = Math.round((student.totalOpenDebt + saleTotal) * 100) / 100;
+
+      // Registrar no Livro Razão Financeiro (Ledger)
+      const itemsBreakdownText = rawItems
+        .map(ri => `${ri.name}: R$ ${ri.amount.toFixed(2)}`)
+        .join(' | ');
+
+      this.data.financialLedger.unshift({
+        id: `LED-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: now,
+        studentId: student.id,
+        type: 'DEBITO',
+        category: 'PDV_PASSEIOS',
+        amount: saleTotal,
+        description: `PDV de Passeios: ${draftOp.name} (${draftOp.tripDate}) — [${itemsBreakdownText}]`,
+        documentRef: newSale.id,
+        performedByUserName: draftOp.responsibleUserName || user.name,
+      });
+
+      this.data.sales.unshift(newSale);
+
+      participant.saleId = newSale.id;
+      participant.status = 'LANCADO';
+
+      salesCreated.push(newSale);
+      updatedStudents.push(student);
+
+      this.triggerSupabaseSync('sales', newSale, 'mapSaleToSupabase');
+      this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    });
+
+    draftOp.status = 'LANCADO';
+    draftOp.idempotencyKey = payload.idempotencyKey || `IDEMP-${draftOp.id}`;
+    draftOp.launchedAt = now;
+    draftOp.launchedByUserName = user.name;
+    draftOp.updatedAt = now;
+
+    draftOp.history.unshift({
+      id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: now,
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      action: 'LANCAMENTO_CONFIRMADO',
+      details: `Lançamento financeiro confirmado para ${salesCreated.length} aluno(s). Total distribuído: R$ ${draftOp.totalDistributed.toFixed(2)}.`,
+    });
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'CONFIRMAR_LANCAMENTO_PDV_PASSEIOS',
+      'PDV_PASSEIOS',
+      `Passeio "${draftOp.name}" (${draftOp.id}) lançado nas contas de ${salesCreated.length} aluno(s). Valor total: R$ ${draftOp.totalDistributed.toFixed(2)}.`
+    );
+
+    this.saveDatabase();
+    return {
+      operation: draftOp,
+      salesCreated,
+      updatedStudents,
+    };
+  }
+
+  public reverseTripParticipantLaunch(
+    params: {
+      operationId: string;
+      studentId: string;
+      reason: string;
+    },
+    user: { id: string; name: string; role: any }
+  ): { operation: TripOperation; reversedSale?: Sale; updatedStudent?: Student } {
+    const cleanReason = (params.reason || '').trim();
+    if (!cleanReason) {
+      throw new Error('A justificativa é obrigatória para realizar o estorno.');
+    }
+
+    const op = this.getTripOperations().find(o => o.id === params.operationId);
+    if (!op) {
+      throw new Error('Operação de passeio não encontrada.');
+    }
+
+    const participant = op.participants.find(p => p.studentId === params.studentId);
+    if (!participant) {
+      throw new Error('Participante não encontrado nesta operação de passeio.');
+    }
+
+    if (participant.status === 'ESTORNADO') {
+      throw new Error(`O lançamento do aluno ${participant.studentName} já foi estornado anteriormente.`);
+    }
+
+    if (participant.status !== 'LANCADO' || !participant.saleId) {
+      throw new Error('Este participante ainda não possui lançamento financeiro efetivado.');
+    }
+
+    const now = new Date().toISOString();
+    const sale = this.data.sales.find(s => s.id === participant.saleId);
+    const student = this.data.students.find(s => s.id === participant.studentId);
+
+    if (sale && sale.status !== 'REVERSED') {
+      sale.status = 'REVERSED';
+      sale.reversedReason = `Estorno PDV de Passeios (${op.name}): ${cleanReason}`;
+      sale.reversedByUserName = user.name;
+      sale.reversedAt = now;
+
+      if (student) {
+        if (!sale.invoiceId) {
+          // Lançamento ainda em consumo aberto mensal
+          student.currentConsumptionBalance = Math.max(
+            0,
+            Math.round((student.currentConsumptionBalance - sale.total) * 100) / 100
+          );
+          student.totalOpenDebt = Math.max(
+            0,
+            Math.round((student.totalOpenDebt - sale.total) * 100) / 100
+          );
+
+          this.data.financialLedger.unshift({
+            id: `LED-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            timestamp: now,
+            studentId: student.id,
+            type: 'CREDITO',
+            category: 'ESTORNO_VENDA',
+            amount: sale.total,
+            description: `Estorno PDV de Passeios (${op.name} - ${sale.id}) — Motivo: ${cleanReason}`,
+            documentRef: sale.id,
+            performedByUserName: user.name,
+          });
+        } else {
+          // Se já houver fatura emitida, aplica ajuste de crédito auditável sem apagar documento histórico
+          const invoice = this.data.invoices.find(inv => inv.id === sale.invoiceId);
+          if (invoice && invoice.status !== 'CANCELADA') {
+            invoice.adjustmentsTotal = Math.round(((invoice.adjustmentsTotal || 0) + sale.total) * 100) / 100;
+            invoice.grossTotal = Math.max(
+              0,
+              Math.round((invoice.tuitionAmount + invoice.canteenConsumptionTotal - invoice.adjustmentsTotal) * 100) / 100
+            );
+            invoice.remainingBalance = Math.max(
+              0,
+              Math.round((invoice.grossTotal - invoice.paidTotal) * 100) / 100
+            );
+            if (invoice.remainingBalance === 0 && invoice.grossTotal > 0) {
+              invoice.status = 'PAGA';
+            }
+            invoice.notes = `${invoice.notes ? invoice.notes + ' | ' : ''}Ajuste de estorno PDV de Passeios (${op.name}): -R$ ${sale.total.toFixed(2)} (${cleanReason})`;
+            invoice.updatedAt = now;
+            this.triggerSupabaseSync('invoices', invoice, 'mapInvoiceToSupabase');
+          }
+
+          student.totalOpenDebt = Math.max(
+            0,
+            Math.round((student.totalOpenDebt - sale.total) * 100) / 100
+          );
+
+          this.data.financialLedger.unshift({
+            id: `LED-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            timestamp: now,
+            studentId: student.id,
+            type: 'CREDITO',
+            category: 'AJUSTE_CREDITO',
+            amount: sale.total,
+            invoiceId: sale.invoiceId,
+            description: `Ajuste de Crédito por Estorno PDV de Passeios (${op.name}) em Fatura Emitida (${sale.invoiceId}) — Motivo: ${cleanReason}`,
+            documentRef: sale.id,
+            performedByUserName: user.name,
+          });
+        }
+        this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+      }
+      this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+    }
+
+    participant.status = 'ESTORNADO';
+    participant.reversedReason = cleanReason;
+    participant.reversedByUserName = user.name;
+    participant.reversedAt = now;
+
+    // Recalcular total distribuído ativo e status da operação
+    const activeParticipants = op.participants.filter(p => p.status === 'LANCADO');
+    op.totalDistributed =
+      activeParticipants.reduce((acc, p) => acc + p.allocatedCents, 0) / 100;
+
+    if (activeParticipants.length === 0) {
+      op.status = 'ESTORNADO';
+    } else {
+      op.status = 'PARCIALMENTE_ESTORNADO';
+    }
+    op.updatedAt = now;
+
+    op.history.unshift({
+      id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: now,
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      action: 'ESTORNO_INDIVIDUAL',
+      details: `Estornado lançamento de R$ ${participant.allocatedAmount.toFixed(2)} do aluno ${participant.studentName}. Motivo: ${cleanReason}`,
+    });
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'ESTORNAR_LANCAMENTO_PASSEIO_ALUNO',
+      'PDV_PASSEIOS',
+      `Estorno no passeio "${op.name}" (${op.id}) para o aluno ${participant.studentName} (R$ ${participant.allocatedAmount.toFixed(2)}). Motivo: ${cleanReason}`
+    );
+
+    this.saveDatabase();
+    return { operation: op, reversedSale: sale, updatedStudent: student };
+  }
+
+  public reverseEntireTripOperation(
+    params: {
+      operationId: string;
+      reason: string;
+    },
+    user: { id: string; name: string; role: any }
+  ): TripOperation {
+    const cleanReason = (params.reason || '').trim();
+    if (!cleanReason) {
+      throw new Error('A justificativa é obrigatória para estornar a operação de passeio.');
+    }
+
+    const op = this.getTripOperations().find(o => o.id === params.operationId);
+    if (!op) {
+      throw new Error('Operação de passeio não encontrada.');
+    }
+
+    const activeParticipants = op.participants.filter(p => p.status === 'LANCADO');
+    if (activeParticipants.length === 0) {
+      throw new Error('Todos os lançamentos desta operação já se encontram estornados.');
+    }
+
+    for (const part of activeParticipants) {
+      this.reverseTripParticipantLaunch(
+        {
+          operationId: op.id,
+          studentId: part.studentId,
+          reason: cleanReason,
+        },
+        user
+      );
+    }
+
+    // Reverter estoque de itens físicos vinculados, se houver
+    const now = new Date().toISOString();
+    for (const item of op.items) {
+      if (item.storeProductId && item.deductFromStock) {
+        const product = this.data.products.find(p => p.id === item.storeProductId);
+        if (product) {
+          const prevStock = product.currentStock;
+          product.currentStock += item.quantity;
+          product.updatedAt = now;
+          this.data.stockMovements.unshift({
+            id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            productId: product.id,
+            productName: product.name,
+            type: 'ESTORNO_VENDA',
+            quantity: item.quantity,
+            previousStock: prevStock,
+            newStock: product.currentStock,
+            reason: `Estorno integral PDV de Passeios (${op.id} - ${op.name}): ${cleanReason}`,
+            performedByUserId: user.id,
+            performedByUserName: user.name,
+            referenceId: op.id,
+            timestamp: now,
+          });
+          this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+        }
+      }
+    }
+
+    op.status = 'ESTORNADO';
+    op.totalDistributed = 0;
+    op.updatedAt = now;
+
+    op.history.unshift({
+      id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: now,
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      action: 'ESTORNO_INTEGRAL_OPERACAO',
+      details: `Operação "${op.name}" integralmente estornada (${activeParticipants.length} lançamentos revertidos). Motivo: ${cleanReason}`,
+    });
+
+    this.saveDatabase();
+    return op;
+  }
+
   public resetToSeed(user: { id: string; name: string; role: any }) {
     this.data = {
       settings: initialSettings,
@@ -1534,6 +2504,8 @@ class DatabaseService {
       pixPayments: initialPixPayments,
       whatsappNotifications: initialWhatsAppNotifications,
       auditLogs: initialAuditLogs,
+      passeios: initialPasseios,
+      tripOperations: [],
     };
     this.logAudit(user.id, user.name, user.role, 'RESET_BASE_DE_DADOS', 'SISTEMA', 'Base de dados resetada para estado semente.');
     this.saveDatabase();
@@ -1542,3 +2514,4 @@ class DatabaseService {
 }
 
 export const db = new DatabaseService();
+

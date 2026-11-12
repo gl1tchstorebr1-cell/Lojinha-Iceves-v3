@@ -44,13 +44,13 @@ export function TopBar({
   onOpenMobileMenu,
   onNavigate
 }: TopBarProps) {
-  const { user, logout } = useAuth();
+  const { user, isAdmin, isCashier, isStudent, isGuardian, logout } = useAuth();
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
 
-  const pendingPix = pixPayments.filter(p => p.status === 'AGUARDANDO_CONFERENCIA');
-  const lowStock = products.filter(p => p.currentStock <= p.minStock);
+  const pendingPix = isAdmin ? pixPayments.filter(p => p.status === 'AGUARDANDO_CONFERENCIA') : [];
+  const lowStock = (isAdmin || isCashier) ? products.filter(p => p.currentStock <= p.minStock) : [];
   const totalNotifications = pendingPix.length + lowStock.length;
 
   // Keyboard shortcut ⌘K / Ctrl+K
@@ -68,20 +68,24 @@ export function TopBar({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cmdOpen]);
 
-  // Command palette navigation items
-  const commandItems = [
-    { name: 'Visão Geral (Dashboard)', icon: LayoutGrid, section: 'Navegação', tab: 'dashboard' },
-    { name: 'Ponto de Venda & Cupons (PDV)', icon: ShoppingCart, section: 'Operações', tab: 'pdv' },
-    { name: 'Produtos & Estoque', icon: Package, section: 'Operações', tab: 'products' },
-    { name: 'Faturas & Fechamento Mensal', icon: FileText, section: 'Financeiro', tab: 'closing' },
-    { name: 'Conferência Pix', icon: QrCode, section: 'Financeiro', tab: 'pix' },
-    { name: 'Alunos & Responsáveis', icon: Users, section: 'Pessoas', tab: 'students' },
-    { name: 'Portal do Aluno', icon: LayoutGrid, section: 'Portais', tab: 'student_portal' },
-    { name: 'Portal do Responsável', icon: Users, section: 'Portais', tab: 'guardian_portal' },
-    { name: 'WhatsApp & Comunicação', icon: MessageSquare, section: 'Administração', tab: 'whatsapp' },
-    { name: 'Auditoria & Livro-Razão (LGPD)', icon: ShieldAlert, section: 'Administração', tab: 'audit' },
-    { name: 'Configurações do Sistema', icon: Settings, section: 'Administração', tab: 'settings' },
-  ].filter(i => i.name.toLowerCase().includes(cmdQuery.toLowerCase()));
+  // Role-filtered Command palette navigation items
+  const allCommandItems = [
+    { name: isStudent ? 'Meu Dashboard' : 'Visão Geral (Dashboard)', icon: LayoutGrid, section: 'Navegação', tab: 'dashboard', allowed: true },
+    { name: 'Ponto de Venda & Cupons (PDV)', icon: ShoppingCart, section: 'Operações', tab: 'pdv', allowed: isAdmin || isCashier },
+    { name: 'Produtos & Estoque', icon: Package, section: 'Operações', tab: 'products', allowed: isAdmin || isCashier },
+    { name: 'Faturas & Fechamento Mensal', icon: FileText, section: 'Financeiro', tab: 'closing', allowed: isAdmin },
+    { name: 'Conferência Pix', icon: QrCode, section: 'Financeiro', tab: 'pix', allowed: isAdmin },
+    { name: 'Alunos & Responsáveis', icon: Users, section: 'Pessoas', tab: 'students', allowed: isAdmin },
+    { name: 'Portal do Aluno', icon: LayoutGrid, section: 'Portais', tab: 'student_portal', allowed: isAdmin || isStudent },
+    { name: 'Portal do Responsável', icon: Users, section: 'Portais', tab: 'guardian_portal', allowed: isAdmin || isGuardian },
+    { name: 'WhatsApp & Comunicação', icon: MessageSquare, section: 'Administração', tab: 'whatsapp', allowed: isAdmin },
+    { name: 'Auditoria & Livro-Razão (LGPD)', icon: ShieldAlert, section: 'Administração', tab: 'audit', allowed: isAdmin },
+    { name: 'Configurações do Sistema', icon: Settings, section: 'Administração', tab: 'settings', allowed: isAdmin },
+  ];
+
+  const commandItems = allCommandItems.filter(
+    i => i.allowed && i.name.toLowerCase().includes(cmdQuery.toLowerCase())
+  );
 
   return (
     <>
@@ -116,7 +120,7 @@ export function TopBar({
           </button>
         </div>
 
-        {/* Right: Institutional Badge, Notifications, Settings, Profile */}
+        {/* Right: Institutional Badge, Notifications, Settings (Admin only), Profile */}
         <div className="flex items-center gap-2 relative">
           {/* ICEVES Institutional Pill */}
           <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 mr-1">
@@ -130,85 +134,89 @@ export function TopBar({
             </span>
           </div>
           
-          {/* Notifications Button */}
-          <div className="relative">
+          {/* Notifications Button (Admin / Cashier operational alerts) */}
+          {(isAdmin || isCashier) && (
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2 rounded-lg border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer relative"
+                title="Notificações e Avisos"
+              >
+                <Bell className="w-4 h-4" />
+                {totalNotifications > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                )}
+              </button>
+
+              {/* Notifications Dropdown */}
+              <AnimatePresence>
+                {showNotifications && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                    className="absolute right-0 top-full mt-2 w-72 rounded-xl bg-[#141414] border border-white/[0.12] shadow-2xl p-3 z-50 text-xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
+                      <span className="font-semibold text-white">Central de Avisos</span>
+                      <span className="text-[10px] text-zinc-400 font-mono">{totalNotifications} pendente(s)</span>
+                    </div>
+
+                    {totalNotifications === 0 ? (
+                      <div className="py-4 text-center text-zinc-500 text-xs">
+                        Tudo em dia! Sem pendências.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                        {isAdmin && pendingPix.length > 0 && (
+                          <button
+                            onClick={() => {
+                              onNavigate('pix');
+                              setShowNotifications(false);
+                            }}
+                            className="w-full text-left p-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition flex items-start gap-2 text-zinc-300"
+                          >
+                            <QrCode className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                            <div>
+                              <div className="font-medium text-white">{pendingPix.length} Pix para conferir</div>
+                              <div className="text-[10px] text-zinc-400">Comprovantes aguardando baixa</div>
+                            </div>
+                          </button>
+                        )}
+
+                        {lowStock.length > 0 && (
+                          <button
+                            onClick={() => {
+                              onNavigate('products');
+                              setShowNotifications(false);
+                            }}
+                            className="w-full text-left p-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition flex items-start gap-2 text-zinc-300"
+                          >
+                            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                            <div>
+                              <div className="font-medium text-white">{lowStock.length} produtos em estoque baixo</div>
+                              <div className="text-[10px] text-zinc-400">Abaixo do estoque mínimo</div>
+                            </div>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {/* Quick Settings - Exclusivo para Administradores */}
+          {isAdmin && (
             <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              className="p-2 rounded-lg border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer relative"
-              title="Notificações e Avisos"
+              onClick={() => onNavigate('settings')}
+              className="p-2 rounded-lg border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+              title="Configurações do Sistema (Exclusivo Admin)"
             >
-              <Bell className="w-4 h-4" />
-              {totalNotifications > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-              )}
+              <Settings className="w-4 h-4" />
             </button>
-
-            {/* Notifications Dropdown */}
-            <AnimatePresence>
-              {showNotifications && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                  className="absolute right-0 top-full mt-2 w-72 rounded-xl bg-[#141414] border border-white/[0.12] shadow-2xl p-3 z-50 text-xs space-y-2"
-                >
-                  <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
-                    <span className="font-semibold text-white">Central de Avisos</span>
-                    <span className="text-[10px] text-zinc-400 font-mono">{totalNotifications} pendente(s)</span>
-                  </div>
-
-                  {totalNotifications === 0 ? (
-                    <div className="py-4 text-center text-zinc-500 text-xs">
-                      Tudo em dia! Sem pendências.
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                      {pendingPix.length > 0 && (
-                        <button
-                          onClick={() => {
-                            onNavigate('pix');
-                            setShowNotifications(false);
-                          }}
-                          className="w-full text-left p-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition flex items-start gap-2 text-zinc-300"
-                        >
-                          <QrCode className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                          <div>
-                            <div className="font-medium text-white">{pendingPix.length} Pix para conferir</div>
-                            <div className="text-[10px] text-zinc-400">Comprovantes aguardando baixa</div>
-                          </div>
-                        </button>
-                      )}
-
-                      {lowStock.length > 0 && (
-                        <button
-                          onClick={() => {
-                            onNavigate('products');
-                            setShowNotifications(false);
-                          }}
-                          className="w-full text-left p-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition flex items-start gap-2 text-zinc-300"
-                        >
-                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                          <div>
-                            <div className="font-medium text-white">{lowStock.length} produtos em estoque baixo</div>
-                            <div className="text-[10px] text-zinc-400">Abaixo do estoque mínimo</div>
-                          </div>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Quick Settings */}
-          <button
-            onClick={() => onNavigate('settings')}
-            className="p-2 rounded-lg border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
-            title="Configurações Operacionais"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+          )}
 
           {/* User Profile & Logout */}
           <div className="flex items-center gap-2.5 pl-2 border-l border-white/[0.08]">

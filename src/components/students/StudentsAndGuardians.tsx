@@ -11,10 +11,12 @@ import {
   Camera,
   Calendar,
   Award,
-  RotateCcw
+  RotateCcw,
+  Bus,
+  MapPin
 } from 'lucide-react';
-import { Student, Guardian, PayerOption, RecipientOption } from '../../types';
-import { formatCurrency } from '../../utils/formatters';
+import { Student, Guardian, PayerOption, RecipientOption, Passeio } from '../../types';
+import { formatCurrency, formatDate } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { getInitialsAvatar, compressImageFileToDataUrl } from '../../utils/avatar';
@@ -22,15 +24,18 @@ import { getInitialsAvatar, compressImageFileToDataUrl } from '../../utils/avata
 interface StudentsAndGuardiansProps {
   students: Student[];
   guardians: Guardian[];
+  passeios?: Passeio[];
   onStudentUpdated: (student: Student) => void;
 }
 
 export function StudentsAndGuardians({ 
   students, 
   guardians, 
+  passeios = [],
   onStudentUpdated 
 }: StudentsAndGuardiansProps) {
   const { isAdmin } = useAuth();
+  const activePasseios = passeios.filter(p => p.ativo);
 
   const [activeTab, setActiveTab] = useState<'students' | 'guardians'>('students');
   const [searchTerm, setSearchTerm] = useState('');
@@ -596,6 +601,53 @@ export function StudentsAndGuardians({
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Seção Passeios na Área Individual do Aluno */}
+              <div className="bg-[#151515] p-3.5 rounded-xl border border-[#282828] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-[#F5F5F5] flex items-center gap-1.5">
+                    <Bus className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Passeios ({activePasseios.length})</span>
+                  </label>
+                  <span className="text-[10px] text-emerald-400 font-semibold">
+                    Disponibilizados automaticamente
+                  </span>
+                </div>
+                {activePasseios.length === 0 ? (
+                  <p className="text-[11px] text-[#71717A]">
+                    Nenhum passeio ativo cadastrado no momento.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                    {activePasseios.map((p) => (
+                      <div
+                        key={p.id}
+                        className="p-2.5 rounded-lg bg-[#101010] border border-[#262626] flex items-start justify-between gap-2"
+                      >
+                        <div className="space-y-0.5">
+                          <span className="font-bold text-[#F5F5F5] text-xs flex items-center gap-1.5">
+                            <MapPin className="w-3 h-3 text-emerald-400 shrink-0" />
+                            {p.nome}
+                          </span>
+                          {p.descricao && (
+                            <span className="text-[10px] text-[#A1A1AA] block">
+                              {p.descricao}
+                            </span>
+                          )}
+                          {p.dataPasseio && (
+                            <span className="text-[10px] text-[#71717A] font-mono block">
+                              Data: {formatDate(p.dataPasseio)}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono font-bold text-emerald-400 text-xs bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded shrink-0">
+                          {formatCurrency(p.valor)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Quem pode pagar */}

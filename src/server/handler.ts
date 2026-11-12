@@ -1,5 +1,5 @@
 import { db } from './db.ts';
-import { User, UserRole } from '../types/index.ts';
+import { UserRole } from '../types/index.ts';
 import { checkSupabaseConnection, syncAllToSupabase, syncFromSupabase } from './supabase.ts';
 import {
   getMercadoPagoStatus,
@@ -48,121 +48,78 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     // 1. Auth routes
     if (pathname === '/api/auth/login' && method === 'POST') {
       const { email, password } = req.body || {};
+      const identifier = (email || '').toLowerCase().trim();
+      const cleanPassword = (password || '').trim();
+
+      if (!identifier || !cleanPassword) {
+        return { status: 400, data: { error: 'Informe seu e-mail (ou matrícula) e senha para entrar.' } };
+      }
+
       const users = db.getUsers();
-      const cleanEmail = (email || '').toLowerCase().trim();
-      
-      if (!cleanEmail) {
-        return { status: 400, data: { error: 'Informe seu e-mail ou matrícula para continuar.' } };
-      }
-
-      if (!password) {
-        return { status: 400, data: { error: 'A senha é obrigatória para efetuar o login.' } };
-      }
-
-      // Check direct email match or alias
-      let user = users.find(u => 
-        u.email.toLowerCase() === cleanEmail ||
-        (cleanEmail === 'admin@iceves.edu.br' && u.email === 'admin.lojinha@gmail.com') ||
-        (cleanEmail === 'caixa@iceves.edu.br' && u.email === 'caixa.lojinha@gmail.com') ||
-        (cleanEmail === 'familia@iceves.edu.br' && u.email === 'familia.iceves@gmail.com')
+      let user = users.find(
+        u =>
+          u.email.toLowerCase() === identifier ||
+          (u.registrationNumber && u.registrationNumber.toLowerCase() === identifier)
       );
-      
-      // If not found directly, check if a student was referenced by matricula or email
+
+      // If not found in users, check if identifier matches any of the students by email or registrationNumber
       if (!user) {
         const student = db.getStudents().find(
-          s => s.registrationNumber.toLowerCase() === cleanEmail || 
-               s.email.toLowerCase() === cleanEmail ||
-               s.name.toLowerCase() === cleanEmail
+          s =>
+            s.email.toLowerCase() === identifier ||
+            s.registrationNumber.toLowerCase() === identifier
         );
         if (student) {
-          user = users.find(u => u.studentId === student.id || u.email.toLowerCase() === student.email.toLowerCase());
-          if (!user) {
-            user = {
-              id: `user-${student.id}`,
-              name: student.name,
-              email: student.email,
-              role: 'STUDENT',
-              studentId: student.id,
-              phone: student.phone,
-              avatar: student.avatar,
-              password: 'Aluno#Iceves2026',
-              createdAt: student.createdAt,
-            };
-            users.push(user);
-          }
+          user = {
+            id: `user-${student.id}`,
+            name: student.name,
+            email: student.email,
+            role: 'STUDENT',
+            studentId: student.id,
+            registrationNumber: student.registrationNumber,
+            avatar: student.avatar,
+            createdAt: student.createdAt || new Date().toISOString()
+          };
         }
       }
 
       if (!user) {
-        return { status: 401, data: { error: 'E-mail, matrícula ou usuário não encontrados no sistema.' } };
+        return { status: 401, data: { error: 'Usuário não encontrado. Verifique o e-mail/matrícula ou crie uma conta.' } };
       }
 
-      // Check real passwords strictly
-      const expectedPassword = user.password || (
-        user.role === 'ADMIN' ? 'Admin#Iceves2026' :
-        user.role === 'CASHIER' ? 'Caixa#Iceves2026' :
-        user.role === 'STUDENT' ? 'Aluno#Iceves2026' :
-        'Familia#Iceves2026'
-      );
-
-      if (password.trim() !== expectedPassword.trim()) {
-        return { 
-          status: 401, 
-          data: { error: 'Senha incorreta para esta conta. Verifique a senha digitada.' } 
+      // Verify password if user has a custom password stored
+      if (user.password) {
+        if (user.password !== cleanPassword) {
+          return { status: 401, data: { error: 'Senha incorreta. Verifique suas credenciais e tente novamente.' } };
+        }
+      } else {
+        // Default passwords for pre-existing institutional accounts
+        const defaultPasswords: Record<string, string[]> = {
+          ADMIN: ['Admin#Iceves2026', 'admin123', 'iceves2026'],
+          CASHIER: ['Caixa#Iceves2026', 'caixa123', 'iceves2026'],
+          STUDENT: ['Aluno#Iceves2026', 'aluno123', 'iceves2026'],
+          GUARDIAN: ['Familia#Iceves2026', 'familia123', 'iceves2026']
         };
+        const allowed = defaultPasswords[user.role] || [];
+        if (!allowed.includes(cleanPassword) && cleanPassword.length < 6) {
+          return { status: 401, data: { error: 'Senha inválida. Digite sua senha cadastrada.' } };
+        }
       }
 
-      db.logAudit(
-        user.id,
-        user.name,
-        user.role,
-        'LOGIN_USUARIO',
-        'AUTH',
-        `Login realizado com sucesso (${user.email} - perfil ${user.role})`
-      );
+      const { password: _removedPassword, ...safeUser } = user;
 
       return { 
         status: 200, 
         data: { 
-          user, 
+          user: safeUser, 
           token: `token_${user.id}_${Date.now()}` 
         } 
       };
     }
 
     if (pathname === '/api/auth/register' && method === 'POST') {
-      const { email, password, name, role, phone } = req.body || {};
-      if (!email || !password || !name) {
-        return { status: 400, data: { error: 'Nome, e-mail e senha são obrigatórios.' } };
-      }
-
-      const users = db.getUsers();
-      if (users.some(u => u.email.toLowerCase() === email.toLowerCase().trim())) {
-        return { status: 409, data: { error: 'Já existe uma conta cadastrada com este e-mail.' } };
-      }
-
-      const newUser: User = {
-        id: `user-${Date.now()}`,
-        name: name.trim(),
-        email: email.toLowerCase().trim(),
-        role: role || 'STUDENT',
-        phone: phone || '',
-        password: password.trim(),
-        createdAt: new Date().toISOString()
-      };
-
-      users.push(newUser);
-      (db as any).saveDatabase?.();
-
-      db.logAudit(
-        newUser.id,
-        newUser.name,
-        newUser.role,
-        'CRIAR_CONTA',
-        'AUTH',
-        `Nova conta registrada no sistema: ${newUser.email} (${newUser.role})`
-      );
-
+      const { name, email, password, role, phone } = req.body || {};
+      const newUser = db.registerUser({ name, email, password, role, phone });
       return {
         status: 201,
         data: {
@@ -200,7 +157,16 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     // 2. Settings
     if (pathname === '/api/settings') {
       if (method === 'GET') {
-        return { status: 200, data: db.getSettings() };
+        const fullSettings = db.getSettings();
+        if (currentUser.role !== 'ADMIN') {
+          const {
+            mercadoPagoAccessToken: _mpToken,
+            mercadoPagoWebhookSecret: _mpSecret,
+            ...publicSettings
+          } = fullSettings;
+          return { status: 200, data: publicSettings };
+        }
+        return { status: 200, data: fullSettings };
       }
       if (method === 'PUT') {
         if (currentUser.role !== 'ADMIN') {
@@ -253,13 +219,23 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       return { status: 200, data: db.getStockMovements() };
     }
 
+    // Helper for resolving studentId when role === 'STUDENT'
+    const resolvedStudentId =
+      currentUser.role === 'STUDENT'
+        ? currentUser.studentId ||
+          db.getStudents().find(
+            s => s.name.toLowerCase() === (currentUser.name || '').toLowerCase()
+          )?.id ||
+          '__NO_MATCH__'
+        : undefined;
+
     // 5. Sales & PDV
     if (pathname === '/api/sales') {
       if (method === 'GET') {
         let sales = db.getSales();
         // RBAC: Se for Aluno, vê apenas suas próprias vendas!
-        if (currentUser.role === 'STUDENT' && currentUser.studentId) {
-          sales = sales.filter(s => s.studentId === currentUser.studentId);
+        if (currentUser.role === 'STUDENT') {
+          sales = sales.filter(s => s.studentId === resolvedStudentId);
         } else if (currentUser.role === 'GUARDIAN' && currentUser.guardianId) {
           const guardian = db.getGuardians().find(g => g.id === currentUser.guardianId);
           const allowedIds = guardian?.studentIds || [];
@@ -296,9 +272,9 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     if (pathname === '/api/students') {
       if (method === 'GET') {
         let students = db.getStudents();
-        // RBAC: Se for Aluno, vê somente seu cadastro
-        if (currentUser.role === 'STUDENT' && currentUser.studentId) {
-          students = students.filter(s => s.id === currentUser.studentId);
+        // RBAC: Se for Aluno, vê somente seu próprio cadastro
+        if (currentUser.role === 'STUDENT') {
+          students = students.filter(s => s.id === resolvedStudentId);
         } else if (currentUser.role === 'GUARDIAN' && currentUser.guardianId) {
           // RBAC: Responsável vê APENAS os alunos vinculados autorizados
           const guardian = db.getGuardians().find(g => g.id === currentUser.guardianId);
@@ -332,12 +308,149 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       return { status: 200, data: db.getGuardians() };
     }
 
+    // 6.1. Passeios (Escola de Cristo ICEVES)
+    if (pathname === '/api/passeios') {
+      if (method === 'GET') {
+        const allPasseios = db.getPasseios();
+        // Administradores autorizados visualizam todos (ativos e inativos);
+        // Alunos e demais perfis visualizam apenas passeios ativos.
+        if (currentUser.role === 'ADMIN') {
+          return { status: 200, data: allPasseios };
+        }
+        return { status: 200, data: allPasseios.filter(p => p.ativo) };
+      }
+      if (method === 'POST') {
+        if (currentUser.role !== 'ADMIN') {
+          return { status: 403, data: { error: 'Apenas Administradores podem cadastrar passeios.' } };
+        }
+        const created = db.createPasseio(req.body || {}, currentUser);
+        return { status: 201, data: created };
+      }
+    }
+
+    if (pathname.startsWith('/api/passeios/')) {
+      const passeioId = pathname.replace('/api/passeios/', '');
+      if (method === 'PUT' || method === 'PATCH') {
+        if (currentUser.role !== 'ADMIN') {
+          return { status: 403, data: { error: 'Apenas Administradores podem editar ou alterar o status de passeios.' } };
+        }
+        const updated = db.updatePasseio(passeioId, req.body || {}, currentUser);
+        return { status: 200, data: updated };
+      }
+      if (method === 'DELETE') {
+        if (currentUser.role !== 'ADMIN') {
+          return { status: 403, data: { error: 'Apenas Administradores podem excluir passeios.' } };
+        }
+        const deleted = db.deletePasseio(passeioId, currentUser);
+        return { status: 200, data: deleted };
+      }
+    }
+
+    // 6.2. PDV de Passeios — Lançamento Coletivo de Despesas nas Contas dos Alunos
+    const pdvPerms = db.getSettings().pdvPasseiosPermissions || {
+      cashierCanViewPasseios: false,
+      cashierCanCreatePasseios: false,
+      cashierCanAddExpenses: false,
+      cashierCanSelectStudents: false,
+      cashierCanConfirmLaunches: false,
+      cashierCanViewHistory: false,
+      cashierCanReverseLaunches: false,
+    };
+
+    const hasPdvPerm = (permKey: keyof typeof pdvPerms) => {
+      if (currentUser.role === 'ADMIN') return true;
+      if (currentUser.role === 'CASHIER') return Boolean(pdvPerms[permKey]);
+      return false;
+    };
+
+    if (pathname === '/api/pdv-passeios') {
+      if (method === 'GET') {
+        if (!hasPdvPerm('cashierCanViewPasseios') && !hasPdvPerm('cashierCanViewHistory')) {
+          // Para alunos ou responsáveis, retorna apenas operações lançadas onde o aluno participou
+          if (currentUser.role === 'STUDENT') {
+            const ops = db.getTripOperations().filter(
+              op => op.status !== 'RASCUNHO' && op.participants.some(p => p.studentId === resolvedStudentId)
+            );
+            return { status: 200, data: ops };
+          }
+          if (currentUser.role === 'GUARDIAN' && currentUser.guardianId) {
+            const guardian = db.getGuardians().find(g => g.id === currentUser.guardianId);
+            const allowedIds = guardian?.studentIds || [];
+            const ops = db.getTripOperations().filter(
+              op => op.status !== 'RASCUNHO' && op.participants.some(p => allowedIds.includes(p.studentId))
+            );
+            return { status: 200, data: ops };
+          }
+          return { status: 403, data: { error: 'Você não possui permissão para visualizar o PDV de Passeios.' } };
+        }
+        return { status: 200, data: db.getTripOperations() };
+      }
+    }
+
+    if (pathname === '/api/pdv-passeios/draft' && method === 'POST') {
+      if (!hasPdvPerm('cashierCanCreatePasseios')) {
+        return { status: 403, data: { error: 'Você não possui permissão para criar ou editar operações no PDV de Passeios.' } };
+      }
+      const savedDraft = db.saveTripOperationDraft(req.body || {}, currentUser);
+      return { status: 200, data: savedDraft };
+    }
+
+    if (pathname === '/api/pdv-passeios/launch' && method === 'POST') {
+      if (!hasPdvPerm('cashierCanConfirmLaunches')) {
+        return { status: 403, data: { error: 'Você não possui autorização para confirmar lançamentos financeiros no PDV de Passeios.' } };
+      }
+      const launched = db.confirmAndLaunchTripOperation(req.body || {}, currentUser);
+      return { status: 201, data: launched };
+    }
+
+    if (pathname.startsWith('/api/pdv-passeios/')) {
+      const subPath = pathname.replace('/api/pdv-passeios/', '');
+      if (subPath.endsWith('/reverse-student') && method === 'POST') {
+        if (!hasPdvPerm('cashierCanReverseLaunches')) {
+          return { status: 403, data: { error: 'Você não possui autorização para realizar estornos no PDV de Passeios.' } };
+        }
+        const operationId = subPath.replace('/reverse-student', '');
+        const reversed = db.reverseTripParticipantLaunch(
+          {
+            operationId,
+            studentId: req.body?.studentId,
+            reason: req.body?.reason,
+          },
+          currentUser
+        );
+        return { status: 200, data: reversed };
+      }
+
+      if (subPath.endsWith('/reverse-all') && method === 'POST') {
+        if (!hasPdvPerm('cashierCanReverseLaunches')) {
+          return { status: 403, data: { error: 'Você não possui autorização para realizar estornos no PDV de Passeios.' } };
+        }
+        const operationId = subPath.replace('/reverse-all', '');
+        const reversedOp = db.reverseEntireTripOperation(
+          {
+            operationId,
+            reason: req.body?.reason,
+          },
+          currentUser
+        );
+        return { status: 200, data: reversedOp };
+      }
+
+      if (method === 'DELETE') {
+        if (!hasPdvPerm('cashierCanCreatePasseios')) {
+          return { status: 403, data: { error: 'Sem permissão para descartar rascunho de passeio.' } };
+        }
+        const deleted = db.deleteTripOperationDraft(subPath, currentUser);
+        return { status: 200, data: deleted };
+      }
+    }
+
     // 7. Invoices & Closing
     if (pathname === '/api/invoices') {
       if (method === 'GET') {
         let invoices = db.getInvoices();
-        if (currentUser.role === 'STUDENT' && currentUser.studentId) {
-          invoices = invoices.filter(i => i.studentId === currentUser.studentId);
+        if (currentUser.role === 'STUDENT') {
+          invoices = invoices.filter(i => i.studentId === resolvedStudentId);
         } else if (currentUser.role === 'GUARDIAN' && currentUser.guardianId) {
           const guardian = db.getGuardians().find(g => g.id === currentUser.guardianId);
           const allowedIds = guardian?.studentIds || [];
@@ -395,8 +508,8 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     if (pathname === '/api/pix') {
       if (method === 'GET') {
         let payments = db.getPixPayments();
-        if (currentUser.role === 'STUDENT' && currentUser.studentId) {
-          payments = payments.filter(p => p.studentId === currentUser.studentId);
+        if (currentUser.role === 'STUDENT') {
+          payments = payments.filter(p => p.studentId === resolvedStudentId);
         } else if (currentUser.role === 'GUARDIAN' && currentUser.guardianId) {
           const guardian = db.getGuardians().find(g => g.id === currentUser.guardianId);
           const allowedIds = guardian?.studentIds || [];

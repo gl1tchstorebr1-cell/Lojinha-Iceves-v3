@@ -195,7 +195,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
             </div>
 
             <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 scrollbar-none">
-              {['TODOS', 'VENDAS', 'ESTOQUE', 'FATURAS', 'PAGAMENTOS', 'FECHAMENTO', 'CONFIGURACOES', 'AUTH'].map(mod => (
+              {['TODOS', 'VENDAS', 'PDV_PASSEIOS', 'ESTOQUE', 'PASSEIOS', 'FATURAS', 'PAGAMENTOS', 'FECHAMENTO', 'CONFIGURACOES', 'AUTH'].map(mod => (
                 <button
                   key={mod}
                   onClick={() => setModuleFilter(mod)}
@@ -203,7 +203,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
                     moduleFilter === mod ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-500' : 'bg-[#151515] text-[#A1A1AA] border-[#282828] hover:text-[#F5F5F5]'
                   }`}
                 >
-                  {mod === 'TODOS' ? 'Todos os Módulos' : mod}
+                  {mod === 'TODOS' ? 'Todos os Módulos' : mod === 'PDV_PASSEIOS' ? 'PDV DE PASSEIOS' : mod}
                 </button>
               ))}
             </div>

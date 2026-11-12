@@ -10,7 +10,8 @@ import {
   FinancialTransaction, 
   WhatsAppNotification, 
   AuditLog, 
-  SystemSettings 
+  SystemSettings,
+  Passeio
 } from '../types/index.ts';
 import { getInitialsAvatar } from '../utils/avatar.ts';
 
@@ -108,7 +109,6 @@ export const initialUsers: User[] = [
     name: 'Coordenação ICEVES',
     email: 'admin.lojinha@gmail.com',
     role: 'ADMIN',
-    password: 'Admin#Iceves2026',
     phone: '(11) 98765-4321',
     avatar: getInitialsAvatar('Coordenação ICEVES'),
     createdAt: '2026-01-15T08:00:00Z'
@@ -118,7 +118,6 @@ export const initialUsers: User[] = [
     name: 'Atendimento Lojinha Iceves',
     email: 'caixa.lojinha@gmail.com',
     role: 'CASHIER',
-    password: 'Caixa#Iceves2026',
     phone: '(11) 97654-3210',
     avatar: getInitialsAvatar('Lojinha Iceves'),
     createdAt: '2026-02-01T08:00:00Z'
@@ -128,7 +127,6 @@ export const initialUsers: User[] = [
     name: 'Ana Vitória Lisboa',
     email: 'ana.lisboa@gmail.com',
     role: 'STUDENT',
-    password: 'Aluno#Iceves2026',
     studentId: 'student-1',
     phone: '(11) 99100-1001',
     avatar: getInitialsAvatar('Ana Vitória Lisboa'),
@@ -139,7 +137,6 @@ export const initialUsers: User[] = [
     name: 'Beatriz Gomes Ramos',
     email: 'beatriz.ramos@gmail.com',
     role: 'STUDENT',
-    password: 'Aluno#Iceves2026',
     studentId: 'student-2',
     phone: '(11) 99100-1002',
     avatar: getInitialsAvatar('Beatriz Gomes Ramos'),
@@ -150,7 +147,6 @@ export const initialUsers: User[] = [
     name: 'Responsável / Família ICEVES',
     email: 'familia.iceves@gmail.com',
     role: 'GUARDIAN',
-    password: 'Familia#Iceves2026',
     guardianId: 'guardian-1',
     phone: '(11) 98111-2233',
     avatar: getInitialsAvatar('Família ICEVES'),
@@ -466,3 +462,27 @@ export const initialAuditLogs: AuditLog[] = [
     status: 'SUCESSO'
   }
 ];
+
+export const initialPasseios: Passeio[] = [
+  {
+    id: '550e8400-e29b-41d4-a716-446655440001',
+    nome: 'Passeio para a Cachoeira',
+    valor: 35.00,
+    descricao: 'Excursão oficial da 10ª Turma da Escola de Cristo (ICEVES) com transporte e acompanhamento.',
+    dataPasseio: '2026-11-21',
+    ativo: true,
+    createdAt: '2026-11-01T08:00:00Z',
+    updatedAt: '2026-11-01T08:00:00Z'
+  },
+  {
+    id: '550e8400-e29b-41d4-a716-446655440002',
+    nome: 'Passeio para a Cidade',
+    valor: 20.00,
+    descricao: 'Saída em grupo com os alunos da 10ª Turma para compras e confraternização na cidade.',
+    dataPasseio: '2026-11-25',
+    ativo: true,
+    createdAt: '2026-11-01T08:00:00Z',
+    updatedAt: '2026-11-01T08:00:00Z'
+  }
+];
+

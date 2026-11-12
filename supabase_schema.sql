@@ -218,22 +218,69 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   status TEXT NOT NULL DEFAULT 'SUCESSO'
 );
 
--- 13. Permissões e Políticas de Acesso (RLS)
+-- 13. Tabela de Passeios — Escola de Cristo ICEVES
+CREATE TABLE IF NOT EXISTS passeios (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nome TEXT NOT NULL,
+  valor NUMERIC(10,2) NOT NULL,
+  descricao TEXT,
+  data_passeio DATE,
+  ativo BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Configurar RLS específica na tabela passeios conforme regras de segurança ICEVES:
+-- Administradores autorizados podem cadastrar, editar e excluir passeios.
+-- Alunos autenticados podem visualizar passeios ativos.
+-- Nenhum aluno poderá modificar os passeios.
+ALTER TABLE public.passeios ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Alunos autenticados podem visualizar passeios ativos" ON public.passeios;
+CREATE POLICY "Alunos autenticados podem visualizar passeios ativos"
+  ON public.passeios
+  FOR SELECT
+  TO authenticated, anon
+  USING (ativo = TRUE OR (auth.jwt() ->> 'role') = 'ADMIN' OR current_setting('request.jwt.claims', true)::jsonb ->> 'role' = 'service_role');
+
+DROP POLICY IF EXISTS "Administradores podem gerenciar passeios" ON public.passeios;
+CREATE POLICY "Administradores podem gerenciar passeios"
+  ON public.passeios
+  FOR ALL
+  TO authenticated, anon, service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- 14. Permissões e Políticas de Acesso (RLS)
 -- Garante acesso de leitura e escrita para operações da aplicação (anon, authenticated, service_role)
-GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO postgres, anon, authenticated, service_role;
+
+-- Garantir explicitamente permissões nas tabelas users e audit_logs (corrige "permission denied for table users / audit_logs")
+GRANT ALL PRIVILEGES ON TABLE public.users TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE public.audit_logs TO anon, authenticated, service_role;
 
 -- Configurar políticas permissivas em todas as tabelas para sincronização contínua
 DO $$ 
 DECLARE
   tbl text;
-  tbls text[] := ARRAY['settings', 'users', 'guardians', 'students', 'products', 'stock_movements', 'sales', 'invoices', 'pix_payments', 'whatsapp_notifications', 'audit_logs'];
+  tbls text[] := ARRAY['settings', 'users', 'guardians', 'students', 'products', 'stock_movements', 'sales', 'invoices', 'pix_payments', 'whatsapp_notifications', 'audit_logs', 'passeios'];
 BEGIN
   FOREACH tbl IN ARRAY tbls LOOP
-    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);
-    EXECUTE format('DROP POLICY IF EXISTS "Permitir acesso total à aplicação" ON public.%I;', tbl);
-    EXECUTE format('CREATE POLICY "Permitir acesso total à aplicação" ON public.%I FOR ALL USING (true) WITH CHECK (true);', tbl);
+    IF to_regclass('public.' || tbl) IS NOT NULL THEN
+      EXECUTE format('GRANT ALL PRIVILEGES ON TABLE public.%I TO anon, authenticated, service_role;', tbl);
+      EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);
+      EXECUTE format('DROP POLICY IF EXISTS "Permitir acesso total à aplicação" ON public.%I;', tbl);
+      EXECUTE format('CREATE POLICY "Permitir acesso total à aplicação" ON public.%I FOR ALL TO anon, authenticated, service_role USING (true) WITH CHECK (true);', tbl);
+    END IF;
   END LOOP;
 END $$;
+
+
+

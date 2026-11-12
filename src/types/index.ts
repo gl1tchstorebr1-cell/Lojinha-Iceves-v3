@@ -6,14 +6,15 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  password?: string;
   role: UserRole;
   phone?: string;
   avatar?: string;
   studentId?: string; // If role is STUDENT
   guardianId?: string; // If role is GUARDIAN
+  registrationNumber?: string;
   createdAt: string;
   lastLogin?: string;
-  password?: string;
 }
 
 export type PayerOption = 'STUDENT' | 'GUARDIAN' | 'BOTH' | 'STUDENT_ONLY' | 'GUARDIAN_ONLY';
@@ -106,6 +107,8 @@ export interface StockMovement {
   timestamp: string;
 }
 
+export type TripExpenseItemType = 'PRODUTO_FISICO' | 'SERVICO' | 'DESPESA_OPERACIONAL';
+
 export interface SaleItem {
   productId: string;
   name: string;
@@ -113,10 +116,14 @@ export interface SaleItem {
   unitPrice: number; // Historical price preserved
   quantity: number;
   subtotal: number;
+  tripItemType?: TripExpenseItemType;
+  tripCategory?: string;
+  description?: string;
+  notes?: string;
 }
 
 export interface Sale {
-  id: string; // e.g. VEN-2026-1049
+  id: string; // e.g. VEN-2026-1049 or PAS-2026-1049
   studentId: string;
   studentName: string;
   registrationNumber: string;
@@ -131,6 +138,11 @@ export interface Sale {
   billingPeriod: string; // '2026-10'
   invoiceId?: string; // Populated once consolidated into an invoice
   idempotencyKey?: string;
+  origin?: 'LOJINHA' | 'PDV_PASSEIOS';
+  tripOperationId?: string;
+  tripName?: string;
+  tripDate?: string;
+  tripDestination?: string;
   createdAt: string;
 }
 
@@ -138,6 +150,7 @@ export type FinancialTransactionType = 'DEBITO' | 'CREDITO';
 export type FinancialCategory = 
   | 'MENSALIDADE' 
   | 'CONSUMO_LOJINHA' 
+  | 'PDV_PASSEIOS'
   | 'PAGAMENTO_PIX' 
   | 'AJUSTE_CREDITO' 
   | 'AJUSTE_DEBITO' 
@@ -283,10 +296,120 @@ export interface AuditLog {
   userName: string;
   userRole: UserRole;
   action: string;
-  module: 'VENDAS' | 'ESTOQUE' | 'FATURAS' | 'PAGAMENTOS' | 'FECHAMENTO' | 'CONFIGURACOES' | 'AUTH' | 'NOTIFICACOES';
+  module: 'VENDAS' | 'ESTOQUE' | 'FATURAS' | 'PAGAMENTOS' | 'FECHAMENTO' | 'CONFIGURACOES' | 'AUTH' | 'NOTIFICACOES' | 'PASSEIOS' | 'PDV_PASSEIOS';
   details: string;
   ipAddress?: string;
   status: 'SUCESSO' | 'FALHA';
+}
+
+export interface Passeio {
+  id: string;
+  nome: string;
+  valor: number;
+  descricao?: string | null;
+  dataPasseio?: string | null;
+  ativo: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TripDistributionMethod =
+  | 'IGUALITARIA'
+  | 'PERSONALIZADA'
+  | 'POR_ITEM'
+  | 'VALOR_FIXO';
+
+export type TripOperationStatus =
+  | 'RASCUNHO'
+  | 'LANCADO'
+  | 'PARCIALMENTE_ESTORNADO'
+  | 'ESTORNADO';
+
+export interface TripExpenseItem {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  itemType: TripExpenseItemType;
+  storeProductId?: string;
+  deductFromStock?: boolean;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  notes?: string;
+}
+
+export interface TripParticipantAllocationItem {
+  expenseItemId: string;
+  name: string;
+  category: string;
+  itemType: TripExpenseItemType;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+  description?: string;
+  notes?: string;
+}
+
+export interface TripParticipantAllocation {
+  studentId: string;
+  studentName: string;
+  registrationNumber: string;
+  classGroup: string;
+  allocatedAmount: number;
+  allocatedCents: number;
+  items: TripParticipantAllocationItem[];
+  saleId?: string;
+  status: 'PENDENTE' | 'LANCADO' | 'ESTORNADO';
+  reversedReason?: string;
+  reversedByUserName?: string;
+  reversedAt?: string;
+}
+
+export interface TripHistoryEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  action: string;
+  details: string;
+}
+
+export interface TripOperation {
+  id: string;
+  catalogPasseioId?: string;
+  name: string;
+  description: string;
+  tripDate: string;
+  destination: string;
+  notes?: string;
+  responsibleUserId: string;
+  responsibleUserName: string;
+  status: TripOperationStatus;
+  selectionMode: 'ALL_STUDENTS' | 'SPECIFIC_STUDENTS';
+  distributionMethod: TripDistributionMethod;
+  fixedValuePerStudent?: number;
+  items: TripExpenseItem[];
+  participants: TripParticipantAllocation[];
+  totalExpenses: number;
+  totalDistributed: number;
+  idempotencyKey?: string;
+  launchedAt?: string;
+  launchedByUserName?: string;
+  history: TripHistoryEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PdvPasseiosPermissions {
+  cashierCanViewPasseios: boolean;
+  cashierCanCreatePasseios: boolean;
+  cashierCanAddExpenses: boolean;
+  cashierCanSelectStudents: boolean;
+  cashierCanConfirmLaunches: boolean;
+  cashierCanViewHistory: boolean;
+  cashierCanReverseLaunches: boolean;
 }
 
 export interface SystemSettings {
@@ -323,6 +446,7 @@ export interface SystemSettings {
   supabaseAnonKey?: string;
   supabaseServiceRoleKey?: string;
   stripePublishableKey?: string;
+  pdvPasseiosPermissions?: PdvPasseiosPermissions;
   updatedAt: string;
   updatedByUserName: string;
 }

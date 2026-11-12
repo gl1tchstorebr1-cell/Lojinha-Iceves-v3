@@ -20,8 +20,7 @@ interface HeaderProps {
 }
 
 export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) {
-  const { user, role, switchPersona, allDemoUsers, logout, login } = useAuth();
-  const [showPersonaMenu, setShowPersonaMenu] = useState(false);
+  const { user, role, logout, login } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -97,90 +96,27 @@ export function Header({ activeTab, setActiveTab, onRefreshData }: HeaderProps) 
               </div>
             </div>
 
-            {/* Persona Switcher & Controls */}
+            {/* User Info & Controls */}
             <div className="flex items-center gap-2 sm:gap-4">
-              
-              {/* Persona Switcher for Instant Testing */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowPersonaMenu(!showPersonaMenu)}
-                  className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700/80 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 text-xs sm:text-sm font-medium transition cursor-pointer"
-                  title="Trocar perfil de acesso (Simulação de Perfis / Personas)"
-                >
-                  <UserCheck className="w-4 h-4 text-emerald-400" />
-                  <span className="hidden md:inline font-medium">Trocar Perfil:</span>
-                  <span className="font-semibold text-white max-w-[130px] truncate">{user?.name}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                </button>
-
-                {showPersonaMenu && (
-                  <div className="absolute right-0 mt-2 w-72 bg-white text-slate-900 rounded-xl shadow-2xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
-                    <div className="px-4 py-2 border-b border-slate-100">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Simulador de Perfis (RBAC)</p>
-                      <p className="text-xs text-slate-600 mt-0.5">Selecione para testar o sistema com cada nível de permissão:</p>
-                    </div>
-
-                    <div className="max-h-72 overflow-y-auto py-1">
-                      {allDemoUsers.map(u => (
-                        <button
-                          key={u.id}
-                          onClick={() => {
-                            switchPersona(u.id);
-                            setShowPersonaMenu(false);
-                            if (onRefreshData) onRefreshData();
-                          }}
-                          className={`w-full text-left px-4 py-2.5 hover:bg-emerald-50 flex items-center gap-3 transition ${
-                            user?.id === u.id ? 'bg-emerald-50/80 font-medium' : ''
-                          }`}
-                        >
-                          <img 
-                            src={u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
-                            alt={u.name} 
-                            className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-semibold text-slate-900 truncate">{u.name}</span>
-                              {user?.id === u.id && (
-                                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded">Ativo</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              {getRoleBadge(u.role)}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="border-t border-slate-100 pt-2 px-3 flex gap-2">
-                      <button
-                        onClick={() => {
-                          setShowPersonaMenu(false);
-                          setShowLoginModal(true);
-                        }}
-                        className="flex-1 text-center py-1.5 text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-slate-50 rounded"
-                      >
-                        Entrar com senha
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowPersonaMenu(false);
-                          setShowResetModal(true);
-                        }}
-                        className="flex-1 text-center py-1.5 text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-slate-50 rounded"
-                      >
-                        Esqueci a senha
-                      </button>
-                    </div>
-                  </div>
-                )}
+              <div className="flex items-center gap-2 bg-slate-800 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 text-xs sm:text-sm">
+                <UserCheck className="w-4 h-4 text-emerald-400" />
+                <span className="font-semibold text-white max-w-[140px] truncate">{user?.name}</span>
               </div>
 
               {/* Current Role badge */}
               <div className="hidden lg:flex items-center gap-2">
                 {getRoleBadge(role)}
               </div>
+
+              {/* Logout button */}
+              <button
+                onClick={logout}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 text-xs font-medium transition cursor-pointer"
+                title="Sair do Sistema"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sair</span>
+              </button>
 
               {/* Refresh data button */}
               {onRefreshData && (

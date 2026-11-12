@@ -1,5 +1,6 @@
 import { 
   User, 
+  UserRole,
   Product, 
   Sale, 
   Student, 
@@ -11,7 +12,12 @@ import {
   WhatsAppNotification, 
   AuditLog, 
   SystemSettings, 
-  MonthlyClosingPreview 
+  MonthlyClosingPreview,
+  Passeio,
+  TripOperation,
+  TripExpenseItem,
+  TripParticipantAllocation,
+  TripDistributionMethod
 } from '../types';
 
 let currentUserId: string = 'user-admin';
@@ -53,7 +59,7 @@ export const api = {
     });
   },
 
-  async register(userData: { email: string; password: string; name: string; role?: string; phone?: string }) {
+  async register(userData: { name: string; email: string; password: string; role?: UserRole; phone?: string }) {
     return request<{ user: User; token: string }>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData)
@@ -149,6 +155,124 @@ export const api = {
 
   async getGuardians() {
     return request<Guardian[]>('/api/guardians');
+  },
+
+  // Passeios
+  async getPasseios() {
+    return request<Passeio[]>('/api/passeios');
+  },
+
+  async createPasseio(passeioData: {
+    nome: string;
+    valor: number;
+    descricao?: string | null;
+    dataPasseio?: string | null;
+    ativo?: boolean;
+  }) {
+    return request<Passeio>('/api/passeios', {
+      method: 'POST',
+      body: JSON.stringify(passeioData)
+    });
+  },
+
+  async updatePasseio(
+    id: string,
+    updates: Partial<{
+      nome: string;
+      valor: number;
+      descricao?: string | null;
+      dataPasseio?: string | null;
+      ativo: boolean;
+    }>
+  ) {
+    return request<Passeio>(`/api/passeios/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates)
+    });
+  },
+
+  async deletePasseio(id: string) {
+    return request<{ success: boolean; deletedId: string }>(`/api/passeios/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
+  // PDV de Passeios (Operações Coletivas de Passeio)
+  async getTripOperations() {
+    return request<TripOperation[]>('/api/pdv-passeios');
+  },
+
+  async saveTripOperationDraft(payload: {
+    id?: string;
+    catalogPasseioId?: string;
+    name: string;
+    description?: string;
+    tripDate: string;
+    destination: string;
+    notes?: string;
+    responsibleUserId?: string;
+    responsibleUserName?: string;
+    selectionMode: 'ALL_STUDENTS' | 'SPECIFIC_STUDENTS';
+    distributionMethod: TripDistributionMethod;
+    fixedValuePerStudent?: number;
+    items: TripExpenseItem[];
+    participants: TripParticipantAllocation[];
+  }) {
+    return request<TripOperation>('/api/pdv-passeios/draft', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async launchTripOperation(payload: {
+    id?: string;
+    catalogPasseioId?: string;
+    name: string;
+    description?: string;
+    tripDate: string;
+    destination: string;
+    notes?: string;
+    responsibleUserId?: string;
+    responsibleUserName?: string;
+    selectionMode: 'ALL_STUDENTS' | 'SPECIFIC_STUDENTS';
+    distributionMethod: TripDistributionMethod;
+    fixedValuePerStudent?: number;
+    items: TripExpenseItem[];
+    participants: TripParticipantAllocation[];
+    idempotencyKey?: string;
+  }) {
+    return request<{
+      operation: TripOperation;
+      salesCreated: Sale[];
+      updatedStudents: Student[];
+    }>('/api/pdv-passeios/launch', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async deleteTripOperationDraft(operationId: string) {
+    return request<{ success: boolean; deletedId: string }>(`/api/pdv-passeios/${operationId}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async reverseTripParticipant(operationId: string, studentId: string, reason: string) {
+    return request<{
+      operation: TripOperation;
+      reversedSale?: Sale;
+      updatedStudent?: Student;
+    }>(`/api/pdv-passeios/${operationId}/reverse-student`, {
+      method: 'POST',
+      body: JSON.stringify({ studentId, reason })
+    });
+  },
+
+  async reverseEntireTripOperation(operationId: string, reason: string) {
+    return request<TripOperation>(`/api/pdv-passeios/${operationId}/reverse-all`, {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    });
   },
 
   // Invoices & Closing

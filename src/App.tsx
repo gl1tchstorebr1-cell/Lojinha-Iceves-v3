@@ -14,6 +14,8 @@ import { GuardianPortal } from './components/portal/GuardianPortal';
 import { WhatsAppAutomation } from './components/whatsapp/WhatsAppAutomation';
 import { AuditAndLedger } from './components/audit/AuditAndLedger';
 import { SystemSettingsView } from './components/settings/SystemSettingsView';
+import { PasseiosManagement } from './components/passeios/PasseiosManagement';
+import { PdvPasseiosView } from './components/passeios/PdvPasseiosView';
 import { 
   Product, 
   Sale, 
@@ -25,18 +27,14 @@ import {
   FinancialTransaction, 
   WhatsAppNotification, 
   AuditLog, 
-  SystemSettings 
+  SystemSettings,
+  Passeio
 } from './types';
 import { api } from './services/api';
 import { CheckCircle2, ShieldCheck, HelpCircle, X, Sparkles, BookOpen } from 'lucide-react';
 
 function AppContent() {
   const { user, role, isAdmin, isCashier, isStudent, isGuardian } = useAuth();
-
-  // If user is not logged in, show dedicated Login Page
-  if (!user) {
-    return <LoginPage />;
-  }
 
   // Primary Data State
   const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -50,6 +48,8 @@ function AppContent() {
   const [whatsappNotifications, setWhatsappNotifications] = useState<WhatsAppNotification[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [ledger, setLedger] = useState<FinancialTransaction[]>([]);
+  const [passeios, setPasseios] = useState<Passeio[]>([]);
+  const [selectedPortalStudentId, setSelectedPortalStudentId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
 
   // Layout & Navigation State
@@ -60,6 +60,7 @@ function AppContent() {
 
   // Auto switch tab when user role changes
   useEffect(() => {
+    if (!user) return;
     if (isAdmin) {
       setActiveTab('dashboard');
     } else if (role === 'CASHIER') {
@@ -69,10 +70,11 @@ function AppContent() {
     } else if (isGuardian) {
       setActiveTab('guardian_portal');
     }
-  }, [role, user?.id]);
+  }, [role, user?.id, isAdmin, isStudent, isGuardian]);
 
   // Load all initial data from server
   const loadData = useCallback(async () => {
+    if (!user) return;
     setIsLoading(true);
     try {
       const [
@@ -83,6 +85,7 @@ function AppContent() {
         invoicesData,
         pixData,
         notificationsData,
+        passeiosData,
       ] = await Promise.all([
         api.getSettings(),
         api.getProducts(),
@@ -91,6 +94,7 @@ function AppContent() {
         api.getInvoices(),
         api.getPixPayments(),
         api.getWhatsAppNotifications(),
+        api.getPasseios(),
       ]);
 
       setSettings(settingsData);
@@ -100,6 +104,7 @@ function AppContent() {
       setInvoices(invoicesData);
       setPixPayments(pixData);
       setWhatsappNotifications(notificationsData);
+      setPasseios(passeiosData);
 
       // Load admin-only data if authorized
       if (isAdmin) {
@@ -123,11 +128,78 @@ function AppContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [isAdmin, user?.id]);
+  }, [isAdmin, user]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (user) {
+      loadData();
+    }
+  }, [user, loadData]);
+
+  // Safe navigation handler that prevents non-admins from opening admin-only tabs
+  const handleSafeNavigate = useCallback(
+    (tab: string) => {
+      const adminOnlyTabs = ['passeios', 'students', 'closing', 'pix', 'whatsapp', 'audit', 'settings'];
+      const cashierOrAdminTabs = ['pdv', 'sales_history', 'products'];
+
+      if (tab === 'pdv_passeios') {
+        const cashierPermitted =
+          isCashier &&
+          Boolean(
+            settings?.pdvPasseiosPermissions?.cashierCanViewPasseios ||
+              settings?.pdvPasseiosPermissions?.cashierCanViewHistory ||
+              settings?.pdvPasseiosPermissions?.cashierCanCreatePasseios ||
+              settings?.pdvPasseiosPermissions?.cashierCanAddExpenses
+          );
+        if (!isAdmin && !cashierPermitted) {
+          if (isStudent) {
+            setActiveTab('student_portal');
+          } else if (isGuardian) {
+            setActiveTab('guardian_portal');
+          } else if (isCashier) {
+            setActiveTab('pdv');
+          } else {
+            setActiveTab('dashboard');
+          }
+          return;
+        }
+        setActiveTab(tab);
+        return;
+      }
+
+      if (adminOnlyTabs.includes(tab) && !isAdmin) {
+        if (isStudent) {
+          setActiveTab('student_portal');
+        } else if (isGuardian) {
+          setActiveTab('guardian_portal');
+        } else if (isCashier) {
+          setActiveTab('pdv');
+        } else {
+          setActiveTab('dashboard');
+        }
+        return;
+      }
+
+      if (cashierOrAdminTabs.includes(tab) && !(isAdmin || isCashier)) {
+        if (isStudent) {
+          setActiveTab('student_portal');
+        } else if (isGuardian) {
+          setActiveTab('guardian_portal');
+        } else {
+          setActiveTab('dashboard');
+        }
+        return;
+      }
+
+      setActiveTab(tab);
+    },
+    [isAdmin, isCashier, isStudent, isGuardian, settings]
+  );
+
+  // If user is not logged in, show dedicated Login Page (placed after ALL hooks)
+  if (!user) {
+    return <LoginPage />;
+  }
 
   // Handlers for POS and Sales
   const handleSaleCompleted = (newSale: Sale, updatedStudent: Student) => {
@@ -182,12 +254,37 @@ function AppContent() {
     loadData();
   };
 
+  // Handlers for Passeios
+  const handlePasseioSaved = (savedPasseio: Passeio) => {
+    setPasseios(prev => {
+      const exists = prev.some(p => p.id === savedPasseio.id);
+      if (exists) {
+        return prev.map(p => p.id === savedPasseio.id ? savedPasseio : p);
+      }
+      return [savedPasseio, ...prev];
+    });
+    loadData();
+  };
+
+  const handlePasseioDeleted = (deletedId: string) => {
+    setPasseios(prev => prev.filter(p => p.id !== deletedId));
+    loadData();
+  };
+
   // Pending counts for navigation badges
   const pendingPixCount = pixPayments.filter(p => p.status === 'AGUARDANDO_CONFERENCIA').length;
   const lowStockCount = products.filter(p => p.currentStock <= p.minStock).length;
 
   // Selected student for student portal
-  const currentStudent = students.find(s => s.id === user?.studentId) || students[0];
+  const currentStudent =
+    (isAdmin && selectedPortalStudentId
+      ? students.find(s => s.id === selectedPortalStudentId)
+      : students.find(
+          s =>
+            s.id === user?.studentId ||
+            s.email.toLowerCase() === (user?.email || '').toLowerCase() ||
+            s.name.toLowerCase() === (user?.name || '').toLowerCase()
+        )) || students[0];
   // Selected guardian for guardian portal
   const currentGuardian = guardians.find(g => g.id === user?.guardianId) || {
     id: 'guardian-1',
@@ -206,7 +303,7 @@ function AppContent() {
       {/* Vertical Fixed Sidebar matching Attached Reference */}
       <Sidebar 
         activeTab={activeTab} 
-        setActiveTab={setActiveTab}
+        setActiveTab={handleSafeNavigate}
         settings={settings}
         pendingPixCount={pendingPixCount}
         lowStockCount={lowStockCount}
@@ -214,7 +311,7 @@ function AppContent() {
         setIsCollapsed={setIsCollapsed}
         isMobileOpen={isMobileOpen}
         setIsMobileOpen={setIsMobileOpen}
-        onOpenQuickSale={() => setActiveTab('pdv')}
+        onOpenQuickSale={() => handleSafeNavigate('pdv')}
       />
 
       {/* Main Content Column */}
@@ -228,7 +325,7 @@ function AppContent() {
           isCollapsed={isCollapsed}
           setIsCollapsed={setIsCollapsed}
           onOpenMobileMenu={() => setIsMobileOpen(true)}
-          onNavigate={setActiveTab}
+          onNavigate={handleSafeNavigate}
         />
 
         {/* Dynamic View Area */}
@@ -240,7 +337,7 @@ function AppContent() {
             </div>
           ) : (
             <>
-              {/* ADMIN TABS */}
+              {/* DASHBOARD (Personalizado para Aluno ou Consolidado para Admin) */}
               {activeTab === 'dashboard' && (
                 <Dashboard 
                   sales={sales}
@@ -249,11 +346,12 @@ function AppContent() {
                   pixPayments={pixPayments}
                   students={students}
                   settings={settings}
-                  onNavigate={setActiveTab}
+                  onNavigate={handleSafeNavigate}
                 />
               )}
 
-              {(activeTab === 'pdv' || (role === 'CASHIER' && activeTab === 'sales_history')) && (
+              {/* OPERAÇÕES (Exclusivo Admin / Caixa) */}
+              {(isAdmin || isCashier) && (activeTab === 'pdv' || (role === 'CASHIER' && activeTab === 'sales_history')) && (
                 <PointOfSale 
                   products={products}
                   students={students}
@@ -263,7 +361,7 @@ function AppContent() {
                 />
               )}
 
-              {activeTab === 'products' && (
+              {(isAdmin || isCashier) && activeTab === 'products' && (
                 <ProductsAndStock 
                   products={products}
                   stockMovements={stockMovements}
@@ -272,15 +370,40 @@ function AppContent() {
                 />
               )}
 
-              {activeTab === 'students' && (
+              {/* PDV DE PASSEIOS (Admin ou Caixa autorizado) */}
+              {(isAdmin || isCashier) && activeTab === 'pdv_passeios' && (
+                <PdvPasseiosView 
+                  students={students}
+                  products={products}
+                  passeios={passeios}
+                  sales={sales}
+                  invoices={invoices}
+                  settings={settings}
+                  onOperationLaunched={loadData}
+                  onSettingsUpdated={setSettings}
+                />
+              )}
+
+              {/* MÓDULOS EXCLUSIVOS DE ADMINISTRADOR */}
+              {isAdmin && activeTab === 'passeios' && (
+                <PasseiosManagement 
+                  passeios={passeios}
+                  students={students}
+                  onPasseioSaved={handlePasseioSaved}
+                  onPasseioDeleted={handlePasseioDeleted}
+                />
+              )}
+
+              {isAdmin && activeTab === 'students' && (
                 <StudentsAndGuardians 
                   students={students}
                   guardians={guardians}
+                  passeios={passeios}
                   onStudentUpdated={handleStudentUpdated}
                 />
               )}
 
-              {activeTab === 'closing' && (
+              {isAdmin && activeTab === 'closing' && (
                 <InvoicesAndClosing 
                   invoices={invoices}
                   students={students}
@@ -288,7 +411,7 @@ function AppContent() {
                 />
               )}
 
-              {activeTab === 'pix' && (
+              {isAdmin && activeTab === 'pix' && (
                 <PixConference 
                   pixPayments={pixPayments}
                   invoices={invoices}
@@ -297,7 +420,7 @@ function AppContent() {
                 />
               )}
 
-              {activeTab === 'whatsapp' && (
+              {isAdmin && activeTab === 'whatsapp' && (
                 <WhatsAppAutomation 
                   notifications={whatsappNotifications}
                   settings={settings}
@@ -309,7 +432,7 @@ function AppContent() {
                 />
               )}
 
-              {activeTab === 'audit' && (
+              {isAdmin && activeTab === 'audit' && (
                 <AuditAndLedger 
                   ledger={ledger}
                   auditLogs={auditLogs}
@@ -317,7 +440,7 @@ function AppContent() {
                 />
               )}
 
-              {activeTab === 'settings' && (
+              {isAdmin && activeTab === 'settings' && (
                 <SystemSettingsView 
                   settings={settings}
                   students={students}
@@ -328,24 +451,29 @@ function AppContent() {
               )}
 
               {/* ALUNO TABS */}
-              {(activeTab === 'student_portal' || activeTab === 'student_invoices') && currentStudent && (
+              {(isAdmin || isStudent) && (activeTab === 'student_portal' || activeTab === 'student_invoices') && currentStudent && (
                 <StudentPortal 
                   student={currentStudent}
+                  allStudents={students}
+                  onSelectStudent={setSelectedPortalStudentId}
+                  products={products}
                   sales={sales}
                   invoices={invoices}
                   pixPayments={pixPayments}
+                  passeios={passeios}
                   onPaymentSubmitted={handlePaymentSubmitted}
                 />
               )}
 
               {/* RESPONSAVEL TAB */}
-              {activeTab === 'guardian_portal' && (
+              {(isAdmin || isGuardian) && activeTab === 'guardian_portal' && (
                 <GuardianPortal 
                   guardian={currentGuardian}
                   students={students}
                   invoices={invoices}
                   sales={sales}
                   pixPayments={pixPayments}
+                  passeios={passeios}
                   onPaymentSubmitted={handlePaymentSubmitted}
                 />
               )}
@@ -365,21 +493,21 @@ function AppContent() {
               <span className="font-semibold text-zinc-300">{settings?.storeName || 'Lojinha Iceves'}</span>
               <span>•</span>
               <span className="text-zinc-400">Escola de Cristo - ICEVES • 10ª Turma (Formatura: 27 a 30)</span>
-              <span>•</span>
-              <span className="text-emerald-400 font-mono text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                Banco Persistente Ativo
-              </span>
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowTestChecklist(true)}
-                className="text-zinc-300 hover:text-white font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                12 Cenários de Teste Obrigatórios
-              </button>
-              <span>•</span>
+              {isAdmin && (
+                <>
+                  <button
+                    onClick={() => setShowTestChecklist(true)}
+                    className="text-zinc-300 hover:text-white font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    12 Cenários de Teste Obrigatórios
+                  </button>
+                  <span>•</span>
+                </>
+              )}
               <span className="text-zinc-500">LGPD & Compliance Fiscal</span>
             </div>
           </div>

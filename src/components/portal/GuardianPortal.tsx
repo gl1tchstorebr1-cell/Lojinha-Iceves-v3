@@ -12,9 +12,11 @@ import {
   ShieldCheck, 
   CreditCard,
   ChevronRight,
-  Eye
+  Eye,
+  Bus,
+  MapPin
 } from 'lucide-react';
-import { Guardian, Student, Invoice, Sale, PixPayment } from '../../types';
+import { Guardian, Student, Invoice, Sale, PixPayment, Passeio } from '../../types';
 import { formatCurrency, formatDate, formatDateTime, formatPeriod } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -27,6 +29,7 @@ interface GuardianPortalProps {
   invoices: Invoice[];
   sales: Sale[];
   pixPayments: PixPayment[];
+  passeios?: Passeio[];
   onPaymentSubmitted: (payment: PixPayment) => void;
 }
 
@@ -36,9 +39,11 @@ export function GuardianPortal({
   invoices, 
   sales, 
   pixPayments, 
+  passeios = [],
   onPaymentSubmitted 
 }: GuardianPortalProps) {
   const { user } = useAuth();
+  const activePasseios = passeios.filter(p => p.ativo);
 
   // STRICT RBAC: Authorized students ONLY
   const authorizedStudents = students.filter(s => guardian.studentIds.includes(s.id));
@@ -241,6 +246,64 @@ export function GuardianPortal({
             </div>
           </div>
 
+          {/* Seção Passeios do Aluno */}
+          <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <Bus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[#F5F5F5] text-base">
+                    Passeios — {selectedStudent.name}
+                  </h3>
+                  <p className="text-xs text-[#A1A1AA]">
+                    Passeios ativos disponibilizados pela administração para a 10ª Turma
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                {activePasseios.length} disponível(is)
+              </span>
+            </div>
+
+            {activePasseios.length === 0 ? (
+              <div className="py-8 text-center text-[#A1A1AA] text-xs bg-[#151515] rounded-xl border border-[#262626]">
+                Nenhum passeio ativo disponível no momento.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {activePasseios.map((passeio) => (
+                  <div
+                    key={passeio.id}
+                    className="p-4 rounded-xl bg-[#151515] border border-[#282828] hover:border-emerald-500/40 transition flex flex-col justify-between gap-2.5"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <h4 className="font-bold text-[#F5F5F5] text-sm">{passeio.nome}</h4>
+                        </div>
+                        <span className="font-mono font-extrabold text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 rounded-lg shrink-0">
+                          {formatCurrency(passeio.valor)}
+                        </span>
+                      </div>
+                      {passeio.descricao && (
+                        <p className="text-xs text-[#A1A1AA] pl-6">{passeio.descricao}</p>
+                      )}
+                    </div>
+                    {passeio.dataPasseio && (
+                      <div className="pt-2 border-t border-[#222222] text-[11px] text-[#D4D4D8] font-mono pl-6 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Data: {formatDate(passeio.dataPasseio)}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Invoices List */}
           <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
             <div>
@@ -405,23 +468,70 @@ export function GuardianPortal({
                   Nenhum consumo registrado neste mês.
                 </div>
               ) : (
-                studentSales.map(sale => (
-                  <div key={sale.id} className="p-3.5 flex items-center justify-between hover:bg-[#1A1A1A] text-xs transition">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-emerald-400">{sale.id}</span>
-                        <span className="text-[10px] text-[#A1A1AA]">{formatDateTime(sale.createdAt)}</span>
+                studentSales.map(sale => {
+                  const isTripLaunch = sale.origin === 'PDV_PASSEIOS';
+                  return (
+                    <div key={sale.id} className="p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3 hover:bg-[#1A1A1A] text-xs transition">
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono font-semibold text-emerald-400">{sale.id}</span>
+                          <span className="text-[10px] text-[#A1A1AA]">{formatDateTime(sale.createdAt)}</span>
+                          {isTripLaunch ? (
+                            <span className="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold px-2 py-0.5 rounded-md">
+                              Origem: PDV de Passeios
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-[#222222] text-[#A1A1AA] border border-[#303030] font-semibold px-2 py-0.5 rounded-md">
+                              Origem: Balcão PDV
+                            </span>
+                          )}
+                          {sale.status === 'REVERSED' && (
+                            <span className="text-[10px] bg-red-950/60 text-red-400 border border-red-800/50 font-semibold px-2 py-0.5 rounded-full">
+                              Estornado
+                            </span>
+                          )}
+                        </div>
+
+                        {isTripLaunch && sale.tripName ? (
+                          <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/25 space-y-1.5 mt-1">
+                            <div className="font-bold text-[#F5F5F5] text-xs">
+                              {sale.tripName} {sale.tripDate ? `— ${formatDate(sale.tripDate)}` : ''}
+                            </div>
+                            <ul className="space-y-0.5">
+                              {sale.items.map((it, idx) => (
+                                <li key={idx} className="text-[#D4D4D8] flex items-center gap-1.5">
+                                  <span className="text-emerald-400 font-bold">•</span>
+                                  <span className="font-semibold text-[#F5F5F5]">{it.name}:</span>
+                                  <span className="font-mono font-bold text-emerald-300">{formatCurrency(it.subtotal)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <div className="pt-1 border-t border-emerald-500/15 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                              <span className="font-bold text-emerald-300">
+                                Valor total do passeio: {formatCurrency(sale.total)}
+                              </span>
+                              <span className="text-[#A1A1AA]">
+                                Responsável: {sale.operatorUserName}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-[#D4D4D8] mt-1">
+                            {sale.items.map(i => `${i.quantity}x ${i.name} (${formatCurrency(i.unitPrice)} un.)`).join(', ')}
+                          </p>
+                        )}
                       </div>
-                      <p className="text-[#D4D4D8] mt-1">
-                        {sale.items.map(i => `${i.quantity}x ${i.name} (${formatCurrency(i.unitPrice)} un.)`).join(', ')}
-                      </p>
+                      <div className="text-right shrink-0">
+                        <span className={`font-bold font-mono block ${sale.status === 'REVERSED' ? 'line-through text-[#71717A]' : 'text-[#F5F5F5]'}`}>
+                          {formatCurrency(sale.total)}
+                        </span>
+                        <span className="text-[10px] text-[#A1A1AA]">
+                          {isTripLaunch ? 'PDV de Passeios' : 'Conta Mensal'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="font-bold text-[#F5F5F5] block">{formatCurrency(sale.total)}</span>
-                      <span className="text-[10px] text-[#A1A1AA]">Conta Mensal</span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
