@@ -1,12 +1,15 @@
-import { Plugin } from 'vite';
-import { handleApiRoute, ApiRequest } from './handler.ts';
+import type { Plugin } from 'vite';
+import { handleApiRoute, type ApiRequest } from './handler.ts';
 import { db } from './db.ts';
+import { applySecurityHeaders } from './securityHeaders.ts';
 
 export function base44ApiPlugin(): Plugin {
   return {
     name: 'base44-api-server',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
+        applySecurityHeaders(req, res);
+
         if (!req.url?.startsWith('/api/')) {
           return next();
         }

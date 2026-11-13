@@ -2,8 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { handleApiRoute, ApiRequest } from './src/server/handler';
+import { handleApiRoute, type ApiRequest } from './src/server/handler';
 import { db } from './src/server/db';
+import { applySecurityHeaders } from './src/server/securityHeaders';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,6 +12,11 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  applySecurityHeaders(req, res);
+  next();
+});
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
