@@ -20,11 +20,12 @@ import {
   X,
   Image as ImageIcon
 } from 'lucide-react';
-import { Product, Student, Sale, ProductCategory } from '../../types';
-import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { Product, Student, Sale, ProductCategory, PaymentMethod } from '../../types';
+import { formatCurrency, formatDateTime, formatProductPrice, isProductPricePending } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { getProductImages, getCategoryBadgeColor } from '../../utils/productImages';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { getProductImages, getCategoryBadgeColor, OFFICIAL_PRODUCT_CATEGORIES } from '../../utils/productImages';
 
 interface PointOfSaleProps {
   products: Product[];
@@ -46,7 +47,8 @@ export function PointOfSale({
   onSaleCompleted, 
   onSaleReversed 
 }: PointOfSaleProps) {
-  const { user } = useAuth();
+  const { user, canManage } = useAuth();
+  const { isOnline } = useOnlineStatus();
 
   // State
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -57,7 +59,9 @@ export function PointOfSale({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
-  const [billingMethod, setBillingMethod] = useState<'MONTHLY_ACCOUNT' | 'IMMEDIATE_CASH'>('MONTHLY_ACCOUNT');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CONTA_ALUNO');
+  const [discountAmount, setDiscountAmount] = useState<string>('0');
+  const [saleNotes, setSaleNotes] = useState('');
   
   // Reversal modal state
   const [reversalSale, setReversalSale] = useState<Sale | null>(null);
@@ -80,18 +84,16 @@ export function PointOfSale({
     );
   }, [students, studentSearch]);
 
-  // 4 Categorias exclusivas da Lojinha
+  // 6 Categorias oficiais da Lojinha
   const categories: (ProductCategory | 'TODAS')[] = [
     'TODAS',
-    'Alimentícios',
-    'Papelaria',
-    'Produtos de Limpeza',
-    'Cosméticos'
+    ...OFFICIAL_PRODUCT_CATEGORIES
   ];
 
-  // Filter products
+  // Filter products (somente ativos e não arquivados)
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
+      if (p.archived || p.status !== 'ACTIVE') return false;
       const matchesCat = selectedCategory === 'TODAS' || p.category === selectedCategory;
       const q = productSearch.toLowerCase();
       const matchesSearch = !q || (
@@ -99,13 +101,22 @@ export function PointOfSale({
         p.internalCode.toLowerCase().includes(q) || 
         (p.barcode && p.barcode.toLowerCase().includes(q))
       );
-      return matchesCat && matchesSearch && p.status === 'ACTIVE';
+      return matchesCat && matchesSearch;
     });
   }, [products, selectedCategory, productSearch]);
 
   // Cart operations
   const addToCart = (product: Product) => {
-    if (product.currentStock <= 0) return;
+    if (product.archived || product.status !== 'ACTIVE') return;
+    if (isProductPricePending(product)) {
+      setSaleError(`"${product.name}" está com preço não definido e não pode ser vendido ainda.`);
+      return;
+    }
+    if (product.currentStock <= 0) {
+      setSaleError(`"${product.name}" está sem estoque disponível.`);
+      return;
+    }
+    setSaleError(null);
     
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
@@ -144,12 +155,45 @@ export function PointOfSale({
     setSaleError(null);
   };
 
-  const cartTotal = useMemo(() => {
-    return cart.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+  const cartSubtotal = useMemo(() => {
+    return cart.reduce((acc, item) => acc + (Number(item.product.price || 0) * item.quantity), 0);
   }, [cart]);
+
+  const parsedDiscount = useMemo(() => {
+    if (!canManage) return 0;
+    const raw = Number(discountAmount);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.min(raw, cartSubtotal);
+  }, [canManage, discountAmount, cartSubtotal]);
+
+  const cartTotal = useMemo(() => {
+    return Math.max(0, Number((cartSubtotal - parsedDiscount).toFixed(2)));
+  }, [cartSubtotal, parsedDiscount]);
+
+  const handleProductSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const q = productSearch.trim().toLowerCase();
+    if (!q) return;
+    const exactMatch = products.find(
+      p =>
+        !p.archived &&
+        p.status === 'ACTIVE' &&
+        ((p.barcode && p.barcode.toLowerCase() === q) || p.internalCode.toLowerCase() === q)
+    );
+    if (exactMatch) {
+      e.preventDefault();
+      addToCart(exactMatch);
+      setProductSearch('');
+    }
+  };
 
   // Finalize Sale
   const handleFinalizeSale = async () => {
+    if (!isOnline) {
+      setSaleError('Modo offline ativo: conecte-se ao servidor para registrar vendas e baixar estoque.');
+      return;
+    }
+
     if (!selectedStudent) {
       setSaleError('Por favor, identifique e selecione o aluno antes de finalizar a venda.');
       return;
@@ -173,6 +217,9 @@ export function PointOfSale({
           productId: item.product.id,
           quantity: item.quantity
         })),
+        paymentMethod,
+        discountAmount: parsedDiscount > 0 ? parsedDiscount : undefined,
+        notes: saleNotes.trim() || undefined,
         idempotencyKey
       };
 
@@ -182,6 +229,8 @@ export function PointOfSale({
       setCart([]);
       setSelectedStudent(null);
       setStudentSearch('');
+      setDiscountAmount('0');
+      setSaleNotes('');
     } catch (err: any) {
       setSaleError(err.message || 'Erro ao registrar venda.');
     } finally {
@@ -307,6 +356,8 @@ export function PointOfSale({
                         <img 
                           src={student.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
                           alt={student.name}
+                          loading="lazy"
+                          decoding="async"
                           className="w-9 h-9 rounded-full object-cover border border-[#303030]" 
                         />
                         <div className="flex-1 min-w-0">
@@ -326,6 +377,7 @@ export function PointOfSale({
                     <img 
                       src={selectedStudent.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
                       alt={selectedStudent.name}
+                      decoding="async"
                       className="w-11 h-11 rounded-full object-cover border border-[#404040]" 
                     />
                     <div>
@@ -338,6 +390,16 @@ export function PointOfSale({
                       <p className="text-xs text-[#A1A1AA] mt-0.5">
                         10ª Turma • Escola de Cristo - ICEVES (Formatura: 27 a 30)
                       </p>
+                      {selectedStudent.consumptionBlocked && (
+                        <p className="text-[11px] text-rose-400 font-bold mt-1">
+                          Consumo bloqueado{selectedStudent.consumptionBlockedReason ? `: ${selectedStudent.consumptionBlockedReason}` : ''}
+                        </p>
+                      )}
+                      {typeof selectedStudent.consumptionLimit === 'number' && selectedStudent.consumptionLimit > 0 && (
+                        <p className="text-[11px] text-amber-300 font-medium mt-0.5">
+                          Limite de consumo: {formatCurrency(selectedStudent.consumptionLimit)}
+                        </p>
+                      )}
                       {selectedStudent.notes && (
                         <p className="text-[11px] text-amber-400 font-medium mt-1">
                           ⚠️ {selectedStudent.notes}
@@ -351,7 +413,13 @@ export function PointOfSale({
                     <span className="block text-base font-extrabold text-emerald-400 font-mono">
                       {formatCurrency(selectedStudent.currentConsumptionBalance)}
                     </span>
-                    <span className="text-[10px] text-[#71717A]">Lançamento direto</span>
+                    {Number(selectedStudent.creditBalance || 0) > 0 ? (
+                      <span className="text-[10px] text-teal-300 font-semibold">
+                        Crédito: {formatCurrency(selectedStudent.creditBalance || 0)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-[#71717A]">Lançamento direto</span>
+                    )}
                   </div>
                 </div>
               )}
@@ -365,14 +433,15 @@ export function PointOfSale({
                   <h3 className="font-bold text-[#F5F5F5] text-xs uppercase tracking-wider">Produtos Disponíveis</h3>
                 </div>
 
-                {/* Product Search */}
-                <div className="relative w-full sm:w-60">
-                  <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" />
+                {/* Product Search & Barcode Scanner */}
+                <div className="relative w-full sm:w-72">
+                  <Barcode className="w-3.5 h-3.5 text-emerald-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
-                    placeholder="Buscar produto ou código..."
+                    onKeyDown={handleProductSearchKeyDown}
+                    placeholder="Buscar produto, código ou ler barras (Enter)..."
                     className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -399,6 +468,8 @@ export function PointOfSale({
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[460px] overflow-y-auto pr-1">
                 {filteredProducts.map(product => {
                   const isOutOfStock = product.currentStock <= 0;
+                  const isPendingPrice = isProductPricePending(product);
+                  const isBlocked = isOutOfStock || isPendingPrice;
                   const isLowStock = product.currentStock > 0 && product.currentStock <= product.minStock;
                   const imgs = getProductImages(product);
                   const coverImg = imgs[0];
@@ -408,12 +479,12 @@ export function PointOfSale({
                     <button
                       key={product.id}
                       type="button"
-                      disabled={isOutOfStock}
+                      disabled={isBlocked}
                       onClick={() => addToCart(product)}
-                      className={`text-left p-2.5 rounded-2xl border flex flex-col justify-between transition cursor-pointer group ${
-                        isOutOfStock 
-                          ? 'bg-[#141414] border-[#222222] opacity-50 cursor-not-allowed'
-                          : 'bg-[#151515] hover:bg-[#1E1E1E] border-[#262626] hover:border-[#383838]'
+                      className={`text-left p-2.5 rounded-2xl border flex flex-col justify-between transition group ${
+                        isBlocked 
+                          ? 'bg-[#141414] border-[#222222] opacity-55 cursor-not-allowed'
+                          : 'bg-[#151515] hover:bg-[#1E1E1E] border-[#262626] hover:border-[#383838] cursor-pointer'
                       }`}
                     >
                       <div>
@@ -423,6 +494,9 @@ export function PointOfSale({
                             <img
                               src={coverImg}
                               alt={product.name}
+                              loading="lazy"
+                              decoding="async"
+                              referrerPolicy="no-referrer"
                               className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                             />
                           ) : (
@@ -448,7 +522,11 @@ export function PointOfSale({
                           <span className="text-[10px] font-mono text-[#71717A]">
                             {product.internalCode}
                           </span>
-                          {isOutOfStock ? (
+                          {isPendingPrice ? (
+                            <span className="text-[9px] font-bold text-amber-300 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                              Sem preço
+                            </span>
+                          ) : isOutOfStock ? (
                             <span className="text-[9px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.2 rounded border border-rose-500/20">
                               Esgotado
                             </span>
@@ -468,12 +546,18 @@ export function PointOfSale({
                         </h4>
                       </div>
 
-                      <div className="mt-2.5 pt-2 border-t border-[#222222] flex items-center justify-between">
-                        <span className="text-sm font-extrabold text-[#F5F5F5] font-mono">
-                          {formatCurrency(product.price)}
-                        </span>
+                      <div className="mt-2.5 pt-2 border-t border-[#222222] flex items-center justify-between gap-1">
+                        {isPendingPrice ? (
+                          <span className="text-[11px] font-bold text-amber-300 leading-tight">
+                            Preço não definido
+                          </span>
+                        ) : (
+                          <span className="text-sm font-extrabold text-[#F5F5F5] font-mono">
+                            {formatProductPrice(product.price, product.priceStatus)}
+                          </span>
+                        )}
                         <div className={`p-1.5 rounded-lg text-white transition ${
-                          isOutOfStock ? 'bg-[#282828] text-[#555]' : 'bg-[#282828] group-hover:bg-gradient-to-r group-hover:from-emerald-500 group-hover:to-teal-600 group-hover:text-white'
+                          isBlocked ? 'bg-[#282828] text-[#555]' : 'bg-[#282828] group-hover:bg-gradient-to-r group-hover:from-emerald-500 group-hover:to-teal-600 group-hover:text-white'
                         }`}>
                           <Plus className="w-3.5 h-3.5" />
                         </div>
@@ -513,34 +597,33 @@ export function PointOfSale({
                 </span>
               </div>
 
-              {/* Forma de Lançamento (Section 6 Requirement) */}
-              <div className="space-y-1 text-xs">
+              {/* Forma de Pagamento / Lançamento */}
+              <div className="space-y-1.5 text-xs">
                 <span className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider block">
-                  Forma de Lançamento da Venda:
+                  Forma de Pagamento / Lançamento:
                 </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setBillingMethod('MONTHLY_ACCOUNT')}
-                    className={`p-2 rounded-xl border text-center font-bold text-xs transition cursor-pointer ${
-                      billingMethod === 'MONTHLY_ACCOUNT'
-                        ? 'bg-[#222222] border-emerald-500 text-[#F5F5F5]'
-                        : 'bg-[#151515] border-[#262626] text-[#71717A]'
-                    }`}
-                  >
-                    Conta Mensal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBillingMethod('IMMEDIATE_CASH')}
-                    className={`p-2 rounded-xl border text-center font-bold text-xs transition cursor-pointer ${
-                      billingMethod === 'IMMEDIATE_CASH'
-                        ? 'bg-[#222222] border-emerald-500 text-[#F5F5F5]'
-                        : 'bg-[#151515] border-[#262626] text-[#71717A]'
-                    }`}
-                  >
-                    Pagamento Direto
-                  </button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {([
+                    { id: 'CONTA_ALUNO', label: 'Conta do Aluno' },
+                    { id: 'DINHEIRO', label: 'Dinheiro' },
+                    { id: 'PIX', label: 'PIX' },
+                    { id: 'CARTAO_CREDITO', label: 'Cartão Crédito' },
+                    { id: 'CARTAO_DEBITO', label: 'Cartão Débito' },
+                    { id: 'MERCADO_PAGO', label: 'Mercado Pago' },
+                  ] as Array<{ id: PaymentMethod; label: string }>).map(pm => (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      onClick={() => setPaymentMethod(pm.id)}
+                      className={`p-2 rounded-xl border text-center font-bold text-[11px] transition cursor-pointer ${
+                        paymentMethod === pm.id
+                          ? 'bg-[#222222] border-emerald-500 text-[#F5F5F5]'
+                          : 'bg-[#151515] border-[#262626] text-[#A1A1AA] hover:text-white'
+                      }`}
+                    >
+                      {pm.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -560,7 +643,7 @@ export function PointOfSale({
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-[#F5F5F5] truncate">{item.product.name}</p>
                         <p className="text-[11px] text-[#A1A1AA] font-mono">
-                          {formatCurrency(item.product.price)} un.
+                          {formatProductPrice(item.product.price, item.product.priceStatus)} un.
                         </p>
                       </div>
 
@@ -591,7 +674,7 @@ export function PointOfSale({
 
                       <div className="text-right min-w-[55px]">
                         <span className="text-xs font-bold text-[#F5F5F5] font-mono">
-                          {formatCurrency(item.product.price * item.quantity)}
+                          {formatCurrency(Number(item.product.price || 0) * item.quantity)}
                         </span>
                       </div>
                     </div>
@@ -599,17 +682,61 @@ export function PointOfSale({
                 )}
               </div>
 
+              {/* Desconto autorizado (Admin/Gerente) e Observação */}
+              {canManage && cart.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="text-[10px] font-bold text-[#71717A] uppercase block mb-1">
+                      Desconto (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={cartSubtotal}
+                      value={discountAmount}
+                      onChange={(e) => setDiscountAmount(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] font-mono text-xs focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-[#71717A] uppercase block mb-1">
+                      Observação
+                    </label>
+                    <input
+                      type="text"
+                      value={saleNotes}
+                      onChange={(e) => setSaleNotes(e.target.value)}
+                      placeholder="Opcional..."
+                      className="w-full px-2.5 py-1.5 bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] text-xs focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Totals */}
               <div className="pt-3 border-t border-[#242424] space-y-1.5 text-xs">
                 <div className="flex justify-between text-[#A1A1AA]">
                   <span>Itens no Carrinho:</span>
                   <span className="font-semibold text-[#F5F5F5]">{cart.reduce((acc, i) => acc + i.quantity, 0)} un.</span>
                 </div>
+                {parsedDiscount > 0 && (
+                  <div className="flex justify-between text-amber-300">
+                    <span>Desconto Autorizado:</span>
+                    <span className="font-mono font-semibold">- {formatCurrency(parsedDiscount)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-base font-extrabold text-[#F5F5F5] pt-1 border-t border-[#242424]">
                   <span>Total da Venda:</span>
                   <span className="text-emerald-400 font-mono">{formatCurrency(cartTotal)}</span>
                 </div>
               </div>
+
+              {!isOnline && (
+                <div className="p-3 bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs rounded-xl">
+                  Modo offline: vendas no caixa ficam bloqueadas até o restabelecimento da conexão com o servidor.
+                </div>
+              )}
 
               {/* Error box */}
               {saleError && (
@@ -622,7 +749,7 @@ export function PointOfSale({
               {/* Action Button: Confirm and Bill */}
               <button
                 type="button"
-                disabled={isSubmitting || cart.length === 0 || !selectedStudent}
+                disabled={!isOnline || isSubmitting || cart.length === 0 || !selectedStudent}
                 onClick={handleFinalizeSale}
                 className="w-full py-3 px-4 rounded-xl font-extrabold text-xs text-[#101010] bg-[#F5F5F5] hover:bg-white active:scale-98 transition shadow-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
               >

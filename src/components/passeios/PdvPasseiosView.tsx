@@ -1466,17 +1466,17 @@ export function PdvPasseiosView({
                             const prod = products.find(p => p.id === pid);
                             if (prod) {
                               setItemName(prod.name);
-                              setItemUnitPrice(prod.price.toFixed(2));
+                              setItemUnitPrice(prod.price != null && prod.price > 0 ? Number(prod.price).toFixed(2) : '');
                             }
                           }}
                           className="w-full p-2 bg-[#141414] border border-[#323232] rounded-lg text-xs text-[#F5F5F5]"
                         >
                           <option value="">-- Produto Avulso do Passeio (Não afeta estoque da lojinha) --</option>
                           {products
-                            .filter(p => p.status === 'ACTIVE')
+                            .filter(p => p.status === 'ACTIVE' && !p.archived)
                             .map(p => (
                               <option key={p.id} value={p.id}>
-                                {p.name} — {formatCurrency(p.price)} (Estoque: {p.currentStock} {p.unit})
+                                {p.name} — {p.price != null && p.price > 0 ? formatCurrency(p.price) : 'Preço não definido'} (Estoque: {p.currentStock} {p.unit})
                               </option>
                             ))}
                         </select>

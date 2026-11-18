@@ -26,3 +26,29 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #3a3a3a;
 }
+
+/* Light Theme Clean Mode (toggled via TopBar or Settings) */
+html.theme-light {
+  filter: invert(0.93) hue-rotate(180deg);
+  background-color: #f8fafc;
+}
+
+html.theme-light img,
+html.theme-light video,
+html.theme-light svg.recharts-surface {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Clean print formatting for PDF / Comprovante exports */
+@media print {
+  aside,
+  header,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+}

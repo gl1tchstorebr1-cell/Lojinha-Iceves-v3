@@ -224,7 +224,7 @@ export function mapProductToSupabase(p: any) {
     id: p.id,
     name: p.name,
     category: p.category,
-    price: Number(p.price) || 0,
+    price: p.price === null || p.price === undefined ? 0 : Number(p.price),
     internal_code: p.internalCode,
     barcode: p.barcode || null,
     current_stock: Number(p.currentStock) || 0,
@@ -693,11 +693,18 @@ export async function syncFromSupabase(): Promise<{
     const localProds = db.getProducts();
     for (const row of prodData) {
       const idx = localProds.findIndex(p => p.id === row.id);
+      const existingLocal = idx >= 0 ? localProds[idx] : null;
+      const isPending =
+        row.price === null ||
+        row.price === undefined ||
+        Number(row.price) <= 0 ||
+        existingLocal?.priceStatus === 'PENDING';
       const mapped = {
         id: row.id,
         name: row.name,
         category: row.category,
-        price: Number(row.price),
+        price: isPending && (row.price === null || row.price === undefined || Number(row.price) <= 0) ? null : Number(row.price),
+        priceStatus: (isPending && (row.price === null || row.price === undefined || Number(row.price) <= 0) ? 'PENDING' : 'DEFINED') as 'PENDING' | 'DEFINED',
         internalCode: row.internal_code,
         barcode: row.barcode,
         currentStock: Number(row.current_stock),
@@ -708,7 +715,7 @@ export async function syncFromSupabase(): Promise<{
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
-      if (idx >= 0) localProds[idx] = mapped;
+      if (idx >= 0) localProds[idx] = { ...existingLocal, ...mapped };
       else localProds.push(mapped);
     }
     counts['products'] = prodData.length;

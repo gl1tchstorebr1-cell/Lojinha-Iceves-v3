@@ -1,6 +1,7 @@
 -- =====================================================================
--- SCHEMA POSTGRESQL / SUPABASE: LOJINHA DO CAMPUS (SAAS)
+-- SCHEMA POSTGRESQL / SUPABASE: LOJINHA ICEVES — PDV & GESTÃO DE CONSUMO
 -- Execute este script no SQL Editor do seu projeto Supabase
+-- Compatível com instalações novas e migrações idempotentes
 -- =====================================================================
 
 -- 1. Habilitar extensões necessárias
@@ -9,9 +10,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- 2. Tabela de Configurações Gerais
 CREATE TABLE IF NOT EXISTS settings (
   id TEXT PRIMARY KEY DEFAULT 'settings-default',
-  institution_name TEXT NOT NULL DEFAULT 'Colégio e Faculdade Campus',
+  institution_name TEXT NOT NULL DEFAULT 'Escola de Cristo - ICEVES',
   cnpj TEXT NOT NULL DEFAULT '12.345.678/0001-90',
-  store_name TEXT NOT NULL DEFAULT 'Lojinha do Campus',
+  store_name TEXT NOT NULL DEFAULT 'Lojinha Iceves',
   closing_day TEXT NOT NULL DEFAULT 'LAST_DAY',
   closing_hour TEXT NOT NULL DEFAULT '23:59',
   due_day_offset INT NOT NULL DEFAULT 10,
@@ -20,7 +21,7 @@ CREATE TABLE IF NOT EXISTS settings (
   block_sale_without_stock BOOLEAN NOT NULL DEFAULT TRUE,
   pix_key TEXT NOT NULL DEFAULT 'financeiro@campus.edu.br',
   pix_key_type TEXT NOT NULL DEFAULT 'EMAIL',
-  pix_receiver_name TEXT NOT NULL DEFAULT 'CAMPUS EDUCACIONAL',
+  pix_receiver_name TEXT NOT NULL DEFAULT 'ICEVES EDUCACIONAL',
   pix_city TEXT NOT NULL DEFAULT 'SAO PAULO',
   whatsapp_auto_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   whatsapp_provider_name TEXT NOT NULL DEFAULT 'Evolution API / Z-API',
@@ -33,22 +34,18 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  username TEXT,
   email TEXT NOT NULL UNIQUE,
-  password TEXT,
-  role TEXT NOT NULL CHECK (role IN ('ADMIN', 'CASHIER', 'STUDENT', 'GUARDIAN')),
+  role TEXT NOT NULL CHECK (role IN ('ADMIN', 'MANAGER', 'CASHIER', 'STOCKIST', 'VIEWER', 'STUDENT', 'GUARDIAN')),
   phone TEXT,
   avatar TEXT,
   student_id TEXT,
-  registration_number TEXT,
   guardian_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   last_login TIMESTAMPTZ
 );
 
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS username TEXT;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password TEXT;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS registration_number TEXT;
+ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE public.users ADD CONSTRAINT users_role_check CHECK (role IN ('ADMIN', 'MANAGER', 'CASHIER', 'STOCKIST', 'VIEWER', 'STUDENT', 'GUARDIAN'));
 
 -- 4. Tabela de Responsáveis (Guardians)
 CREATE TABLE IF NOT EXISTS guardians (
@@ -72,9 +69,14 @@ CREATE TABLE IF NOT EXISTS students (
   phone TEXT NOT NULL,
   avatar TEXT,
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
-  default_tuition NUMERIC(10,2) NOT NULL DEFAULT 750.00,
+  default_tuition NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   current_consumption_balance NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   total_open_debt NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  cpf TEXT,
+  consumption_limit NUMERIC(10,2),
+  credit_balance NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  consumption_blocked BOOLEAN NOT NULL DEFAULT FALSE,
+  consumption_blocked_reason TEXT,
   payer_rule TEXT NOT NULL DEFAULT 'GUARDIAN',
   report_recipient_rule TEXT NOT NULL DEFAULT 'GUARDIAN',
   due_reminder_recipient_rule TEXT NOT NULL DEFAULT 'BOTH',
@@ -85,29 +87,49 @@ CREATE TABLE IF NOT EXISTS students (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS cpf TEXT;
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS consumption_limit NUMERIC(10,2);
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10,2) NOT NULL DEFAULT 0.00;
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS consumption_blocked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS consumption_blocked_reason TEXT;
+
 -- 6. Tabela de Produtos do Estoque
 CREATE TABLE IF NOT EXISTS products (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  description TEXT,
   category TEXT NOT NULL,
-  price NUMERIC(10,2) NOT NULL,
+  cost_price NUMERIC(10,2),
+  price NUMERIC(10,2),
+  price_status TEXT NOT NULL DEFAULT 'DEFINED' CHECK (price_status IN ('DEFINED', 'PENDING')),
   internal_code TEXT NOT NULL UNIQUE,
   barcode TEXT,
   current_stock INT NOT NULL DEFAULT 0,
   min_stock INT NOT NULL DEFAULT 10,
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
+  archived BOOLEAN NOT NULL DEFAULT FALSE,
+  archived_at TIMESTAMPTZ,
+  archived_reason TEXT,
   image_url TEXT,
+  images JSONB DEFAULT '[]'::jsonb,
   unit TEXT NOT NULL DEFAULT 'un',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10,2);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price_status TEXT NOT NULL DEFAULT 'DEFINED';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS archived_reason TEXT;
 
 -- 7. Tabela de Movimentações de Estoque
 CREATE TABLE IF NOT EXISTS stock_movements (
   id TEXT PRIMARY KEY,
   product_id TEXT REFERENCES products(id) ON DELETE CASCADE,
   product_name TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('ENTRADA', 'SAIDA_VENDA', 'ESTORNO_VENDA', 'AJUSTE_MANUAL')),
+  type TEXT NOT NULL CHECK (type IN ('ENTRADA', 'SAIDA_VENDA', 'ESTORNO_VENDA', 'AJUSTE_MANUAL', 'PERDA_AVARIA')),
   quantity INT NOT NULL,
   previous_stock INT NOT NULL,
   new_stock INT NOT NULL,
@@ -118,6 +140,9 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   timestamp TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE public.stock_movements DROP CONSTRAINT IF EXISTS stock_movements_type_check;
+ALTER TABLE public.stock_movements ADD CONSTRAINT stock_movements_type_check CHECK (type IN ('ENTRADA', 'SAIDA_VENDA', 'ESTORNO_VENDA', 'AJUSTE_MANUAL', 'PERDA_AVARIA'));
+
 -- 8. Tabela de Vendas (PDV)
 CREATE TABLE IF NOT EXISTS sales (
   id TEXT PRIMARY KEY,
@@ -125,7 +150,12 @@ CREATE TABLE IF NOT EXISTS sales (
   student_name TEXT NOT NULL,
   registration_number TEXT NOT NULL,
   items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  subtotal NUMERIC(10,2),
+  discount_amount NUMERIC(10,2) DEFAULT 0.00,
   total NUMERIC(10,2) NOT NULL,
+  payment_method TEXT NOT NULL DEFAULT 'CONTA_ALUNO',
+  cash_session_id TEXT,
+  notes TEXT,
   operator_user_id TEXT NOT NULL,
   operator_user_name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'COMPLETED' CHECK (status IN ('COMPLETED', 'REVERSED')),
@@ -137,6 +167,12 @@ CREATE TABLE IF NOT EXISTS sales (
   idempotency_key TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'CONTA_ALUNO';
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS subtotal NUMERIC(10,2);
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS cash_session_id TEXT;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS notes TEXT;
 
 -- 9. Tabela de Faturas Mensais Consolidadas
 CREATE TABLE IF NOT EXISTS invoices (
@@ -224,22 +260,132 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   status TEXT NOT NULL DEFAULT 'SUCESSO'
 );
 
--- 13. Permissões e Políticas de Acesso (RLS)
--- Garante acesso de leitura e escrita para operações da aplicação (anon, authenticated, service_role)
-GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+-- 13. Tabela de Passeios — Escola de Cristo ICEVES
+CREATE TABLE IF NOT EXISTS passeios (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nome TEXT NOT NULL,
+  valor NUMERIC(10,2) NOT NULL,
+  descricao TEXT,
+  data_passeio DATE,
+  ativo BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Configurar políticas permissivas em todas as tabelas para sincronização contínua
+-- 14. Tabelas de Caixa & Financeiro (Sessões de Caixa e Movimentações)
+CREATE TABLE IF NOT EXISTS cash_registers (
+  id TEXT PRIMARY KEY,
+  opened_by_user_id TEXT NOT NULL,
+  opened_by_name TEXT NOT NULL,
+  closed_by_user_id TEXT,
+  closed_by_name TEXT,
+  opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  closed_at TIMESTAMPTZ,
+  opening_balance NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  expected_balance NUMERIC(10,2),
+  counted_balance NUMERIC(10,2),
+  difference_amount NUMERIC(10,2),
+  status TEXT NOT NULL DEFAULT 'ABERTO' CHECK (status IN ('ABERTO', 'FECHADO')),
+  notes TEXT,
+  payment_totals JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS cash_movements (
+  id TEXT PRIMARY KEY,
+  cash_register_id TEXT REFERENCES cash_registers(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('ABERTURA', 'SUPRIMENTO', 'SANGRIA', 'DESPESA', 'RECEITA', 'VENDA_DINHEIRO', 'VENDA_PIX', 'VENDA_CARTAO', 'VENDA_MERCADO_PAGO', 'VENDA_CONTA_ALUNO', 'ESTORNO')),
+  amount NUMERIC(10,2) NOT NULL,
+  payment_method TEXT DEFAULT 'DINHEIRO',
+  description TEXT NOT NULL,
+  reference_id TEXT,
+  performed_by_user_id TEXT NOT NULL,
+  performed_by_name TEXT NOT NULL,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS customer_account_movements (
+  id TEXT PRIMARY KEY,
+  student_id TEXT REFERENCES students(id) ON DELETE CASCADE,
+  operation TEXT NOT NULL CHECK (operation IN ('CREDITO', 'DEBITO')),
+  amount NUMERIC(10,2) NOT NULL,
+  reason TEXT NOT NULL,
+  performed_by_user_id TEXT NOT NULL,
+  performed_by_name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 15. Índices de Desempenho para Consultas e Relatórios
+CREATE INDEX IF NOT EXISTS idx_sales_created_at ON public.sales (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sales_student_id ON public.sales (student_id);
+CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON public.sales (payment_method);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON public.stock_movements (product_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_timestamp ON public.stock_movements (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_invoices_student_id ON public.invoices (student_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_billing_period ON public.invoices (billing_period);
+CREATE INDEX IF NOT EXISTS idx_pix_payments_invoice_id ON public.pix_payments (invoice_id);
+CREATE INDEX IF NOT EXISTS idx_cash_movements_register ON public.cash_movements (cash_register_id);
+CREATE INDEX IF NOT EXISTS idx_cash_movements_timestamp ON public.cash_movements (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_customer_account_movements_student ON public.customer_account_movements (student_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON public.audit_logs (timestamp DESC);
+
+-- Configurar RLS específica na tabela passeios conforme regras de segurança ICEVES:
+ALTER TABLE public.passeios ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Alunos autenticados podem visualizar passeios ativos" ON public.passeios;
+CREATE POLICY "Alunos autenticados podem visualizar passeios ativos"
+  ON public.passeios
+  FOR SELECT
+  TO authenticated, anon
+  USING (ativo = TRUE OR (auth.jwt() ->> 'role') = 'ADMIN' OR current_setting('request.jwt.claims', true)::jsonb ->> 'role' = 'service_role');
+
+DROP POLICY IF EXISTS "Administradores podem gerenciar passeios" ON public.passeios;
+CREATE POLICY "Administradores podem gerenciar passeios"
+  ON public.passeios
+  FOR ALL
+  TO authenticated, anon, service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- 16. Permissões e Políticas de Acesso (RLS)
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO postgres, anon, authenticated, service_role;
+
+GRANT ALL PRIVILEGES ON TABLE public.users TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE public.audit_logs TO anon, authenticated, service_role;
+
 DO $$ 
 DECLARE
   tbl text;
-  tbls text[] := ARRAY['settings', 'users', 'guardians', 'students', 'products', 'stock_movements', 'sales', 'invoices', 'pix_payments', 'whatsapp_notifications', 'audit_logs'];
+  tbls text[] := ARRAY[
+    'settings',
+    'users',
+    'guardians',
+    'students',
+    'products',
+    'stock_movements',
+    'sales',
+    'invoices',
+    'pix_payments',
+    'whatsapp_notifications',
+    'audit_logs',
+    'passeios',
+    'cash_registers',
+    'cash_movements',
+    'customer_account_movements'
+  ];
 BEGIN
   FOREACH tbl IN ARRAY tbls LOOP
-    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);
-    EXECUTE format('DROP POLICY IF EXISTS "Permitir acesso total à aplicação" ON public.%I;', tbl);
-    EXECUTE format('CREATE POLICY "Permitir acesso total à aplicação" ON public.%I FOR ALL USING (true) WITH CHECK (true);', tbl);
+    IF to_regclass('public.' || tbl) IS NOT NULL THEN
+      EXECUTE format('GRANT ALL PRIVILEGES ON TABLE public.%I TO anon, authenticated, service_role;', tbl);
+      EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);
+      EXECUTE format('DROP POLICY IF EXISTS "Permitir acesso total à aplicação" ON public.%I;', tbl);
+      EXECUTE format('CREATE POLICY "Permitir acesso total à aplicação" ON public.%I FOR ALL TO anon, authenticated, service_role USING (true) WITH CHECK (true);', tbl);
+    END IF;
   END LOOP;
 END $$;

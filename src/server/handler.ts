@@ -11,6 +11,7 @@ import {
   getMpRequestLogs,
   clearMpRequestLogs
 } from './mercadopago.ts';
+import { askIcevesAssistant } from './aiAssistant.ts';
 
 export interface ApiRequest {
   method: string;
@@ -43,6 +44,10 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     name: 'Mariana Vasconcelos',
     role: 'ADMIN' as UserRole
   };
+
+  const isAdminOrManager = currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER';
+  const canOperateStock = isAdminOrManager || currentUser.role === 'STOCKIST';
+  const canOperateCashier = isAdminOrManager || currentUser.role === 'CASHIER';
 
   try {
     // 1. Auth routes
@@ -96,7 +101,10 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         // Default passwords for pre-existing institutional accounts
         const defaultPasswords: Record<string, string[]> = {
           ADMIN: ['Admin#Iceves2026', 'admin123', 'iceves2026'],
+          MANAGER: ['Gerente#Iceves2026', 'gerente123', 'iceves2026'],
           CASHIER: ['Caixa#Iceves2026', 'caixa123', 'iceves2026'],
+          STOCKIST: ['Estoque#Iceves2026', 'estoque123', 'iceves2026'],
+          VIEWER: ['Leitura#Iceves2026', 'leitura123', 'iceves2026'],
           STUDENT: ['Aluno#Iceves2026', 'aluno123', 'iceves2026'],
           GUARDIAN: ['Familia#Iceves2026', 'familia123', 'iceves2026']
         };
@@ -183,8 +191,8 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         return { status: 200, data: db.getProducts() };
       }
       if (method === 'POST') {
-        if (currentUser.role !== 'ADMIN') {
-          return { status: 403, data: { error: 'Apenas Administradores podem cadastrar produtos.' } };
+        if (!canOperateStock) {
+          return { status: 403, data: { error: 'Apenas Administradores, Gerentes ou Estoquistas podem cadastrar produtos.' } };
         }
         const product = db.saveProduct(req.body, currentUser);
         return { status: 201, data: product };
@@ -192,8 +200,8 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     }
 
     if (pathname.startsWith('/api/products/') && method === 'PUT') {
-      if (currentUser.role !== 'ADMIN') {
-        return { status: 403, data: { error: 'Apenas Administradores podem editar produtos.' } };
+      if (!canOperateStock) {
+        return { status: 403, data: { error: 'Apenas Administradores, Gerentes ou Estoquistas podem editar produtos.' } };
       }
       const productId = pathname.replace('/api/products/', '');
       const product = db.saveProduct({ ...req.body, id: productId }, currentUser);
@@ -202,8 +210,8 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
 
     // 4. Stock management
     if (pathname === '/api/stock/adjust' && method === 'POST') {
-      if (currentUser.role !== 'ADMIN') {
-        return { status: 403, data: { error: 'Apenas Administradores podem realizar ajustes manuais de estoque.' } };
+      if (!canOperateStock) {
+        return { status: 403, data: { error: 'Apenas Administradores, Gerentes ou Estoquistas podem realizar movimentações de estoque.' } };
       }
       const product = db.adjustStock({
         productId: req.body.productId,
@@ -245,13 +253,16 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       }
 
       if (method === 'POST') {
-        // Operadores de caixa e administradores podem vender
-        if (currentUser.role !== 'CASHIER' && currentUser.role !== 'ADMIN') {
+        // Operadores de caixa, gerentes e administradores podem vender
+        if (!canOperateCashier) {
           return { status: 403, data: { error: 'Seu perfil não tem permissão para operar o caixa.' } };
         }
         const result = db.registerSale({
           studentId: req.body.studentId,
           items: req.body.items,
+          paymentMethod: req.body.paymentMethod,
+          discountAmount: req.body.discountAmount,
+          notes: req.body.notes,
           operatorUser: currentUser,
           idempotencyKey: req.body.idempotencyKey
         });
@@ -260,12 +271,57 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     }
 
     if (pathname.startsWith('/api/sales/') && pathname.endsWith('/reverse') && method === 'POST') {
-      if (currentUser.role !== 'CASHIER' && currentUser.role !== 'ADMIN') {
+      if (!canOperateCashier) {
         return { status: 403, data: { error: 'Sem permissão para estornar vendas.' } };
       }
       const saleId = pathname.replace('/api/sales/', '').replace('/reverse', '');
       const result = db.reverseSale(saleId, req.body.reason || 'Estorno solicitado no caixa', currentUser);
       return { status: 200, data: result };
+    }
+
+    // 5.1. Cash Register & Financeiro
+    if (pathname === '/api/cash' && method === 'GET') {
+      if (!canOperateCashier && currentUser.role !== 'VIEWER') {
+        return { status: 403, data: { error: 'Acesso restrito à operação de caixa e gerência.' } };
+      }
+      return {
+        status: 200,
+        data: {
+          activeSession: db.getActiveCashSession(),
+          sessions: db.getCashSessions(),
+          movements: db.getCashMovements(),
+        },
+      };
+    }
+
+    if (pathname === '/api/cash/open' && method === 'POST') {
+      if (!canOperateCashier) {
+        return { status: 403, data: { error: 'Sem permissão para abrir caixa.' } };
+      }
+      const session = db.openCashSession(Number(req.body?.openingBalance) || 0, req.body?.notes, currentUser);
+      return { status: 201, data: session };
+    }
+
+    if (pathname === '/api/cash/movement' && method === 'POST') {
+      if (!canOperateCashier) {
+        return { status: 403, data: { error: 'Sem permissão para movimentar caixa.' } };
+      }
+      const movement = db.addCashMovement({
+        type: req.body?.type,
+        amount: Number(req.body?.amount) || 0,
+        description: req.body?.description,
+        paymentMethod: req.body?.paymentMethod,
+        user: currentUser,
+      });
+      return { status: 201, data: movement };
+    }
+
+    if (pathname === '/api/cash/close' && method === 'POST') {
+      if (!canOperateCashier) {
+        return { status: 403, data: { error: 'Sem permissão para fechar caixa.' } };
+      }
+      const session = db.closeCashSession(Number(req.body?.countedBalance) || 0, req.body?.notes, currentUser);
+      return { status: 200, data: session };
     }
 
     // 6. Students & Guardians
@@ -284,17 +340,32 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         return { status: 200, data: students };
       }
       if (method === 'POST') {
-        if (currentUser.role !== 'ADMIN') {
-          return { status: 403, data: { error: 'Apenas Administradores podem cadastrar alunos.' } };
+        if (!isAdminOrManager) {
+          return { status: 403, data: { error: 'Apenas Administradores ou Gerentes podem cadastrar alunos.' } };
         }
         const created = db.createStudent(req.body, currentUser);
         return { status: 201, data: created };
       }
     }
 
+    if (pathname.startsWith('/api/students/') && pathname.endsWith('/balance') && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores ou Gerentes podem lançar créditos/débitos em conta.' } };
+      }
+      const studentId = pathname.replace('/api/students/', '').replace('/balance', '');
+      const updated = db.adjustStudentAccountBalance({
+        studentId,
+        operation: req.body?.operation,
+        amount: Number(req.body?.amount) || 0,
+        reason: req.body?.reason || '',
+        user: currentUser,
+      });
+      return { status: 200, data: updated };
+    }
+
     if (pathname.startsWith('/api/students/') && method === 'PUT') {
-      if (currentUser.role !== 'ADMIN') {
-        return { status: 403, data: { error: 'Apenas Administradores podem alterar vínculos e configurações de alunos.' } };
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores ou Gerentes podem alterar vínculos e configurações de alunos.' } };
       }
       const studentId = pathname.replace('/api/students/', '');
       const updated = db.updateStudentSettings(studentId, req.body, currentUser);
@@ -302,7 +373,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     }
 
     if (pathname === '/api/guardians' && method === 'GET') {
-      if (currentUser.role !== 'ADMIN') {
+      if (!isAdminOrManager && currentUser.role !== 'VIEWER') {
         return { status: 403, data: { error: 'Acesso restrito à coordenação escolar.' } };
       }
       return { status: 200, data: db.getGuardians() };
@@ -484,6 +555,24 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       }
       const result = db.clearAllInvoices(currentUser);
       return { status: 200, data: result };
+    }
+
+    if (pathname === '/api/invoices/export-log' && method === 'POST') {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem exportar backup financeiro CSV.' } };
+      }
+      const exportType = String(req.body?.exportType || 'COMPLETO');
+      const invoicesCount = Number(req.body?.invoicesCount) || 0;
+      const salesCount = Number(req.body?.salesCount) || 0;
+      db.logAudit(
+        currentUser.id,
+        currentUser.name,
+        currentUser.role,
+        'EXPORTACAO_BACKUP_CSV',
+        'FATURAS',
+        `Backup offline CSV (${exportType}) exportado pelo administrador: ${invoicesCount} fatura(s) e ${salesCount} venda(s).`
+      );
+      return { status: 200, data: { success: true } };
     }
 
     if (pathname.startsWith('/api/invoices/') && method === 'DELETE') {
@@ -922,6 +1011,16 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
           ]
         }
       };
+    }
+
+    // 11. ICEVES Inteligência (Server-Side Gemini API)
+    if (pathname === '/api/ai/assistant' && method === 'POST') {
+      const result = await askIcevesAssistant({
+        question: req.body?.question || '',
+        history: Array.isArray(req.body?.history) ? req.body.history : undefined,
+        user: currentUser,
+      });
+      return { status: 200, data: result };
     }
 
     if (pathname === '/api/reset-data' && method === 'POST') {

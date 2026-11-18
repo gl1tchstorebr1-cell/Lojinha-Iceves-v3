@@ -28,6 +28,8 @@ export function getSecurityHeaders(req?: IncomingMessage | { headers?: Record<st
     "font-src 'self' data: https://fonts.gstatic.com",
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mercadopago.com https://api.stripe.com",
     "frame-src 'self' https://www.mercadopago.com https://sdk.mercadopago.com https://js.stripe.com",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

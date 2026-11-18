@@ -23,7 +23,11 @@ import type {
   TripParticipantAllocation,
   TripParticipantAllocationItem,
   TripDistributionMethod,
-  PdvPasseiosPermissions
+  PdvPasseiosPermissions,
+  PaymentMethod,
+  CashRegisterSession,
+  CashMovement,
+  CashMovementType
 } from '../types/index.ts';
 import { generateBacenPixPayload } from '../utils/pix.ts';
 import { getInitialsAvatar } from '../utils/avatar.ts';
@@ -40,7 +44,9 @@ import {
   initialWhatsAppNotifications, 
   initialAuditLogs, 
   initialSettings,
-  initialPasseios
+  initialPasseios,
+  CATALOG_VERSION,
+  OFFICIAL_GUARDIAN_ASSIGNMENTS
 } from './seedData.ts';
 
 export interface DatabaseSchema {
@@ -58,6 +64,8 @@ export interface DatabaseSchema {
   auditLogs: AuditLog[];
   passeios: Passeio[];
   tripOperations: TripOperation[];
+  cashSessions?: CashRegisterSession[];
+  cashMovements?: CashMovement[];
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -65,9 +73,51 @@ const DB_FILE = path.join(DATA_DIR, 'base44_db.json');
 
 class DatabaseService {
   private data: DatabaseSchema;
+  private saveQueued = false;
+  private supabaseModPromise: Promise<typeof import('./supabase.ts')> | null = null;
 
   constructor() {
     this.data = this.loadDatabase();
+  }
+
+  private normalizeCategory(cat?: string | null): ProductCategory {
+    const raw = (cat || '').trim();
+    const valid: ProductCategory[] = [
+      'Livros e Literatura Cristã',
+      'Alimentos e Snacks',
+      'Produtos Naturais e Saúde',
+      'Papelaria',
+      'Higiene e Cuidados Pessoais',
+      'Limpeza',
+    ];
+    if ((valid as string[]).includes(raw)) {
+      return raw as ProductCategory;
+    }
+    const lower = raw.toLowerCase();
+    if (lower.includes('livro') || lower.includes('literatura') || lower.includes('crist')) {
+      return 'Livros e Literatura Cristã';
+    }
+    if (lower.includes('natural') || lower.includes('saúde') || lower.includes('saude')) {
+      return 'Produtos Naturais e Saúde';
+    }
+    if (lower.includes('papel')) {
+      return 'Papelaria';
+    }
+    if (lower.includes('higiene') || lower.includes('cosm') || lower.includes('pessoal') || lower.includes('pessoais')) {
+      return 'Higiene e Cuidados Pessoais';
+    }
+    if (lower.includes('limpeza')) {
+      return 'Limpeza';
+    }
+    return 'Alimentos e Snacks';
+  }
+
+  private isPricePending(product?: { price?: number | null; priceStatus?: string } | null): boolean {
+    if (!product) return true;
+    if (product.priceStatus === 'PENDING') return true;
+    if (product.price === null || product.price === undefined) return true;
+    const num = Number(product.price);
+    return Number.isNaN(num) || num <= 0;
   }
 
   private loadDatabase(): DatabaseSchema {
@@ -144,86 +194,148 @@ class DatabaseService {
           defaultTuitionAmount: 0,
         };
 
-        // Migração de produtos para as 4 categorias oficiais:
-        // 'Alimentícios' | 'Papelaria' | 'Produtos de Limpeza' | 'Cosméticos'
-        // e estruturação de até 3 imagens por produto
-        const VALID_CATEGORIES: ProductCategory[] = ['Alimentícios', 'Papelaria', 'Produtos de Limpeza', 'Cosméticos'];
+        // Atualização Controlada do Catálogo Oficial (6 categorias e 70 produtos)
+        let finalAuditLogs: AuditLog[] = Array.isArray(parsed.auditLogs)
+          ? [...parsed.auditLogs]
+          : [...initialAuditLogs];
+
+        let finalProducts: Product[] = Array.isArray(parsed.products) ? parsed.products : [];
         let productsNeedsSave = false;
-        let finalProducts: Product[] = (parsed.products || initialProducts).map((p: any) => {
-          let cat: ProductCategory = 'Alimentícios';
-          if (p.category === 'Papelaria' || p.category === 'Papelaria & Material') {
-            cat = 'Papelaria';
-          } else if (p.category === 'Produtos de Limpeza') {
-            cat = 'Produtos de Limpeza';
-          } else if (p.category === 'Cosméticos') {
-            cat = 'Cosméticos';
-          } else {
-            cat = 'Alimentícios';
+
+        if (parsed.settings?.catalogVersion !== CATALOG_VERSION) {
+          // ETAPA 1 — Backup completo antes de qualquer alteração
+          const backupsDir = path.join(DATA_DIR, 'backups');
+          if (!fs.existsSync(backupsDir)) {
+            fs.mkdirSync(backupsDir, { recursive: true });
           }
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const backupPath = path.join(backupsDir, `base44_db.pre-catalog-${CATALOG_VERSION}-${stamp}.json`);
+          fs.writeFileSync(backupPath, raw, 'utf-8');
 
-          if (p.category !== cat) {
-            productsNeedsSave = true;
-          }
-
-          let images: string[] = [];
-          if (Array.isArray(p.images) && p.images.length > 0) {
-            images = p.images.filter(Boolean).slice(0, 3);
-          } else if (p.imageUrl) {
-            images = [p.imageUrl];
-          }
-
-          return {
-            ...p,
-            category: cat,
-            images,
-            imageUrl: images[0] || p.imageUrl || undefined,
-          };
-        });
-
-        // Garantir unicidade absoluta de IDs em finalProducts
-        const seenProductIds = new Set<string>();
-        const uniqueProducts: Product[] = [];
-        for (const p of finalProducts) {
-          if (!seenProductIds.has(p.id)) {
-            seenProductIds.add(p.id);
-            uniqueProducts.push(p);
-          } else {
-            // Se encontrar ID duplicado, gera novo ID sequencial único
-            let counter = 1;
-            let uniqueId = `${p.id}-alt-${counter}`;
-            while (seenProductIds.has(uniqueId)) {
-              counter++;
-              uniqueId = `${p.id}-alt-${counter}`;
+          // Identificar produtos antigos com vínculo histórico (vendas, movimentações, faturas, passeios)
+          const historicalProductIds = new Set<string>();
+          for (const sale of Array.isArray(finalSales) ? finalSales : []) {
+            for (const item of Array.isArray(sale.items) ? sale.items : []) {
+              if (item?.productId) historicalProductIds.add(item.productId);
             }
-            seenProductIds.add(uniqueId);
+          }
+          const parsedMovements: StockMovement[] = Array.isArray(parsed.stockMovements) ? parsed.stockMovements : [];
+          for (const mov of parsedMovements) {
+            if (mov?.productId) historicalProductIds.add(mov.productId);
+          }
+          for (const inv of Array.isArray(finalInvoices) ? finalInvoices : []) {
+            for (const item of Array.isArray(inv.items) ? inv.items : []) {
+              if ((item as any)?.productId) historicalProductIds.add((item as any).productId);
+            }
+          }
+          const parsedTrips: TripOperation[] = Array.isArray(parsed.tripOperations) ? parsed.tripOperations : [];
+          for (const trip of parsedTrips) {
+            for (const item of Array.isArray(trip.items) ? trip.items : []) {
+              if (item?.storeProductId) historicalProductIds.add(item.storeProductId);
+            }
+          }
+
+          const seedProductIds = new Set(initialProducts.map(p => p.id));
+          const nowIso = new Date().toISOString();
+          const archivedOldProducts: Product[] = [];
+          const removedOldNames: string[] = [];
+          const archivedOldNames: string[] = [];
+          const oldCategoriesFound = new Set<string>();
+
+          for (const oldProd of finalProducts) {
+            if (oldProd?.category) oldCategoriesFound.add(String(oldProd.category));
+            if (seedProductIds.has(oldProd.id)) continue;
+
+            if (historicalProductIds.has(oldProd.id)) {
+              archivedOldProducts.push({
+                ...oldProd,
+                status: 'INACTIVE',
+                archived: true,
+                archivedAt: nowIso,
+                archivedReason: 'Substituído na atualização oficial do catálogo (preservado para histórico)',
+                updatedAt: nowIso,
+              });
+              archivedOldNames.push(`${oldProd.name} (${oldProd.id})`);
+            } else {
+              removedOldNames.push(`${oldProd.name} (${oldProd.id})`);
+            }
+          }
+
+          const freshCatalogProducts: Product[] = initialProducts.map(p => ({
+            ...p,
+            images: Array.isArray(p.images) ? p.images.filter(Boolean).slice(0, 3) : (p.imageUrl ? [p.imageUrl] : []),
+            imageUrl: p.imageUrl || (Array.isArray(p.images) ? p.images[0] : undefined),
+          }));
+
+          finalProducts = [...freshCatalogProducts, ...archivedOldProducts];
+          loadedSettings.catalogVersion = CATALOG_VERSION;
+
+          finalAuditLogs.unshift({
+            id: `AUD-${Date.now()}-CATALOG`,
+            timestamp: nowIso,
+            userId: 'system',
+            userName: 'Sistema (Migração Controlada)',
+            userRole: 'ADMIN',
+            action: 'ATUALIZACAO_CATALOGO_ESTOQUE',
+            module: 'ESTOQUE',
+            details: `Catálogo atualizado (${CATALOG_VERSION}). Backup: ${path.basename(backupPath)}. Removidos sem histórico: ${removedOldNames.length}. Arquivados com histórico: ${archivedOldNames.length} [${archivedOldNames.join(', ')}]. Categorias anteriores: [${Array.from(oldCategoriesFound).join(', ')}]. Cadastrados: ${freshCatalogProducts.length} produtos em 6 categorias oficiais.`,
+            status: 'SUCESSO'
+          });
+
+          productsNeedsSave = true;
+        } else {
+          // Normalizar estrutura de imagens, preços pendentes e unicidade sem perder arquivados
+          const seedById = new Map(initialProducts.map(sp => [sp.id, sp]));
+          const seenProductIds = new Set<string>();
+          const uniqueProducts: Product[] = [];
+          for (const p of finalProducts) {
+            let images: string[] = Array.isArray(p.images) && p.images.length > 0
+              ? p.images.filter(Boolean).slice(0, 3)
+              : (p.imageUrl ? [p.imageUrl] : []);
+
+            let resolvedImageUrl = images[0] || p.imageUrl || undefined;
+            if (!p.archived && images.length === 0 && !resolvedImageUrl) {
+              const seedMatch = seedById.get(p.id);
+              if (seedMatch && (seedMatch.imageUrl || (seedMatch.images && seedMatch.images.length > 0))) {
+                images = seedMatch.images && seedMatch.images.length > 0
+                  ? [...seedMatch.images]
+                  : [seedMatch.imageUrl!];
+                resolvedImageUrl = images[0];
+                productsNeedsSave = true;
+              }
+            }
+
+            const isPending = p.priceStatus === 'PENDING' || p.price === null || p.price === undefined || Number(p.price) <= 0;
+            const normalizedCategory = p.archived
+              ? p.category
+              : this.normalizeCategory(p.category);
+
+            if (!p.archived && p.category !== normalizedCategory) {
+              productsNeedsSave = true;
+            }
+
+            let productId = p.id;
+            if (seenProductIds.has(productId)) {
+              let counter = 1;
+              while (seenProductIds.has(`${productId}-alt-${counter}`)) {
+                counter++;
+              }
+              productId = `${productId}-alt-${counter}`;
+              productsNeedsSave = true;
+            }
+            seenProductIds.add(productId);
+
             uniqueProducts.push({
               ...p,
-              id: uniqueId,
+              id: productId,
+              category: normalizedCategory,
+              price: isPending ? null : Number(p.price),
+              priceStatus: isPending ? 'PENDING' : 'DEFINED',
+              images,
+              imageUrl: resolvedImageUrl,
             });
-            productsNeedsSave = true;
           }
-        }
-        finalProducts = uniqueProducts;
-
-        // Se faltar itens em 'Produtos de Limpeza' ou 'Cosméticos', adiciona os da semente com verificação de unicidade
-        const presentCategories = new Set(finalProducts.map(p => p.category));
-        for (const cat of VALID_CATEGORIES) {
-          if (!presentCategories.has(cat)) {
-            const seedItems = initialProducts.filter(p => p.category === cat);
-            for (const item of seedItems) {
-              let itemId = item.id;
-              if (seenProductIds.has(itemId)) {
-                let counter = 1;
-                while (seenProductIds.has(`${itemId}-${counter}`)) {
-                  counter++;
-                }
-                itemId = `${itemId}-${counter}`;
-              }
-              seenProductIds.add(itemId);
-              finalProducts.push({ ...item, id: itemId });
-            }
-            productsNeedsSave = true;
-          }
+          finalProducts = uniqueProducts;
         }
 
         if (productsNeedsSave) {
@@ -253,10 +365,151 @@ class DatabaseService {
           };
         }
 
+        // Sincronizar os Pais e Responsáveis oficiais (17 estudantes — 8 alunas e 9 meninos, 16 responsáveis únicos com Bill Stanley vinculado a 2 alunos) sem duplicar cadastros e preservando todos os dados existentes dos estudantes
+        let finalGuardians: Guardian[] = Array.isArray(parsed.guardians)
+          ? parsed.guardians.filter((g: Guardian) => g.id !== 'guardian-1' && g.name !== 'Responsável / Família ICEVES')
+          : [...initialGuardians];
+
+        const normalizeText = (val: string) =>
+          (val || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .trim();
+
+        // Mapear todos os alunos esperados para cada responsável oficial (ex: Bill Stanley -> ['student-1', 'student-9'])
+        const expectedStudentIdsByGuardian = new Map<string, string[]>();
+        for (const assign of OFFICIAL_GUARDIAN_ASSIGNMENTS) {
+          const list = expectedStudentIdsByGuardian.get(assign.guardianId) || [];
+          if (!list.includes(assign.studentId)) {
+            list.push(assign.studentId);
+          }
+          expectedStudentIdsByGuardian.set(assign.guardianId, list);
+        }
+
+        for (const assign of OFFICIAL_GUARDIAN_ASSIGNMENTS) {
+          const targetStudent = finalStudents.find(
+            s =>
+              s.id === assign.studentId ||
+              normalizeText(s.name) === normalizeText(assign.studentDatabaseName) ||
+              normalizeText(s.name) === normalizeText(assign.informedStudentName)
+          );
+
+          if (!targetStudent) continue;
+
+          // Verificar se o responsável já existe (por ID ou nome normalizado) para evitar duplicação
+          let guardianRecord = finalGuardians.find(
+            g => g.id === assign.guardianId || normalizeText(g.name) === normalizeText(assign.guardianName)
+          );
+
+          const slugEmail =
+            assign.guardianName
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .replace(/[^a-z0-9\s]/g, '')
+              .trim()
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .join('.') + '@gmail.com';
+
+          const expectedStudentIds = expectedStudentIdsByGuardian.get(assign.guardianId) || [targetStudent.id];
+
+          if (!guardianRecord) {
+            guardianRecord = {
+              id: assign.guardianId,
+              name: assign.guardianName,
+              cpf: 'Não informado',
+              email: slugEmail,
+              phone: assign.guardianPhone,
+              relationshipDefault: assign.relationship || 'Responsável',
+              studentIds: [...expectedStudentIds],
+              needsPhoneReview: assign.needsPhoneReview,
+              phoneReviewNote: assign.phoneReviewNote,
+              createdAt: '2026-11-01T08:00:00Z'
+            };
+            finalGuardians.push(guardianRecord);
+            needsSave = true;
+          } else {
+            const mergedStudentIds = Array.from(new Set([...expectedStudentIds, ...guardianRecord.studentIds.filter(id => expectedStudentIds.includes(id) || id === targetStudent.id)]));
+            const idsChanged =
+              mergedStudentIds.length !== guardianRecord.studentIds.length ||
+              mergedStudentIds.some((id, idx) => guardianRecord!.studentIds[idx] !== id);
+
+            if (
+              guardianRecord.id !== assign.guardianId ||
+              guardianRecord.phone !== assign.guardianPhone ||
+              guardianRecord.relationshipDefault !== (assign.relationship || 'Responsável') ||
+              idsChanged ||
+              guardianRecord.needsPhoneReview !== assign.needsPhoneReview
+            ) {
+              guardianRecord.id = assign.guardianId;
+              guardianRecord.phone = assign.guardianPhone;
+              guardianRecord.relationshipDefault = assign.relationship || 'Responsável';
+              guardianRecord.studentIds = mergedStudentIds;
+              guardianRecord.needsPhoneReview = assign.needsPhoneReview;
+              guardianRecord.phoneReviewNote = assign.phoneReviewNote;
+              needsSave = true;
+            }
+          }
+
+          // Vincular ao estudante correspondente sem apagar outros dados do estudante
+          if (!Array.isArray(targetStudent.guardians)) {
+            targetStudent.guardians = [];
+          }
+          const existingLinkIdx = targetStudent.guardians.findIndex(
+            lk => lk.guardianId === guardianRecord!.id || normalizeText(lk.guardianName || '') === normalizeText(assign.guardianName)
+          );
+          const linkObj = {
+            guardianId: guardianRecord.id,
+            guardianName: guardianRecord.name,
+            guardianPhone: guardianRecord.phone,
+            relationship: assign.relationship || 'Responsável',
+            isPrimaryPayer: true,
+            canAccessPortal: true,
+            needsPhoneReview: assign.needsPhoneReview,
+            phoneReviewNote: assign.phoneReviewNote,
+            matchNote: assign.matchNote
+          };
+
+          if (existingLinkIdx === -1) {
+            targetStudent.guardians = [linkObj];
+            needsSave = true;
+          } else {
+            const curr = targetStudent.guardians[existingLinkIdx];
+            if (
+              curr.guardianId !== linkObj.guardianId ||
+              curr.guardianName !== linkObj.guardianName ||
+              curr.guardianPhone !== linkObj.guardianPhone ||
+              curr.relationship !== linkObj.relationship ||
+              curr.needsPhoneReview !== linkObj.needsPhoneReview ||
+              curr.matchNote !== linkObj.matchNote
+            ) {
+              targetStudent.guardians[existingLinkIdx] = linkObj;
+              needsSave = true;
+            }
+          }
+        }
+
+        // Garantir desduplicação absoluta de finalGuardians por nome normalizado
+        const uniqueGuardiansMap = new Map<string, Guardian>();
+        for (const g of finalGuardians) {
+          const key = normalizeText(g.name);
+          const existing = uniqueGuardiansMap.get(key);
+          if (!existing) {
+            uniqueGuardiansMap.set(key, g);
+          } else {
+            existing.studentIds = Array.from(new Set([...existing.studentIds, ...g.studentIds]));
+            needsSave = true;
+          }
+        }
+        finalGuardians = Array.from(uniqueGuardiansMap.values());
+
         const loadedData: DatabaseSchema = {
           settings: loadedSettings,
           users: hasOldFictionalStudents ? initialUsers : (parsed.users || initialUsers),
-          guardians: hasOldFictionalStudents ? initialGuardians : (parsed.guardians || initialGuardians),
+          guardians: finalGuardians,
           students: finalStudents,
           products: finalProducts,
           stockMovements: parsed.stockMovements || initialStockMovements,
@@ -265,13 +518,15 @@ class DatabaseService {
           invoices: finalInvoices,
           pixPayments: parsed.pixPayments || initialPixPayments,
           whatsappNotifications: parsed.whatsappNotifications || initialWhatsAppNotifications,
-          auditLogs: parsed.auditLogs || initialAuditLogs,
+          auditLogs: finalAuditLogs,
           passeios: finalPasseios,
           tripOperations: finalTripOperations,
+          cashSessions: Array.isArray(parsed.cashSessions) ? parsed.cashSessions : [],
+          cashMovements: Array.isArray(parsed.cashMovements) ? parsed.cashMovements : [],
         };
 
         if (needsSave) {
-          this.saveDatabase(loadedData);
+          this.saveDatabase(loadedData, true);
         }
 
         return loadedData;
@@ -295,23 +550,39 @@ class DatabaseService {
       auditLogs: initialAuditLogs,
       passeios: initialPasseios,
       tripOperations: [],
+      cashSessions: [],
+      cashMovements: [],
     };
 
-    this.saveDatabase(defaultData);
+    this.saveDatabase(defaultData, true);
     return defaultData;
   }
 
-  private saveDatabase(dataToSave: DatabaseSchema = this.data) {
+  private writeDatabaseSync(dataToSave: DatabaseSchema) {
     try {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
       // Atomic write via temp file
-      const tempPath = `${DB_FILE}.tmp.${Date.now()}`;
+      const tempPath = `${DB_FILE}.tmp.${process.pid}.${Date.now()}`;
       fs.writeFileSync(tempPath, JSON.stringify(dataToSave, null, 2), 'utf-8');
       fs.renameSync(tempPath, DB_FILE);
     } catch (err) {
       console.error('Falha ao persistir base de dados:', err);
+    }
+  }
+
+  private saveDatabase(dataToSave?: DatabaseSchema, immediate = false) {
+    if (immediate || dataToSave) {
+      this.writeDatabaseSync(dataToSave || this.data);
+      return;
+    }
+    if (!this.saveQueued) {
+      this.saveQueued = true;
+      queueMicrotask(() => {
+        this.saveQueued = false;
+        this.writeDatabaseSync(this.data);
+      });
     }
   }
 
@@ -348,7 +619,10 @@ class DatabaseService {
   public triggerSupabaseSync(table: string, record: any, mapperName: string) {
     setTimeout(async () => {
       try {
-        const supabaseMod = await import('./supabase.ts');
+        if (!this.supabaseModPromise) {
+          this.supabaseModPromise = import('./supabase.ts');
+        }
+        const supabaseMod = await this.supabaseModPromise;
         const mapper = (supabaseMod as any)[mapperName];
         await supabaseMod.syncRecordToSupabase(table, record, mapper);
       } catch (e) {
@@ -491,8 +765,19 @@ class DatabaseService {
     items: { productId: string; quantity: number }[];
     operatorUser: { id: string; name: string; role: any };
     idempotencyKey?: string;
+    paymentMethod?: PaymentMethod;
+    discountAmount?: number;
+    notes?: string;
   }): { sale: Sale; student: Student } {
-    const { studentId, items, operatorUser, idempotencyKey } = params;
+    const {
+      studentId,
+      items,
+      operatorUser,
+      idempotencyKey,
+      paymentMethod = 'CONTA_ALUNO',
+      discountAmount = 0,
+      notes
+    } = params;
 
     // Idempotency check
     if (idempotencyKey) {
@@ -512,43 +797,90 @@ class DatabaseService {
       throw new Error(`O aluno ${student.name} está inativo e não pode realizar compras.`);
     }
 
+    if (paymentMethod === 'CONTA_ALUNO' && student.consumptionBlocked) {
+      throw new Error(
+        `Consumo temporariamente bloqueado para ${student.name}${student.consumptionBlockedReason ? `: ${student.consumptionBlockedReason}` : '.'}`
+      );
+    }
+
     if (!items || items.length === 0) {
       throw new Error('A venda deve conter pelo menos 1 item.');
     }
 
-    // Conferência e bloqueio de estoque
-    const saleItems: Sale['items'] = [];
-    let saleTotal = 0;
-
+    // Conferência rigorosa de preço, status e bloqueio de estoque
+    const aggregatedQuantities = new Map<string, number>();
     for (const item of items) {
-      const product = this.data.products.find(p => p.id === item.productId);
+      if (!item.productId || !Number.isFinite(item.quantity) || item.quantity <= 0) {
+        throw new Error('Quantidade inválida no carrinho. Todos os itens devem ter quantidade maior que zero.');
+      }
+      aggregatedQuantities.set(item.productId, (aggregatedQuantities.get(item.productId) || 0) + item.quantity);
+    }
+
+    const saleItems: Sale['items'] = [];
+    let subtotalBeforeDiscount = 0;
+
+    for (const [productId, totalQty] of aggregatedQuantities.entries()) {
+      const product = this.data.products.find(p => p.id === productId);
       if (!product) {
-        throw new Error(`Produto ID ${item.productId} não encontrado.`);
+        throw new Error(`Produto ID ${productId} não encontrado.`);
       }
 
-      if (this.data.settings.stockControlActive && this.data.settings.blockSaleWithoutStock) {
-        if (product.currentStock < item.quantity) {
-          throw new Error(`Estoque insuficiente para o produto "${product.name}". Disponível: ${product.currentStock}, Solicitado: ${item.quantity}`);
-        }
+      if (product.archived || product.status !== 'ACTIVE') {
+        throw new Error(`O produto "${product.name}" está inativo/arquivado e não pode ser vendido.`);
       }
 
-      const subtotal = Math.round((product.price * item.quantity) * 100) / 100;
-      saleTotal += subtotal;
+      if (this.isPricePending(product)) {
+        throw new Error(`O produto "${product.name}" está com preço não definido e está bloqueado para venda até definição pelo administrador.`);
+      }
+
+      if (this.data.settings.blockSaleWithoutStock !== false && product.currentStock < totalQty) {
+        throw new Error(`Estoque insuficiente para o produto "${product.name}". Disponível: ${product.currentStock}, Solicitado: ${totalQty}`);
+      }
+
+      const unitPrice = Number(product.price);
+      const subtotal = Math.round((unitPrice * totalQty) * 100) / 100;
+      subtotalBeforeDiscount += subtotal;
 
       saleItems.push({
         productId: product.id,
         name: product.name,
         category: product.category,
-        unitPrice: product.price, // PRESERVA PREÇO HISTÓRICO
-        quantity: item.quantity,
+        unitPrice, // PRESERVA PREÇO HISTÓRICO
+        quantity: totalQty,
         subtotal
       });
     }
 
-    saleTotal = Math.round(saleTotal * 100) / 100;
+    subtotalBeforeDiscount = Math.round(subtotalBeforeDiscount * 100) / 100;
+    const cleanDiscount = Math.max(0, Math.round((Number(discountAmount) || 0) * 100) / 100);
+    if (cleanDiscount > 0) {
+      if (operatorUser.role !== 'ADMIN' && operatorUser.role !== 'MANAGER') {
+        throw new Error('Descontos exigem autorização de Administrador ou Gerente.');
+      }
+      if (cleanDiscount > subtotalBeforeDiscount) {
+        throw new Error('O desconto não pode ser maior que o subtotal da venda.');
+      }
+    }
+
+    const saleTotal = Math.max(0, Math.round((subtotalBeforeDiscount - cleanDiscount) * 100) / 100);
+
+    // Enforce individual consumption limit if charging to student account
+    if (
+      paymentMethod === 'CONTA_ALUNO' &&
+      typeof student.consumptionLimit === 'number' &&
+      student.consumptionLimit > 0
+    ) {
+      const projectedBalance = Math.round((student.currentConsumptionBalance + saleTotal) * 100) / 100;
+      if (projectedBalance > student.consumptionLimit) {
+        throw new Error(
+          `Compra excede o limite de consumo de ${student.name} (Limite: R$ ${student.consumptionLimit.toFixed(2)} • Saldo projetado: R$ ${projectedBalance.toFixed(2)}).`
+        );
+      }
+    }
 
     const currentPeriod = new Date().toISOString().substring(0, 7); // e.g. '2026-10'
     const saleId = `VEN-${Date.now().toString().slice(-6)}`;
+    const activeSession = this.getActiveCashSession();
 
     // Criar registro de venda
     const newSale: Sale = {
@@ -558,6 +890,11 @@ class DatabaseService {
       registrationNumber: student.registrationNumber,
       items: saleItems,
       total: saleTotal,
+      subtotalBeforeDiscount,
+      discountAmount: cleanDiscount > 0 ? cleanDiscount : undefined,
+      paymentMethod,
+      cashSessionId: activeSession?.id,
+      notes: notes?.trim() || undefined,
       operatorUserId: operatorUser.id,
       operatorUserName: operatorUser.name,
       status: 'COMPLETED',
@@ -581,7 +918,7 @@ class DatabaseService {
         quantity: -item.quantity,
         previousStock: prevStock,
         newStock: product.currentStock,
-        reason: `Venda ${newSale.id} - Aluno: ${student.name}`,
+        reason: `Venda ${newSale.id} (${paymentMethod}) - Aluno: ${student.name}`,
         performedByUserId: operatorUser.id,
         performedByUserName: operatorUser.name,
         referenceId: newSale.id,
@@ -607,22 +944,62 @@ class DatabaseService {
       }
     }
 
-    // Atualizar saldo do aluno (Todo consumo vai para a conta mensal)
-    student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance + saleTotal) * 100) / 100;
-    student.totalOpenDebt = Math.round((student.totalOpenDebt + saleTotal) * 100) / 100;
+    if (paymentMethod === 'CONTA_ALUNO') {
+      // Atualizar saldo do aluno (consumo na conta mensal)
+      student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance + saleTotal) * 100) / 100;
+      student.totalOpenDebt = Math.round((student.totalOpenDebt + saleTotal) * 100) / 100;
 
-    // Criar lançamento no livro financeiro
-    this.data.financialLedger.unshift({
-      id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-      timestamp: new Date().toISOString(),
-      studentId: student.id,
-      type: 'DEBITO',
-      category: 'CONSUMO_LOJINHA',
-      amount: saleTotal,
-      description: `Consumo Lojinha - Venda ${newSale.id} (${saleItems.length} itens)`,
-      documentRef: newSale.id,
-      performedByUserName: operatorUser.name
-    });
+      // Criar lançamento no livro financeiro
+      this.data.financialLedger.unshift({
+        id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+        timestamp: new Date().toISOString(),
+        studentId: student.id,
+        type: 'DEBITO',
+        category: 'CONSUMO_LOJINHA',
+        amount: saleTotal,
+        description: `Consumo Lojinha - Venda ${newSale.id} (${saleItems.length} itens)`,
+        documentRef: newSale.id,
+        performedByUserName: operatorUser.name
+      });
+    } else {
+      // Venda paga no ato (Dinheiro, PIX, Cartão, Mercado Pago): registrar quitação no livro financeiro
+      this.data.financialLedger.unshift({
+        id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+        timestamp: new Date().toISOString(),
+        studentId: student.id,
+        type: 'CREDITO',
+        category: 'PAGAMENTO_PIX',
+        amount: saleTotal,
+        description: `Venda paga à vista (${paymentMethod}) - ${newSale.id} (${saleItems.length} itens)`,
+        documentRef: newSale.id,
+        performedByUserName: operatorUser.name
+      });
+    }
+
+    // Registrar movimentação no Caixa se houver sessão aberta
+    if (activeSession) {
+      if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+      const movTypeMap: Record<PaymentMethod, CashMovementType> = {
+        DINHEIRO: 'VENDA_DINHEIRO',
+        PIX: 'VENDA_PIX',
+        CARTAO_CREDITO: 'VENDA_CARTAO',
+        CARTAO_DEBITO: 'VENDA_CARTAO',
+        MERCADO_PAGO: 'VENDA_MERCADO_PAGO',
+        CONTA_ALUNO: 'VENDA_CONTA_ALUNO'
+      };
+      this.data.cashMovements.unshift({
+        id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        sessionId: activeSession.id,
+        type: movTypeMap[paymentMethod] || 'VENDA_CONTA_ALUNO',
+        paymentMethod,
+        amount: saleTotal,
+        description: `Venda ${newSale.id} (${student.name}) — ${paymentMethod}`,
+        referenceId: newSale.id,
+        performedByUserId: operatorUser.id,
+        performedByUserName: operatorUser.name,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     this.data.sales.unshift(newSale);
 
@@ -632,7 +1009,7 @@ class DatabaseService {
       operatorUser.role,
       'REGISTRO_VENDA_PDV',
       'VENDAS',
-      `Venda ${newSale.id} (R$ ${saleTotal.toFixed(2)}) para o aluno ${student.name} registrada na conta mensal.`
+      `Venda ${newSale.id} (R$ ${saleTotal.toFixed(2)}) para ${student.name} via ${paymentMethod}${cleanDiscount > 0 ? ` (desconto R$ ${cleanDiscount.toFixed(2)})` : ''}.`
     );
 
     this.saveDatabase();
@@ -682,9 +1059,12 @@ class DatabaseService {
       }
     }
 
-    // Abater do consumo acumulado
-    student.currentConsumptionBalance = Math.max(0, Math.round((student.currentConsumptionBalance - sale.total) * 100) / 100);
-    student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - sale.total) * 100) / 100);
+    const saleMethod = sale.paymentMethod || 'CONTA_ALUNO';
+    if (saleMethod === 'CONTA_ALUNO') {
+      // Abater do consumo acumulado
+      student.currentConsumptionBalance = Math.max(0, Math.round((student.currentConsumptionBalance - sale.total) * 100) / 100);
+      student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - sale.total) * 100) / 100);
+    }
 
     // Registro no livro financeiro
     this.data.financialLedger.unshift({
@@ -694,10 +1074,27 @@ class DatabaseService {
       type: 'CREDITO',
       category: 'ESTORNO_VENDA',
       amount: sale.total,
-      description: `Estorno de venda ${sale.id} - Motivo: ${reason}`,
+      description: `Estorno de venda ${sale.id} (${saleMethod}) - Motivo: ${reason}`,
       documentRef: sale.id,
       performedByUserName: user.name
     });
+
+    const activeSession = this.getActiveCashSession();
+    if (activeSession) {
+      if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+      this.data.cashMovements.unshift({
+        id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        sessionId: activeSession.id,
+        type: 'ESTORNO',
+        paymentMethod: saleMethod,
+        amount: sale.total,
+        description: `Estorno venda ${sale.id} (${student.name}): ${reason}`,
+        referenceId: sale.id,
+        performedByUserId: user.id,
+        performedByUserName: user.name,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     sale.status = 'REVERSED';
     sale.reversedReason = reason;
@@ -719,11 +1116,11 @@ class DatabaseService {
     return { sale, student };
   }
 
-  // 4. Ajuste manual de estoque (Entrada/Saída/Ajuste)
+  // 4. Ajuste manual de estoque (Entrada/Ajuste/Perda e Avaria)
   public adjustStock(params: {
     productId: string;
-    type: 'ENTRADA' | 'AJUSTE_MANUAL';
-    quantity: number; // For ENTRADA: amount to add. For AJUSTE_MANUAL: absolute new stock
+    type: 'ENTRADA' | 'AJUSTE_MANUAL' | 'PERDA_AVARIA';
+    quantity: number; // For ENTRADA & PERDA_AVARIA: positive delta amount. For AJUSTE_MANUAL: absolute new stock
     reason: string;
     user: { id: string; name: string; role: any };
   }) {
@@ -731,6 +1128,12 @@ class DatabaseService {
     const product = this.data.products.find(p => p.id === productId);
     if (!product) {
       throw new Error(`Produto não encontrado.`);
+    }
+    if (product.archived) {
+      throw new Error(`Produto "${product.name}" está arquivado no histórico e não pode receber ajuste de estoque.`);
+    }
+    if (!reason || reason.trim().length < 3) {
+      throw new Error('Informe uma justificativa clara para a movimentação de estoque.');
     }
 
     const prevStock = product.currentStock;
@@ -741,6 +1144,11 @@ class DatabaseService {
       if (quantity <= 0) throw new Error('Quantidade de entrada deve ser maior que zero.');
       newStock = prevStock + quantity;
       diff = quantity;
+    } else if (type === 'PERDA_AVARIA') {
+      if (quantity <= 0) throw new Error('Quantidade de perda/avaria deve ser maior que zero.');
+      if (quantity > prevStock) throw new Error(`Quantidade de baixa (${quantity}) supera o estoque atual (${prevStock}).`);
+      newStock = prevStock - quantity;
+      diff = -quantity;
     } else {
       if (quantity < 0) throw new Error('Estoque não pode ser negativo.');
       newStock = quantity;
@@ -758,7 +1166,7 @@ class DatabaseService {
       quantity: diff,
       previousStock: prevStock,
       newStock: newStock,
-      reason,
+      reason: reason.trim(),
       performedByUserId: user.id,
       performedByUserName: user.name,
       timestamp: new Date().toISOString()
@@ -768,9 +1176,9 @@ class DatabaseService {
       user.id,
       user.name,
       user.role,
-      'AJUSTE_ESTOQUE',
+      type === 'PERDA_AVARIA' ? 'BAIXA_PERDA_AVARIA' : 'AJUSTE_ESTOQUE',
       'ESTOQUE',
-      `Ajuste manual de estoque no produto ${product.name}: ${prevStock} -> ${newStock} (${diff >= 0 ? '+' : ''}${diff}). Motivo: ${reason}`
+      `${type === 'PERDA_AVARIA' ? 'Perda/avaria registrada' : 'Ajuste manual de estoque'} no produto ${product.name}: ${prevStock} -> ${newStock} (${diff >= 0 ? '+' : ''}${diff}). Motivo: ${reason}`
     );
 
     this.saveDatabase();
@@ -778,24 +1186,315 @@ class DatabaseService {
     return product;
   }
 
+  // --- CONTROLE DE CAIXA & FINANCEIRO ---
+  public getCashSessions(): CashRegisterSession[] {
+    if (!Array.isArray(this.data.cashSessions)) this.data.cashSessions = [];
+    return this.data.cashSessions;
+  }
+
+  public getActiveCashSession(): CashRegisterSession | null {
+    if (!Array.isArray(this.data.cashSessions)) this.data.cashSessions = [];
+    return this.data.cashSessions.find(s => s.status === 'ABERTO') || null;
+  }
+
+  public getCashMovements(): CashMovement[] {
+    if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+    return this.data.cashMovements;
+  }
+
+  public openCashSession(
+    openingBalance: number,
+    notes: string | undefined,
+    user: { id: string; name: string; role: any }
+  ): CashRegisterSession {
+    if (!Array.isArray(this.data.cashSessions)) this.data.cashSessions = [];
+    if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+
+    const existing = this.getActiveCashSession();
+    if (existing) {
+      throw new Error(`Já existe um caixa aberto (${existing.id}) desde ${new Date(existing.openedAt).toLocaleString('pt-BR')}.`);
+    }
+
+    const cleanOpening = Math.max(0, Math.round((Number(openingBalance) || 0) * 100) / 100);
+    const session: CashRegisterSession = {
+      id: `CX-${Date.now().toString().slice(-6)}`,
+      status: 'ABERTO',
+      openedAt: new Date().toISOString(),
+      openedByUserId: user.id,
+      openedByUserName: user.name,
+      openingBalance: cleanOpening,
+      notes: notes?.trim() || undefined
+    };
+
+    this.data.cashSessions.unshift(session);
+    this.data.cashMovements.unshift({
+      id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      sessionId: session.id,
+      type: 'ABERTURA',
+      paymentMethod: 'DINHEIRO',
+      amount: cleanOpening,
+      description: `Abertura de caixa (${session.id}) com saldo inicial`,
+      referenceId: session.id,
+      performedByUserId: user.id,
+      performedByUserName: user.name,
+      timestamp: session.openedAt
+    });
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'ABERTURA_CAIXA',
+      'CAIXA',
+      `Caixa ${session.id} aberto com saldo inicial de R$ ${cleanOpening.toFixed(2)}.`
+    );
+
+    this.saveDatabase();
+    return session;
+  }
+
+  public addCashMovement(params: {
+    type: 'SUPRIMENTO' | 'SANGRIA' | 'DESPESA' | 'RECEITA';
+    amount: number;
+    description: string;
+    paymentMethod?: PaymentMethod;
+    user: { id: string; name: string; role: any };
+  }): CashMovement {
+    if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+    const active = this.getActiveCashSession();
+    if (!active) {
+      throw new Error('Abra o caixa antes de registrar suprimentos, sangrias, receitas ou despesas.');
+    }
+
+    const cleanAmount = Math.round((Number(params.amount) || 0) * 100) / 100;
+    if (cleanAmount <= 0) {
+      throw new Error('O valor da movimentação deve ser maior que zero.');
+    }
+    const cleanDesc = (params.description || '').trim();
+    if (cleanDesc.length < 3) {
+      throw new Error('Informe uma descrição/justificativa para a movimentação.');
+    }
+
+    const mov: CashMovement = {
+      id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      sessionId: active.id,
+      type: params.type,
+      paymentMethod: params.paymentMethod || 'DINHEIRO',
+      amount: cleanAmount,
+      description: cleanDesc,
+      referenceId: active.id,
+      performedByUserId: params.user.id,
+      performedByUserName: params.user.name,
+      timestamp: new Date().toISOString()
+    };
+
+    this.data.cashMovements.unshift(mov);
+    this.logAudit(
+      params.user.id,
+      params.user.name,
+      params.user.role,
+      `CAIXA_${params.type}`,
+      'CAIXA',
+      `${params.type} de R$ ${cleanAmount.toFixed(2)} no caixa ${active.id}: ${cleanDesc}`
+    );
+
+    this.saveDatabase();
+    return mov;
+  }
+
+  public closeCashSession(
+    countedBalance: number,
+    notes: string | undefined,
+    user: { id: string; name: string; role: any }
+  ): CashRegisterSession {
+    const active = this.getActiveCashSession();
+    if (!active) {
+      throw new Error('Nenhum caixa aberto para fechamento.');
+    }
+    if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+
+    const sessionMovs = this.data.cashMovements.filter(m => m.sessionId === active.id);
+    let expectedCash = active.openingBalance;
+    for (const m of sessionMovs) {
+      if (m.type === 'SUPRIMENTO' || m.type === 'RECEITA' || m.type === 'VENDA_DINHEIRO') {
+        expectedCash += m.amount;
+      } else if (m.type === 'SANGRIA' || m.type === 'DESPESA') {
+        expectedCash -= m.amount;
+      } else if (m.type === 'ESTORNO' && m.paymentMethod === 'DINHEIRO') {
+        expectedCash -= m.amount;
+      }
+    }
+
+    expectedCash = Math.round(expectedCash * 100) / 100;
+    const cleanCounted = Math.max(0, Math.round((Number(countedBalance) || 0) * 100) / 100);
+    const difference = Math.round((cleanCounted - expectedCash) * 100) / 100;
+
+    active.status = 'FECHADO';
+    active.closedAt = new Date().toISOString();
+    active.closedByUserId = user.id;
+    active.closedByUserName = user.name;
+    active.expectedBalance = expectedCash;
+    active.countedBalance = cleanCounted;
+    active.difference = difference;
+    if (notes?.trim()) {
+      active.notes = active.notes ? `${active.notes} | Fechamento: ${notes.trim()}` : notes.trim();
+    }
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'FECHAMENTO_CAIXA',
+      'CAIXA',
+      `Caixa ${active.id} fechado. Esperado em espécie: R$ ${expectedCash.toFixed(2)} • Conferido: R$ ${cleanCounted.toFixed(2)} • Diferença: R$ ${difference.toFixed(2)}.`
+    );
+
+    this.saveDatabase();
+    return active;
+  }
+
+  public adjustStudentAccountBalance(params: {
+    studentId: string;
+    operation: 'CREDITO' | 'DEBITO';
+    amount: number;
+    reason: string;
+    user: { id: string; name: string; role: any };
+  }): Student {
+    const student = this.data.students.find(s => s.id === params.studentId);
+    if (!student) throw new Error('Aluno/cliente não encontrado.');
+    const cleanAmount = Math.round((Number(params.amount) || 0) * 100) / 100;
+    if (cleanAmount <= 0) throw new Error('Informe um valor maior que zero.');
+    const cleanReason = (params.reason || '').trim();
+    if (cleanReason.length < 3) throw new Error('Informe o motivo do lançamento.');
+
+    if (params.operation === 'CREDITO') {
+      const currentCredit = Number(student.creditBalance) || 0;
+      if (student.currentConsumptionBalance > 0) {
+        const appliedToDebt = Math.min(student.currentConsumptionBalance, cleanAmount);
+        student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance - appliedToDebt) * 100) / 100;
+        student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - appliedToDebt) * 100) / 100);
+        const leftover = Math.round((cleanAmount - appliedToDebt) * 100) / 100;
+        student.creditBalance = Math.round((currentCredit + leftover) * 100) / 100;
+      } else {
+        student.creditBalance = Math.round((currentCredit + cleanAmount) * 100) / 100;
+      }
+    } else {
+      student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance + cleanAmount) * 100) / 100;
+      student.totalOpenDebt = Math.round((student.totalOpenDebt + cleanAmount) * 100) / 100;
+    }
+
+    this.data.financialLedger.unshift({
+      id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+      timestamp: new Date().toISOString(),
+      studentId: student.id,
+      type: params.operation,
+      category: params.operation === 'CREDITO' ? 'AJUSTE_CREDITO' : 'AJUSTE_DEBITO',
+      amount: cleanAmount,
+      description: `${params.operation === 'CREDITO' ? 'Crédito em conta' : 'Débito avulso'} - ${cleanReason}`,
+      performedByUserName: params.user.name
+    });
+
+    this.logAudit(
+      params.user.id,
+      params.user.name,
+      params.user.role,
+      params.operation === 'CREDITO' ? 'CREDITO_CONTA_ALUNO' : 'DEBITO_CONTA_ALUNO',
+      'VENDAS',
+      `${params.operation} de R$ ${cleanAmount.toFixed(2)} para ${student.name}. Motivo: ${cleanReason}`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    return student;
+  }
+
   // 5. Salvar / Editar produto (garante que preços de vendas passadas não se alteram)
   public saveProduct(productData: Partial<Product>, user: { id: string; name: string; role: any }) {
+    const parsePriceFields = (rawPrice: any, rawStatus?: any): { price: number | null; priceStatus: 'DEFINED' | 'PENDING' } => {
+      if (rawStatus === 'PENDING' || rawPrice === null || rawPrice === undefined || rawPrice === '') {
+        return { price: null, priceStatus: 'PENDING' };
+      }
+      const numeric = Number(rawPrice);
+      if (Number.isNaN(numeric) || numeric < 0) {
+        throw new Error('O preço do produto não pode ser negativo.');
+      }
+      if (numeric === 0) {
+        throw new Error('Informe um preço maior que R$ 0,00 ou marque o produto como "Preço não definido".');
+      }
+      return { price: Math.round(numeric * 100) / 100, priceStatus: 'DEFINED' };
+    };
+
+    const formatPriceLabel = (val: number | null | undefined, status?: string) => {
+      if (status === 'PENDING' || val === null || val === undefined || Number.isNaN(Number(val)) || Number(val) <= 0) {
+        return 'Preço não definido';
+      }
+      return `R$ ${Number(val).toFixed(2)}`;
+    };
+
     if (productData.id) {
       const idx = this.data.products.findIndex(p => p.id === productData.id);
       if (idx === -1) throw new Error('Produto não encontrado');
-      
-      const oldPrice = this.data.products[idx].price;
+
+      const existing = this.data.products[idx];
+      const oldPrice = existing.price;
+      const oldPriceStatus = existing.priceStatus;
+      const oldStock = existing.currentStock;
+
+      const resolvedPrice =
+        productData.price !== undefined || productData.priceStatus !== undefined
+          ? parsePriceFields(
+              productData.price !== undefined ? productData.price : existing.price,
+              productData.priceStatus
+            )
+          : {
+              price: existing.price,
+              priceStatus: existing.priceStatus || (this.isPricePending(existing) ? 'PENDING' : 'DEFINED'),
+            };
+
+      const nextStock =
+        productData.currentStock !== undefined ? Number(productData.currentStock) : existing.currentStock;
+      if (Number.isNaN(nextStock) || nextStock < 0) {
+        throw new Error('O estoque do produto não pode ser negativo.');
+      }
+      const nextMinStock =
+        productData.minStock !== undefined ? Math.max(1, Number(productData.minStock) || 1) : existing.minStock;
+
       const images: string[] = Array.isArray(productData.images)
         ? productData.images.filter(Boolean).slice(0, 3)
-        : (this.data.products[idx].images || (productData.imageUrl ? [productData.imageUrl] : []));
+        : (existing.images || (productData.imageUrl ? [productData.imageUrl] : []));
+
+      const nextCategory = productData.category
+        ? this.normalizeCategory(productData.category)
+        : existing.category;
 
       this.data.products[idx] = {
-        ...this.data.products[idx],
+        ...existing,
         ...productData,
+        category: nextCategory,
+        price: resolvedPrice.price,
+        priceStatus: resolvedPrice.priceStatus,
+        currentStock: nextStock,
+        minStock: nextMinStock,
         images,
-        imageUrl: images[0] || productData.imageUrl || this.data.products[idx].imageUrl || undefined,
+        imageUrl: images[0] || productData.imageUrl || existing.imageUrl || undefined,
         updatedAt: new Date().toISOString()
       };
+
+      if (nextStock !== oldStock) {
+        this.data.stockMovements.unshift({
+          id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          productId: existing.id,
+          productName: this.data.products[idx].name,
+          type: 'AJUSTE_MANUAL',
+          quantity: nextStock - oldStock,
+          previousStock: oldStock,
+          newStock: nextStock,
+          reason: 'Atualização via edição de cadastro do produto',
+          performedByUserId: user.id,
+          performedByUserName: user.name,
+          timestamp: new Date().toISOString()
+        });
+      }
 
       this.logAudit(
         user.id,
@@ -803,13 +1502,20 @@ class DatabaseService {
         user.role,
         'EDITAR_PRODUTO',
         'ESTOQUE',
-        `Produto ${this.data.products[idx].name} editado. Preço anterior: R$ ${oldPrice.toFixed(2)}, Novo preço: R$ ${this.data.products[idx].price.toFixed(2)}`
+        `Produto ${this.data.products[idx].name} editado. Preço anterior: ${formatPriceLabel(oldPrice, oldPriceStatus)}, Novo preço: ${formatPriceLabel(this.data.products[idx].price, this.data.products[idx].priceStatus)}`
       );
 
       this.saveDatabase();
       this.triggerSupabaseSync('products', this.data.products[idx], 'mapProductToSupabase');
       return this.data.products[idx];
     } else {
+      const resolvedPrice = parsePriceFields(productData.price, productData.priceStatus);
+      const initialStock = Number(productData.currentStock) || 0;
+      if (initialStock < 0) {
+        throw new Error('O estoque inicial não pode ser negativo.');
+      }
+      const minStock = Math.max(1, Number(productData.minStock) || 5);
+
       const images: string[] = Array.isArray(productData.images)
         ? productData.images.filter(Boolean).slice(0, 3)
         : (productData.imageUrl ? [productData.imageUrl] : []);
@@ -821,14 +1527,16 @@ class DatabaseService {
 
       const newProduct: Product = {
         id: generatedId,
-        name: productData.name || 'Novo Produto',
-        category: (productData.category as ProductCategory) || 'Alimentícios',
-        price: Number(productData.price) || 0,
+        name: productData.name?.trim() || 'Novo Produto',
+        category: this.normalizeCategory(productData.category),
+        price: resolvedPrice.price,
+        priceStatus: resolvedPrice.priceStatus,
         internalCode: productData.internalCode || `INT-${Math.floor(Math.random() * 9000 + 1000)}`,
         barcode: productData.barcode || undefined,
-        currentStock: Number(productData.currentStock) || 0,
-        minStock: Number(productData.minStock) || 5,
+        currentStock: initialStock,
+        minStock,
         status: productData.status || 'ACTIVE',
+        archived: false,
         images,
         imageUrl: images[0] || productData.imageUrl || undefined,
         unit: productData.unit || 'un',
@@ -843,7 +1551,7 @@ class DatabaseService {
         user.role,
         'CRIAR_PRODUTO',
         'ESTOQUE',
-        `Novo produto cadastrado: ${newProduct.name} (R$ ${newProduct.price.toFixed(2)}) com estoque inicial de ${newProduct.currentStock}`
+        `Novo produto cadastrado: ${newProduct.name} (${formatPriceLabel(newProduct.price, newProduct.priceStatus)}) com estoque inicial de ${newProduct.currentStock}`
       );
 
       this.saveDatabase();
@@ -1381,6 +2089,42 @@ class DatabaseService {
 
     Object.assign(student, updates);
 
+    // Se foram enviados vínculos de responsáveis (student.guardians), sincronizar também com a coleção global de guardians sem duplicar
+    if (Array.isArray(updates.guardians)) {
+      for (const lk of student.guardians) {
+        if (!lk.guardianName) continue;
+        let gRecord = this.data.guardians.find(
+          g => g.id === lk.guardianId || g.name.trim().toLowerCase() === lk.guardianName!.trim().toLowerCase()
+        );
+        if (!gRecord) {
+          const newGuardianId = lk.guardianId || `guardian-${Date.now().toString().slice(-6)}`;
+          gRecord = {
+            id: newGuardianId,
+            name: lk.guardianName.trim(),
+            cpf: 'Não informado',
+            email: `${lk.guardianName.trim().toLowerCase().replace(/[^a-z0-9]/g, '.')}@gmail.com`,
+            phone: (lk.guardianPhone || '').trim(),
+            relationshipDefault: lk.relationship || 'Responsável',
+            studentIds: [student.id],
+            needsPhoneReview: lk.needsPhoneReview,
+            phoneReviewNote: lk.phoneReviewNote,
+            createdAt: new Date().toISOString()
+          };
+          this.data.guardians.push(gRecord);
+          lk.guardianId = gRecord.id;
+        } else {
+          gRecord.name = lk.guardianName.trim();
+          if (lk.guardianPhone !== undefined) gRecord.phone = lk.guardianPhone.trim();
+          if (lk.relationship) gRecord.relationshipDefault = lk.relationship;
+          if (!gRecord.studentIds.includes(student.id)) {
+            gRecord.studentIds.push(student.id);
+          }
+          lk.guardianId = gRecord.id;
+        }
+        this.triggerSupabaseSync('guardians', gRecord, 'mapGuardianToSupabase');
+      }
+    }
+
     // Sincronizar nome e avatar caso exista usuário vinculado ao aluno
     for (const u of this.data.users) {
       if (u.studentId === student.id) {
@@ -1396,7 +2140,7 @@ class DatabaseService {
       user.role,
       'ATUALIZAR_CADASTRO_ALUNO',
       'CONFIGURACOES',
-      `Cadastro, foto de perfil ou regras do aluno ${student.name} foram atualizados.`
+      `Cadastro, foto de perfil, responsáveis ou regras do aluno ${student.name} foram atualizados.`
     );
 
     this.saveDatabase();
@@ -1752,16 +2496,22 @@ class DatabaseService {
   // 13. PDV de Passeios — Lançamento Coletivo de Despesas e Produtos em Passeios
   private mapTripCategoryToProductCategory(tripCategory: string): ProductCategory {
     const lower = (tripCategory || '').toLowerCase();
+    if (lower.includes('livro') || lower.includes('bíblia') || lower.includes('biblia') || lower.includes('literatura')) {
+      return 'Livros e Literatura Cristã';
+    }
+    if (lower.includes('natural') || lower.includes('saúde') || lower.includes('saude')) {
+      return 'Produtos Naturais e Saúde';
+    }
     if (lower.includes('papel') || lower.includes('material') || lower.includes('apostila') || lower.includes('kit')) {
       return 'Papelaria';
     }
-    if (lower.includes('limpeza') || lower.includes('higiene')) {
-      return 'Produtos de Limpeza';
+    if (lower.includes('higiene') || lower.includes('cosm') || lower.includes('protetor') || lower.includes('repelente')) {
+      return 'Higiene e Cuidados Pessoais';
     }
-    if (lower.includes('cosm') || lower.includes('protetor') || lower.includes('repelente')) {
-      return 'Cosméticos';
+    if (lower.includes('limpeza')) {
+      return 'Limpeza';
     }
-    return 'Alimentícios';
+    return 'Alimentos e Snacks';
   }
 
   public saveTripOperationDraft(
@@ -2084,12 +2834,13 @@ class DatabaseService {
         if (!product) {
           throw new Error(`Produto do estoque vinculado "${item.name}" não encontrado.`);
         }
-        if (this.data.settings.stockControlActive && this.data.settings.blockSaleWithoutStock) {
-          if (product.currentStock < item.quantity) {
-            throw new Error(
-              `Estoque insuficiente para "${product.name}". Disponível: ${product.currentStock}, Necessário no passeio: ${item.quantity}.`
-            );
-          }
+        if (product.archived || product.status !== 'ACTIVE') {
+          throw new Error(`O produto "${product.name}" está arquivado/inativo e não pode ser baixado do estoque.`);
+        }
+        if (product.currentStock < item.quantity) {
+          throw new Error(
+            `Estoque insuficiente para "${product.name}". Disponível: ${product.currentStock}, Necessário no passeio: ${item.quantity}.`
+          );
         }
       }
     }
@@ -2506,6 +3257,8 @@ class DatabaseService {
       auditLogs: initialAuditLogs,
       passeios: initialPasseios,
       tripOperations: [],
+      cashSessions: [],
+      cashMovements: [],
     };
     this.logAudit(user.id, user.name, user.role, 'RESET_BASE_DE_DADOS', 'SISTEMA', 'Base de dados resetada para estado semente.');
     this.saveDatabase();

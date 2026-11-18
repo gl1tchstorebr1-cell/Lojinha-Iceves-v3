@@ -66,16 +66,56 @@ export function compressProductImageFileToDataUrl(file: File, maxSize = 600, qua
   });
 }
 
+export const OFFICIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
+  'Livros e Literatura Cristã',
+  'Alimentos e Snacks',
+  'Produtos Naturais e Saúde',
+  'Papelaria',
+  'Higiene e Cuidados Pessoais',
+  'Limpeza',
+];
+
+export function normalizeProductCategory(category?: string | null): ProductCategory {
+  const raw = (category || '').trim();
+  if ((OFFICIAL_PRODUCT_CATEGORIES as string[]).includes(raw)) {
+    return raw as ProductCategory;
+  }
+  const lower = raw.toLowerCase();
+  if (lower.includes('livro') || lower.includes('literatura') || lower.includes('crist')) {
+    return 'Livros e Literatura Cristã';
+  }
+  if (lower.includes('natural') || lower.includes('saúde') || lower.includes('saude')) {
+    return 'Produtos Naturais e Saúde';
+  }
+  if (lower.includes('papel')) {
+    return 'Papelaria';
+  }
+  if (lower.includes('higiene') || lower.includes('cosm') || lower.includes('pessoal') || lower.includes('pessoais')) {
+    return 'Higiene e Cuidados Pessoais';
+  }
+  if (lower.includes('limpeza')) {
+    return 'Limpeza';
+  }
+  return 'Alimentos e Snacks';
+}
+
 export function getCategoryBadgeColor(category: ProductCategory | string): { bg: string; text: string; border: string } {
   switch (category) {
+    case 'Livros e Literatura Cristã':
+      return { bg: 'bg-indigo-500/15', text: 'text-indigo-300', border: 'border-indigo-500/30' };
+    case 'Alimentos e Snacks':
     case 'Alimentícios':
       return { bg: 'bg-emerald-500/15', text: 'text-emerald-400', border: 'border-emerald-500/30' };
+    case 'Produtos Naturais e Saúde':
+      return { bg: 'bg-lime-500/15', text: 'text-lime-300', border: 'border-lime-500/30' };
     case 'Papelaria':
       return { bg: 'bg-teal-500/15', text: 'text-teal-300', border: 'border-teal-500/30' };
-    case 'Produtos de Limpeza':
-      return { bg: 'bg-cyan-500/15', text: 'text-cyan-300', border: 'border-cyan-500/30' };
+    case 'Higiene e Cuidados Pessoais':
     case 'Cosméticos':
       return { bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-amber-500/30' };
+    case 'Limpeza':
+    case 'Produtos de Limpeza':
+      return { bg: 'bg-cyan-500/15', text: 'text-cyan-300', border: 'border-cyan-500/30' };
     default:
       return { bg: 'bg-zinc-500/10', text: 'text-zinc-400', border: 'border-zinc-500/20' };
   }

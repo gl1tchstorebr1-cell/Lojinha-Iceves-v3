@@ -1,6 +1,21 @@
 // Types and interfaces for Campus Store SaaS
 
-export type UserRole = 'ADMIN' | 'CASHIER' | 'STUDENT' | 'GUARDIAN';
+export type UserRole =
+  | 'ADMIN'
+  | 'MANAGER'
+  | 'CASHIER'
+  | 'STOCKIST'
+  | 'VIEWER'
+  | 'STUDENT'
+  | 'GUARDIAN';
+
+export type PaymentMethod =
+  | 'CONTA_ALUNO'
+  | 'DINHEIRO'
+  | 'PIX'
+  | 'CARTAO_CREDITO'
+  | 'CARTAO_DEBITO'
+  | 'MERCADO_PAGO';
 
 export interface User {
   id: string;
@@ -22,9 +37,14 @@ export type RecipientOption = 'STUDENT' | 'GUARDIAN' | 'BOTH' | 'STUDENT_ONLY' |
 
 export interface StudentGuardianLink {
   guardianId: string;
-  relationship: string; // 'Mãe', 'Pai', 'Tutor Legal', etc.
+  guardianName?: string;
+  guardianPhone?: string;
+  relationship: string; // 'Responsável', 'Mãe', 'Pai', 'Tutor Legal', etc.
   isPrimaryPayer: boolean;
   canAccessPortal: boolean;
+  needsPhoneReview?: boolean;
+  phoneReviewNote?: string;
+  matchNote?: string;
 }
 
 export interface Student {
@@ -47,6 +67,11 @@ export interface Student {
   paymentConfirmationRecipientRule: RecipientOption;
   allowedChannels: ('WHATSAPP' | 'EMAIL')[];
   guardians: StudentGuardianLink[];
+  cpf?: string;
+  consumptionLimit?: number | null;
+  creditBalance?: number;
+  consumptionBlocked?: boolean;
+  consumptionBlockedReason?: string;
   
   notes?: string;
   createdAt: string;
@@ -60,25 +85,35 @@ export interface Guardian {
   phone: string;
   relationshipDefault: string;
   studentIds: string[];
+  needsPhoneReview?: boolean;
+  phoneReviewNote?: string;
   createdAt: string;
 }
 
-export type ProductCategory = 
-  | 'Alimentícios' 
-  | 'Papelaria' 
-  | 'Produtos de Limpeza' 
-  | 'Cosméticos';
+export type ProductCategory =
+  | 'Livros e Literatura Cristã'
+  | 'Alimentos e Snacks'
+  | 'Produtos Naturais e Saúde'
+  | 'Papelaria'
+  | 'Higiene e Cuidados Pessoais'
+  | 'Limpeza';
 
 export interface Product {
   id: string;
   name: string;
+  description?: string;
   category: ProductCategory;
-  price: number;
+  costPrice?: number;
+  price: number | null;
+  priceStatus?: 'DEFINED' | 'PENDING';
   internalCode: string;
   barcode?: string;
   currentStock: number;
   minStock: number;
   status: 'ACTIVE' | 'INACTIVE';
+  archived?: boolean;
+  archivedAt?: string;
+  archivedReason?: string;
   imageUrl?: string;
   images?: string[]; // Até 3 imagens por produto
   unit: string; // 'un', 'pct', etc.
@@ -90,7 +125,8 @@ export type StockMovementType =
   | 'ENTRADA' 
   | 'SAIDA_VENDA' 
   | 'ESTORNO_VENDA' 
-  | 'AJUSTE_MANUAL';
+  | 'AJUSTE_MANUAL'
+  | 'PERDA_AVARIA';
 
 export interface StockMovement {
   id: string;
@@ -139,6 +175,11 @@ export interface Sale {
   invoiceId?: string; // Populated once consolidated into an invoice
   idempotencyKey?: string;
   origin?: 'LOJINHA' | 'PDV_PASSEIOS';
+  paymentMethod?: PaymentMethod;
+  subtotalBeforeDiscount?: number;
+  discountAmount?: number;
+  cashSessionId?: string;
+  notes?: string;
   tripOperationId?: string;
   tripName?: string;
   tripDate?: string;
@@ -296,10 +337,52 @@ export interface AuditLog {
   userName: string;
   userRole: UserRole;
   action: string;
-  module: 'VENDAS' | 'ESTOQUE' | 'FATURAS' | 'PAGAMENTOS' | 'FECHAMENTO' | 'CONFIGURACOES' | 'AUTH' | 'NOTIFICACOES' | 'PASSEIOS' | 'PDV_PASSEIOS';
+  module: 'VENDAS' | 'ESTOQUE' | 'FATURAS' | 'PAGAMENTOS' | 'FECHAMENTO' | 'CONFIGURACOES' | 'AUTH' | 'NOTIFICACOES' | 'PASSEIOS' | 'PDV_PASSEIOS' | 'CAIXA' | 'IA_GEMINI' | 'RELATORIOS';
   details: string;
   ipAddress?: string;
   status: 'SUCESSO' | 'FALHA';
+}
+
+export interface CashRegisterSession {
+  id: string;
+  status: 'ABERTO' | 'FECHADO';
+  openedAt: string;
+  openedByUserId: string;
+  openedByUserName: string;
+  openingBalance: number;
+  closedAt?: string;
+  closedByUserId?: string;
+  closedByUserName?: string;
+  expectedBalance?: number;
+  countedBalance?: number;
+  difference?: number;
+  notes?: string;
+}
+
+export type CashMovementType =
+  | 'ABERTURA'
+  | 'SUPRIMENTO'
+  | 'SANGRIA'
+  | 'DESPESA'
+  | 'RECEITA'
+  | 'VENDA_DINHEIRO'
+  | 'VENDA_PIX'
+  | 'VENDA_CARTAO'
+  | 'VENDA_MERCADO_PAGO'
+  | 'VENDA_CONTA_ALUNO'
+  | 'ESTORNO';
+
+export interface CashMovement {
+  id: string;
+  sessionId?: string;
+  type: CashMovementType;
+  paymentMethod?: PaymentMethod;
+  amount: number;
+  description: string;
+  referenceId?: string;
+  performedByUserId: string;
+  performedByUserName: string;
+  timestamp: string;
 }
 
 export interface Passeio {
@@ -447,6 +530,7 @@ export interface SystemSettings {
   supabaseServiceRoleKey?: string;
   stripePublishableKey?: string;
   pdvPasseiosPermissions?: PdvPasseiosPermissions;
+  catalogVersion?: string;
   updatedAt: string;
   updatedByUserName: string;
 }

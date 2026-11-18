@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts';
+import { attachTilt3D } from '../../utils/tilt3d';
 import { 
   DollarSign, 
   UserCheck, 
@@ -20,9 +20,12 @@ import {
   Sparkles,
   Droplets,
   Filter,
-  Receipt
+  Receipt,
+  HeartPulse,
+  PenTool
 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { OFFICIAL_PRODUCT_CATEGORIES, normalizeProductCategory } from '../../utils/productImages';
 import { useAuth } from '../../context/AuthContext';
 import { 
   Sale, 
@@ -34,12 +37,7 @@ import {
   SystemSettings 
 } from '../../types';
 
-const OFFICIAL_CATEGORIES: ProductCategory[] = [
-  'Alimentícios',
-  'Papelaria',
-  'Produtos de Limpeza',
-  'Cosméticos'
-];
+const OFFICIAL_CATEGORIES: ProductCategory[] = OFFICIAL_PRODUCT_CATEGORIES;
 
 // ==========================================
 // ANIMATED COUNTER COMPONENT
@@ -48,14 +46,15 @@ const AnimatedCounter = ({ value, prefix = '', suffix = '', decimals = 0 }: { va
   const [displayValue, setDisplayValue] = useState(0);
 
   useEffect(() => {
-    const start = 0;
     const end = value || 0;
-    if (end === 0) {
-      setDisplayValue(0);
+    if (end === 0 || (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+      setDisplayValue(end);
       return;
     }
+    const start = 0;
     const duration = 700;
     const startTime = performance.now();
+    let rafId = 0;
 
     const updateCount = (currentTime: number) => {
       const elapsed = currentTime - startTime;
@@ -66,11 +65,12 @@ const AnimatedCounter = ({ value, prefix = '', suffix = '', decimals = 0 }: { va
       setDisplayValue(current);
 
       if (progress < 1) {
-        requestAnimationFrame(updateCount);
+        rafId = requestAnimationFrame(updateCount);
       }
     };
 
-    requestAnimationFrame(updateCount);
+    rafId = requestAnimationFrame(updateCount);
+    return () => cancelAnimationFrame(rafId);
   }, [value]);
 
   const formatted = displayValue.toLocaleString('pt-BR', {
@@ -82,42 +82,50 @@ const AnimatedCounter = ({ value, prefix = '', suffix = '', decimals = 0 }: { va
 };
 
 // ==========================================
-// SPOTLIGHT CARD COMPONENT (Cursor Glow Effect)
+// SPOTLIGHT CARD COMPONENT (3D Tilt + Background Fade Glow on Hover)
 // ==========================================
 const SpotlightCard = ({ children, className = '', onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const [mousePos, setMousePos] = useState({ x: -200, y: -200 });
-  const [isHovered, setIsHovered] = useState(false);
+  const glowRef = useRef<HTMLDivElement>(null);
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!cardRef.current) return;
-    const rect = cardRef.current.getBoundingClientRect();
-    setMousePos({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
+  useEffect(() => {
+    return attachTilt3D(cardRef.current, 6);
+  }, []);
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const card = cardRef.current;
+    const glow = glowRef.current;
+    if (!card || !glow) return;
+    const rect = card.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    glow.style.background = `radial-gradient(520px circle at ${x}px ${y}px, rgba(16, 185, 129, 0.12), rgba(20, 184, 166, 0.04) 40%, transparent 70%)`;
+  };
+
+  const handlePointerEnter = () => {
+    if (glowRef.current) glowRef.current.style.opacity = '1';
+  };
+
+  const handlePointerLeave = () => {
+    if (glowRef.current) glowRef.current.style.opacity = '0';
   };
 
   return (
-    <motion.div
+    <div
       ref={cardRef}
-      onMouseMove={handleMouseMove}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onPointerMove={handlePointerMove}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
       onClick={onClick}
-      whileHover={{ y: -2 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-      className={`relative overflow-hidden rounded-xl bg-[#111111] border border-white/[0.08] p-5 shadow-sm transition-colors hover:border-white/[0.18] ${className}`}
+      className={`relative overflow-hidden rounded-xl bg-[#111111] border border-white/[0.08] p-5 shadow-sm transition-colors duration-300 hover:border-white/[0.16] will-change-transform ${className}`}
     >
       <div
-        className="pointer-events-none absolute -inset-px transition-opacity duration-300"
-        style={{
-          opacity: isHovered ? 1 : 0,
-          background: `radial-gradient(600px circle at ${mousePos.x}px ${mousePos.y}px, rgba(16, 185, 129, 0.08), transparent 40%)`,
-        }}
+        ref={glowRef}
+        className="pointer-events-none absolute -inset-px transition-opacity duration-500 ease-out"
+        style={{ opacity: 0 }}
       />
       <div className="relative z-10">{children}</div>
-    </motion.div>
+    </div>
   );
 };
 
@@ -166,21 +174,27 @@ export function Dashboard({
     return map;
   }, [products]);
 
-  const resolveItemCategory = (productId: string, itemName: string): ProductCategory => {
+  const resolveItemCategory = useCallback((productId: string, itemName: string): ProductCategory => {
     const fromMap = productCategoryMap.get(productId);
-    if (fromMap) return fromMap;
-    const lower = itemName.toLowerCase();
-    if (lower.includes('caderno') || lower.includes('caneta') || lower.includes('marca-texto') || lower.includes('papel')) {
+    if (fromMap) return normalizeProductCategory(fromMap);
+    const lower = (itemName || '').toLowerCase();
+    if (lower.includes('livro') || lower.includes('bíblia') || lower.includes('biblia') || lower.includes('crist') || lower.includes('sair') || lower.includes('espírito')) {
+      return 'Livros e Literatura Cristã';
+    }
+    if (lower.includes('própolis') || lower.includes('propolis') || lower.includes('levedura') || lower.includes('carvão') || lower.includes('chlorella') || lower.includes('argila')) {
+      return 'Produtos Naturais e Saúde';
+    }
+    if (lower.includes('caderno') || lower.includes('caneta') || lower.includes('marca-texto') || lower.includes('papel') || lower.includes('post-it')) {
       return 'Papelaria';
     }
-    if (lower.includes('detergente') || lower.includes('álcool') || lower.includes('alcool') || lower.includes('pano') || lower.includes('limpeza')) {
-      return 'Produtos de Limpeza';
+    if (lower.includes('detergente') || lower.includes('álcool') || lower.includes('alcool') || lower.includes('pano') || lower.includes('limpeza') || lower.includes('desinfet')) {
+      return 'Limpeza';
     }
-    if (lower.includes('sabonete') || lower.includes('hidratante') || lower.includes('creme') || lower.includes('labial')) {
-      return 'Cosméticos';
+    if (lower.includes('sabonete') || lower.includes('hidratante') || lower.includes('creme') || lower.includes('labial') || lower.includes('shampoo') || lower.includes('desodorante') || lower.includes('absorvente')) {
+      return 'Higiene e Cuidados Pessoais';
     }
-    return 'Alimentícios';
-  };
+    return 'Alimentos e Snacks';
+  }, [productCategoryMap]);
 
   // Determine if we are viewing a single student's dashboard:
   // - Always true when logged in as STUDENT
@@ -233,10 +247,12 @@ export function Dashboard({
   // Real Category Breakdown (100% calculated from actual items purchased)
   const categoryStats = useMemo(() => {
     const totals: Record<ProductCategory, { totalSpent: number; itemsCount: number; salesCount: number }> = {
-      'Alimentícios': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
+      'Livros e Literatura Cristã': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
+      'Alimentos e Snacks': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
+      'Produtos Naturais e Saúde': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
       'Papelaria': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
-      'Produtos de Limpeza': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
-      'Cosméticos': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
+      'Higiene e Cuidados Pessoais': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
+      'Limpeza': { totalSpent: 0, itemsCount: 0, salesCount: 0 },
     };
 
     for (const sale of scopedCompletedSales) {
@@ -360,6 +376,182 @@ export function Dashboard({
     return result;
   }, [timeRange, scopedCompletedSales, scopedConfirmedPix, selectedCategory, productCategoryMap]);
 
+  // Last 7 days daily sales BarChart dataset (always reflects the trailing 7 days of real completed sales)
+  const { last7DaysSalesData, last7DaysSummary } = useMemo(() => {
+    const toLocalYmd = (dateObj: Date) => {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    let referenceDate = new Date();
+    const saleTimestamps = scopedCompletedSales
+      .map(s => new Date(s.createdAt).getTime())
+      .filter(t => !Number.isNaN(t));
+
+    if (saleTimestamps.length > 0) {
+      const maxTxDate = new Date(Math.max(...saleTimestamps));
+      if (maxTxDate > referenceDate) {
+        referenceDate = maxTxDate;
+      }
+    }
+
+    const daysList: Array<{
+      date: string;
+      fullDate: string;
+      weekday: string;
+      isoDate: string;
+      totalVendas: number;
+      quantidadeVendas: number;
+      itensVendidos: number;
+    }> = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(referenceDate);
+      d.setDate(d.getDate() - i);
+      const ymd = toLocalYmd(d);
+      const shortDate = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      const weekday = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+      const fullDate = d.toLocaleDateString('pt-BR', {
+        weekday: 'long',
+        day: '2-digit',
+        month: '2-digit'
+      });
+
+      const daySales = scopedCompletedSales.filter(s => {
+        const parsed = new Date(s.createdAt);
+        if (Number.isNaN(parsed.getTime())) return false;
+        return toLocalYmd(parsed) === ymd || s.createdAt.startsWith(ymd);
+      });
+
+      let dayTotal = 0;
+      let dayItems = 0;
+
+      for (const sale of daySales) {
+        if (selectedCategory === 'ALL') {
+          dayTotal += Number(sale.total) || 0;
+          dayItems += (sale.items || []).reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
+        } else {
+          const matching = (sale.items || []).filter(
+            it => resolveItemCategory(it.productId, it.name) === selectedCategory
+          );
+          dayTotal += matching.reduce((acc, it) => acc + (Number(it.subtotal) || 0), 0);
+          dayItems += matching.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
+        }
+      }
+
+      daysList.push({
+        date: shortDate,
+        fullDate: fullDate.charAt(0).toUpperCase() + fullDate.slice(1),
+        weekday: weekday.charAt(0).toUpperCase() + weekday.slice(1),
+        isoDate: ymd,
+        totalVendas: Number(dayTotal.toFixed(2)),
+        quantidadeVendas: daySales.length,
+        itensVendidos: dayItems
+      });
+    }
+
+    const total7Days = daysList.reduce((acc, d) => acc + d.totalVendas, 0);
+    const totalOrders7Days = daysList.reduce((acc, d) => acc + d.quantidadeVendas, 0);
+    const maxDayValue = Math.max(...daysList.map(d => d.totalVendas), 0);
+    const peakDay = maxDayValue > 0 ? daysList.find(d => d.totalVendas === maxDayValue) || null : null;
+
+    return {
+      last7DaysSalesData: daysList,
+      last7DaysSummary: {
+        total: total7Days,
+        dailyAverage: total7Days / 7,
+        ordersCount: totalOrders7Days,
+        maxDayValue,
+        peakDay
+      }
+    };
+  }, [scopedCompletedSales, selectedCategory, resolveItemCategory]);
+
+  // Operational & Profit KPIs (Today, Month, Avg Ticket, Estimated Profit, Inventory status)
+  const operationalMetrics = useMemo(() => {
+    const now = new Date();
+    const todayPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const monthPrefix = todayPrefix.slice(0, 7);
+
+    const productCostMap = new Map<string, number>();
+    for (const p of products) {
+      if (typeof p.costPrice === 'number' && p.costPrice > 0) {
+        productCostMap.set(p.id, p.costPrice);
+      }
+    }
+
+    let todayRevenue = 0;
+    let monthRevenue = 0;
+    let estimatedProfit = 0;
+    const methodTotals: Record<string, number> = {};
+    const productRanking = new Map<string, { name: string; qty: number; revenue: number }>();
+
+    for (const s of scopedCompletedSales) {
+      const total = Number(s.total) || 0;
+      if (s.createdAt.startsWith(todayPrefix)) todayRevenue += total;
+      if (s.createdAt.startsWith(monthPrefix)) monthRevenue += total;
+
+      const pm = s.paymentMethod || 'CONTA_ALUNO';
+      methodTotals[pm] = (methodTotals[pm] || 0) + total;
+
+      for (const it of s.items || []) {
+        const unitCost = productCostMap.get(it.productId);
+        const itemProfit = typeof unitCost === 'number'
+          ? Math.max(0, (Number(it.unitPrice) - unitCost) * it.quantity)
+          : (Number(it.subtotal) || 0) * 0.25;
+        estimatedProfit += itemProfit;
+
+        const prev = productRanking.get(it.name) || { name: it.name, qty: 0, revenue: 0 };
+        prev.qty += Number(it.quantity) || 0;
+        prev.revenue += Number(it.subtotal) || 0;
+        productRanking.set(it.name, prev);
+      }
+    }
+
+    const activeCatalog = products.filter(p => p.status === 'ACTIVE' && !p.archived);
+    const lowStock = activeCatalog.filter(p => p.currentStock > 0 && p.currentStock <= p.minStock).length;
+    const outOfStock = activeCatalog.filter(p => p.currentStock === 0).length;
+    const avgTicket = scopedCompletedSales.length > 0 ? totalSalesSpentAllCategories / scopedCompletedSales.length : 0;
+
+    const pmLabels: Record<string, string> = {
+      CONTA_ALUNO: 'Conta do Aluno',
+      DINHEIRO: 'Dinheiro',
+      PIX: 'PIX',
+      CARTAO_CREDITO: 'Cartão Crédito',
+      CARTAO_DEBITO: 'Cartão Débito',
+      MERCADO_PAGO: 'Mercado Pago',
+    };
+
+    const paymentDistribution = Object.entries(methodTotals).map(([key, value]) => ({
+      key,
+      name: pmLabels[key] || key,
+      value: Number(value.toFixed(2)),
+    }));
+
+    const topProducts = Array.from(productRanking.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 6)
+      .map(p => ({
+        ...p,
+        shortName: p.name.length > 18 ? `${p.name.slice(0, 18)}…` : p.name,
+        revenue: Number(p.revenue.toFixed(2)),
+      }));
+
+    return {
+      todayRevenue,
+      monthRevenue,
+      avgTicket,
+      estimatedProfit,
+      activeProductsCount: activeCatalog.length,
+      lowStock,
+      outOfStock,
+      paymentDistribution,
+      topProducts,
+    };
+  }, [scopedCompletedSales, products, totalSalesSpentAllCategories]);
+
   // Per-student spending in each category for the table
   const studentCategoryTotals = useMemo(() => {
     const map = new Map<string, { total: number; byCategory: Record<ProductCategory, number>; itemsCount: number }>();
@@ -368,10 +560,12 @@ export function Dashboard({
         total: 0,
         itemsCount: 0,
         byCategory: {
-          'Alimentícios': 0,
+          'Livros e Literatura Cristã': 0,
+          'Alimentos e Snacks': 0,
+          'Produtos Naturais e Saúde': 0,
           'Papelaria': 0,
-          'Produtos de Limpeza': 0,
-          'Cosméticos': 0
+          'Higiene e Cuidados Pessoais': 0,
+          'Limpeza': 0
         }
       });
     }
@@ -431,34 +625,47 @@ export function Dashboard({
       .filter(s => s.matchingItems.length > 0);
   }, [activeTargetStudent, scopedCompletedSales, selectedCategory, productCategoryMap]);
 
-  const getCategoryMeta = (cat: ProductCategory) => {
+  const getCategoryMeta = useCallback((cat: ProductCategory) => {
     switch (cat) {
-      case 'Alimentícios':
+      case 'Livros e Literatura Cristã':
+        return {
+          icon: BookOpen,
+          badge: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+          bar: 'bg-gradient-to-r from-indigo-500 to-teal-500'
+        };
+      case 'Alimentos e Snacks':
         return {
           icon: Utensils,
           badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
           bar: 'bg-gradient-to-r from-emerald-500 to-teal-500'
         };
+      case 'Produtos Naturais e Saúde':
+        return {
+          icon: HeartPulse,
+          badge: 'bg-lime-500/15 text-lime-300 border-lime-500/30',
+          bar: 'bg-gradient-to-r from-lime-500 to-emerald-500'
+        };
       case 'Papelaria':
         return {
-          icon: BookOpen,
+          icon: PenTool,
           badge: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
           bar: 'bg-gradient-to-r from-teal-500 to-cyan-500'
         };
-      case 'Produtos de Limpeza':
+      case 'Higiene e Cuidados Pessoais':
+        return {
+          icon: Sparkles,
+          badge: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+          bar: 'bg-gradient-to-r from-amber-500 to-emerald-500'
+        };
+      case 'Limpeza':
+      default:
         return {
           icon: Droplets,
           badge: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
           bar: 'bg-gradient-to-r from-cyan-500 to-emerald-500'
         };
-      case 'Cosméticos':
-        return {
-          icon: Sparkles,
-          badge: 'bg-lime-500/15 text-lime-300 border-lime-500/30',
-          bar: 'bg-gradient-to-r from-lime-500 to-emerald-500'
-        };
     }
-  };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -470,6 +677,7 @@ export function Dashboard({
             <img
               src={activeTargetStudent?.avatar || '/assets/aistudio/image_e4461e45.png'}
               alt="Logo ICEVES"
+              decoding="async"
               className="w-full h-full rounded-full object-cover"
             />
           </div>
@@ -625,6 +833,48 @@ export function Dashboard({
 
       </div>
 
+      {/* Compact Real-Time Store & Margin KPI Strip */}
+      {!isStudent && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="rounded-xl bg-[#111111] border border-white/[0.08] px-3.5 py-2.5">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold block">Faturamento Hoje</span>
+            <span className="text-base font-bold text-white font-mono">{formatCurrency(operationalMetrics.todayRevenue)}</span>
+          </div>
+          <div className="rounded-xl bg-[#111111] border border-white/[0.08] px-3.5 py-2.5">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold block">Faturamento do Mês</span>
+            <span className="text-base font-bold text-emerald-400 font-mono">{formatCurrency(operationalMetrics.monthRevenue)}</span>
+          </div>
+          <div className="rounded-xl bg-[#111111] border border-white/[0.08] px-3.5 py-2.5">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold block">Ticket Médio</span>
+            <span className="text-base font-bold text-white font-mono">{formatCurrency(operationalMetrics.avgTicket)}</span>
+          </div>
+          <div className="rounded-xl bg-[#111111] border border-white/[0.08] px-3.5 py-2.5">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold block">Lucro Estimado</span>
+            <span className="text-base font-bold text-teal-300 font-mono">{formatCurrency(operationalMetrics.estimatedProfit)}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('products')}
+            className="rounded-xl bg-[#111111] border border-white/[0.08] hover:border-amber-500/40 px-3.5 py-2.5 text-left cursor-pointer transition"
+          >
+            <span className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block">Estoque Baixo</span>
+            <span className="text-base font-bold text-amber-300 font-mono">
+              {operationalMetrics.lowStock} / {operationalMetrics.activeProductsCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('products')}
+            className="rounded-xl bg-[#111111] border border-white/[0.08] hover:border-rose-500/40 px-3.5 py-2.5 text-left cursor-pointer transition"
+          >
+            <span className="text-[10px] uppercase tracking-wider text-rose-400 font-bold block">Sem Estoque</span>
+            <span className="text-base font-bold text-rose-300 font-mono">
+              {operationalMetrics.outOfStock} itens
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* ================================================================= */}
       {/* 2. DASHBOARD POR CATEGORIA (Gasto Real em cada uma das 4 categorias) */}
       {/* ================================================================= */}
@@ -655,7 +905,7 @@ export function Dashboard({
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {OFFICIAL_CATEGORIES.map((cat) => {
             const stat = categoryStats[cat];
             const pct =
@@ -717,146 +967,385 @@ export function Dashboard({
       </div>
 
       {/* ========================================== */}
-      {/* 3. REAL ACTIVITY CHART                     */}
+      {/* 3. REAL ACTIVITY CHARTS                    */}
       {/* ========================================== */}
-      <div className="rounded-xl bg-[#111111] border border-white/[0.08] p-5">
-        
-        {/* Header controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div>
-            <h2 className="text-base font-semibold tracking-tight text-white">
-              {activeTargetStudent
-                ? `Evolução Real de Gastos — ${activeTargetStudent.name}`
-                : 'Movimentação Real da Lojinha & Pagamentos'}
-            </h2>
-            <p className="text-xs text-zinc-400">
-              {selectedCategory === 'ALL'
-                ? 'Histórico diário fiel às compras e pagamentos reais registrados (sem valores simulados)'
-                : `Exibindo evolução real para a categoria: ${selectedCategory}`}
-            </p>
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+        <div className="xl:col-span-7 rounded-xl bg-[#111111] border border-white/[0.08] p-5">
+          
+          {/* Header controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-base font-semibold tracking-tight text-white">
+                {activeTargetStudent
+                  ? `Evolução Real de Gastos — ${activeTargetStudent.name}`
+                  : 'Movimentação Real da Lojinha & Pagamentos'}
+              </h2>
+              <p className="text-xs text-zinc-400">
+                {selectedCategory === 'ALL'
+                  ? 'Histórico diário fiel às compras e pagamentos reais registrados (sem valores simulados)'
+                  : `Exibindo evolução real para a categoria: ${selectedCategory}`}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Time range selector */}
+              <select
+                value={timeRange}
+                onChange={(e) => setTimeRange(e.target.value as any)}
+                className="bg-[#18181b] border border-white/[0.1] rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              >
+                <option value="7 days">Últimos 7 dias</option>
+                <option value="30 days">Últimos 30 dias</option>
+                <option value="3 months">Últimos 3 meses</option>
+              </select>
+
+              {/* Category Selector */}
+              <select 
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="bg-[#18181b] border border-white/[0.1] rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              >
+                <option value="ALL">Todas as Categorias ({OFFICIAL_CATEGORIES.length})</option>
+                {OFFICIAL_CATEGORIES.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+
+              <button 
+                onClick={() => onNavigate(isStudent ? 'student_portal' : isGuardian ? 'guardian_portal' : 'closing')}
+                className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs px-3.5 py-1.5 rounded-lg transition-all shadow-sm cursor-pointer"
+              >
+                {isStudent ? 'Minhas Faturas' : 'Ver Faturas'}
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Time range selector */}
-            <select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value as any)}
-              className="bg-[#18181b] border border-white/[0.1] rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+          {/* Interactive Legend Items */}
+          <div className="flex flex-wrap items-center justify-end gap-6 mb-4 text-xs">
+            <button
+              onClick={() => setVisibleSeries(prev => ({ ...prev, categoriaSelecionada: !prev.categoriaSelecionada }))}
+              className={`flex items-center gap-2 transition-opacity cursor-pointer ${visibleSeries.categoriaSelecionada ? 'opacity-100' : 'opacity-40'}`}
             >
-              <option value="7 days">Últimos 7 dias</option>
-              <option value="30 days">Últimos 30 dias</option>
-              <option value="3 months">Últimos 3 meses</option>
-            </select>
-
-            {/* Category Selector */}
-            <select 
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-[#18181b] border border-white/[0.1] rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
+              <span className="text-zinc-300">
+                {selectedCategory === 'ALL' ? 'Gasto no Balcão (R$)' : `Gasto em ${selectedCategory} (R$)`}
+              </span>
+            </button>
+            <button
+              onClick={() => setVisibleSeries(prev => ({ ...prev, pagamentosPix: !prev.pagamentosPix }))}
+              className={`flex items-center gap-2 transition-opacity cursor-pointer ${visibleSeries.pagamentosPix ? 'opacity-100' : 'opacity-40'}`}
             >
-              <option value="ALL">Todas as Categorias (4)</option>
-              {OFFICIAL_CATEGORIES.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-
-            <button 
-              onClick={() => onNavigate(isStudent ? 'student_portal' : isGuardian ? 'guardian_portal' : 'closing')}
-              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs px-3.5 py-1.5 rounded-lg transition-all shadow-sm cursor-pointer"
-            >
-              {isStudent ? 'Minhas Faturas' : 'Ver Faturas'}
+              <span className="w-2.5 h-2.5 rounded-sm bg-teal-500" />
+              <span className="text-zinc-300">Pagamentos Pix (R$)</span>
             </button>
           </div>
+
+          {/* Area Chart with Real Data */}
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradEmerald" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="gradTeal" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#14B8A6" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#0D9488" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  stroke="#71717a"
+                  fontSize={10}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis hide />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="rounded-lg bg-[#18181b] border border-emerald-500/25 p-3 shadow-xl text-xs space-y-1">
+                          <div className="text-zinc-400 font-medium mb-1">{label}</div>
+                          {payload.map((entry, index) => (
+                            <div key={index} className="flex items-center justify-between gap-4">
+                              <span style={{ color: entry.color }}>{entry.name}:</span>
+                              <span className="font-semibold text-white">R$ {Number(entry.value).toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                {visibleSeries.pagamentosPix && (
+                  <Area
+                    type="monotone"
+                    dataKey="pagamentosPix"
+                    name="Pagamentos Pix"
+                    stroke="#14B8A6"
+                    strokeWidth={1.5}
+                    fillOpacity={1}
+                    fill="url(#gradTeal)"
+                  />
+                )}
+                {visibleSeries.categoriaSelecionada && (
+                  <Area
+                    type="monotone"
+                    dataKey="categoriaSelecionada"
+                    name={selectedCategory === 'ALL' ? 'Gasto no Balcão' : `Gasto (${selectedCategory})`}
+                    stroke="#10B981"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#gradEmerald)"
+                  />
+                )}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
         </div>
 
-        {/* Interactive Legend Items */}
-        <div className="flex flex-wrap items-center justify-end gap-6 mb-4 text-xs">
-          <button
-            onClick={() => setVisibleSeries(prev => ({ ...prev, categoriaSelecionada: !prev.categoriaSelecionada }))}
-            className={`flex items-center gap-2 transition-opacity cursor-pointer ${visibleSeries.categoriaSelecionada ? 'opacity-100' : 'opacity-40'}`}
-          >
-            <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
-            <span className="text-zinc-300">
-              {selectedCategory === 'ALL' ? 'Gasto no Balcão (R$)' : `Gasto em ${selectedCategory} (R$)`}
-            </span>
-          </button>
-          <button
-            onClick={() => setVisibleSeries(prev => ({ ...prev, pagamentosPix: !prev.pagamentosPix }))}
-            className={`flex items-center gap-2 transition-opacity cursor-pointer ${visibleSeries.pagamentosPix ? 'opacity-100' : 'opacity-40'}`}
-          >
-            <span className="w-2.5 h-2.5 rounded-sm bg-teal-500" />
-            <span className="text-zinc-300">Pagamentos Pix (R$)</span>
-          </button>
-        </div>
+        {/* 7-Day Daily Sales BarChart */}
+        <div className="xl:col-span-5 rounded-xl bg-[#111111] border border-white/[0.08] p-5 flex flex-col justify-between">
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-emerald-400" />
+                  <h2 className="text-base font-semibold tracking-tight text-white">
+                    Vendas Totais Diárias (7 Dias)
+                  </h2>
+                </div>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {selectedCategory === 'ALL'
+                    ? 'Desempenho diário de vendas concluídas na última semana'
+                    : `Vendas diárias em: ${selectedCategory}`}
+                </p>
+              </div>
+              <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Últimos 7 dias
+              </span>
+            </div>
 
-        {/* Area Chart with Real Data */}
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="gradEmerald" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
-                </linearGradient>
-                <linearGradient id="gradTeal" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#14B8A6" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#0D9488" stopOpacity={0.0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-              <XAxis
-                dataKey="date"
-                stroke="#71717a"
-                fontSize={10}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis hide />
-              <Tooltip
-                content={({ active, payload, label }) => {
-                  if (active && payload && payload.length) {
-                    return (
-                      <div className="rounded-lg bg-[#18181b] border border-emerald-500/25 p-3 shadow-xl text-xs space-y-1">
-                        <div className="text-zinc-400 font-medium mb-1">{label}</div>
-                        {payload.map((entry, index) => (
-                          <div key={index} className="flex items-center justify-between gap-4">
-                            <span style={{ color: entry.color }}>{entry.name}:</span>
-                            <span className="font-semibold text-white">R$ {Number(entry.value).toFixed(2)}</span>
+            {/* 7-Day KPI Strip */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-lg bg-[#161618] border border-white/[0.06] px-3 py-2">
+                <span className="text-[10px] text-zinc-400 block">Total 7d</span>
+                <span className="text-sm font-bold text-white font-mono">
+                  {formatCurrency(last7DaysSummary.total)}
+                </span>
+              </div>
+              <div className="rounded-lg bg-[#161618] border border-white/[0.06] px-3 py-2">
+                <span className="text-[10px] text-zinc-400 block">Média/dia</span>
+                <span className="text-sm font-bold text-emerald-400 font-mono">
+                  {formatCurrency(last7DaysSummary.dailyAverage)}
+                </span>
+              </div>
+              <div className="rounded-lg bg-[#161618] border border-white/[0.06] px-3 py-2">
+                <span className="text-[10px] text-zinc-400 block">Dia Pico</span>
+                <span className="text-xs font-bold text-teal-300 font-mono truncate block">
+                  {last7DaysSummary.peakDay
+                    ? `${last7DaysSummary.peakDay.date} (${formatCurrency(last7DaysSummary.peakDay.totalVendas)})`
+                    : 'Sem vendas'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="h-64 w-full mt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={last7DaysSalesData} margin={{ top: 10, right: 6, left: -12, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="barEmeraldPeak" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#34D399" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#059669" stopOpacity={0.85} />
+                  </linearGradient>
+                  <linearGradient id="barEmeraldBase" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#10B981" stopOpacity={0.85} />
+                    <stop offset="100%" stopColor="#047857" stopOpacity={0.65} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  stroke="#71717a"
+                  fontSize={10}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="#71717a"
+                  fontSize={10}
+                  tickLine={false}
+                  axisLine={false}
+                  width={54}
+                  tickFormatter={(value) => `R$ ${Number(value).toFixed(0)}`}
+                />
+                <Tooltip
+                  cursor={{ fill: 'rgba(16, 185, 129, 0.08)' }}
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const item = payload[0].payload as (typeof last7DaysSalesData)[number];
+                      return (
+                        <div className="rounded-lg bg-[#18181b] border border-emerald-500/25 p-3 shadow-xl text-xs space-y-1.5">
+                          <div className="text-zinc-300 font-semibold border-b border-white/[0.08] pb-1">
+                            {item.fullDate}
                           </div>
-                        ))}
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-emerald-400">Vendas Totais:</span>
+                            <span className="font-bold text-white font-mono">
+                              {formatCurrency(item.totalVendas)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-4 text-[11px] text-zinc-400">
+                            <span>Registros:</span>
+                            <span className="text-zinc-200 font-medium">
+                              {item.quantidadeVendas} venda(s) • {item.itensVendidos} item(ns)
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar
+                  dataKey="totalVendas"
+                  name="Vendas Totais"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={38}
+                >
+                  {last7DaysSalesData.map((entry, idx) => {
+                    const isPeak = last7DaysSummary.maxDayValue > 0 && entry.totalVendas === last7DaysSummary.maxDayValue;
+                    return (
+                      <Cell
+                        key={`cell-${entry.isoDate}-${idx}`}
+                        fill={isPeak ? 'url(#barEmeraldPeak)' : 'url(#barEmeraldBase)'}
+                      />
+                    );
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* ======================================================= */}
+      {/* 3.B TOP PRODUTOS & VENDAS POR FORMA DE PAGAMENTO         */}
+      {/* ======================================================= */}
+      {!isStudent && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className="lg:col-span-7 rounded-xl bg-[#111111] border border-white/[0.08] p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-white">
+                  Produtos Mais Vendidos (Receita Real)
+                </h3>
+                <p className="text-xs text-zinc-400">Ranking automático dos itens de maior saída no PDV</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('reports')}
+                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 cursor-pointer"
+              >
+                Ver Relatório &gt;
+              </button>
+            </div>
+            {operationalMetrics.topProducts.length === 0 ? (
+              <div className="h-52 flex items-center justify-center text-xs text-zinc-500">
+                Sem vendas suficientes para gerar ranking.
+              </div>
+            ) : (
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={operationalMetrics.topProducts} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                    <XAxis dataKey="shortName" stroke="#71717a" fontSize={10} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#71717a" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `R$${v}`} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(16, 185, 129, 0.08)' }}
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const row = payload[0].payload;
+                        return (
+                          <div className="rounded-lg bg-[#18181b] border border-emerald-500/25 p-2.5 text-xs space-y-1">
+                            <div className="font-bold text-white">{row.name}</div>
+                            <div className="text-emerald-400 font-mono">{formatCurrency(row.revenue)}</div>
+                            <div className="text-zinc-400">{row.qty} unidade(s)</div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Bar dataKey="revenue" fill="#10B981" radius={[6, 6, 0, 0]} maxBarSize={36} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          <div className="lg:col-span-5 rounded-xl bg-[#111111] border border-white/[0.08] p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-white">
+                  Vendas por Forma de Pagamento
+                </h3>
+                <p className="text-xs text-zinc-400">Distribuição por meio de recebimento</p>
+              </div>
+              <CreditCard className="w-4 h-4 text-emerald-400" />
+            </div>
+            {operationalMetrics.paymentDistribution.length === 0 ? (
+              <div className="h-52 flex items-center justify-center text-xs text-zinc-500">
+                Sem vendas registradas ainda.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                <div className="h-48 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={operationalMetrics.paymentDistribution}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={38}
+                        outerRadius={66}
+                        paddingAngle={3}
+                      >
+                        {operationalMetrics.paymentDistribution.map((entry, idx) => {
+                          const colors = ['#10B981', '#14B8A6', '#38BDF8', '#F59E0B', '#A855F7', '#EC4899'];
+                          return <Cell key={entry.key} fill={colors[idx % colors.length]} />;
+                        })}
+                      </Pie>
+                      <Tooltip
+                        formatter={(val: any) => formatCurrency(Number(val))}
+                        contentStyle={{ backgroundColor: '#18181b', borderColor: 'rgba(16,185,129,0.25)', borderRadius: '0.5rem', fontSize: '12px' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  {operationalMetrics.paymentDistribution.map((entry, idx) => {
+                    const colors = ['bg-emerald-500', 'bg-teal-500', 'bg-sky-400', 'bg-amber-500', 'bg-purple-500', 'bg-pink-500'];
+                    return (
+                      <div key={entry.key} className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-[#161618] border border-white/[0.05]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colors[idx % colors.length]}`} />
+                          <span className="text-zinc-300 truncate">{entry.name}</span>
+                        </div>
+                        <span className="font-mono font-bold text-white shrink-0">{formatCurrency(entry.value)}</span>
                       </div>
                     );
-                  }
-                  return null;
-                }}
-              />
-              {visibleSeries.pagamentosPix && (
-                <Area
-                  type="monotone"
-                  dataKey="pagamentosPix"
-                  name="Pagamentos Pix"
-                  stroke="#14B8A6"
-                  strokeWidth={1.5}
-                  fillOpacity={1}
-                  fill="url(#gradTeal)"
-                />
-              )}
-              {visibleSeries.categoriaSelecionada && (
-                <Area
-                  type="monotone"
-                  dataKey="categoriaSelecionada"
-                  name={selectedCategory === 'ALL' ? 'Gasto no Balcão' : `Gasto (${selectedCategory})`}
-                  stroke="#10B981"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#gradEmerald)"
-                />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-
-      </div>
+      )}
 
       {/* =============================================================== */}
       {/* 4. INDIVIDUAL STUDENT PURCHASES OR ALL STUDENTS SPENDING TABLE  */}
@@ -996,10 +1485,12 @@ export function Dashboard({
                 <tr>
                   <th className="p-3.5">Aluno (10ª Turma)</th>
                   <th className="p-3.5">Matrícula</th>
-                  <th className="p-3.5">Alimentícios</th>
+                  <th className="p-3.5">Livros</th>
+                  <th className="p-3.5">Alimentos</th>
+                  <th className="p-3.5">Naturais</th>
                   <th className="p-3.5">Papelaria</th>
+                  <th className="p-3.5">Higiene</th>
                   <th className="p-3.5">Limpeza</th>
-                  <th className="p-3.5">Cosméticos</th>
                   <th className="p-3.5">Consumo Aberto</th>
                   <th className="p-3.5">Saldo Devedor</th>
                   <th className="p-3.5 text-right">Ação</th>
@@ -1020,6 +1511,8 @@ export function Dashboard({
                           <img
                             src={st.avatar}
                             alt={st.name}
+                            loading="lazy"
+                            decoding="async"
                             className="w-8 h-8 rounded-full object-cover border border-white/10"
                           />
                           <div>
@@ -1034,16 +1527,22 @@ export function Dashboard({
                         </span>
                       </td>
                       <td className="p-3.5 font-mono text-zinc-300">
-                        {formatCurrency(stCat?.byCategory['Alimentícios'] || 0)}
+                        {formatCurrency(stCat?.byCategory['Livros e Literatura Cristã'] || 0)}
+                      </td>
+                      <td className="p-3.5 font-mono text-zinc-300">
+                        {formatCurrency(stCat?.byCategory['Alimentos e Snacks'] || 0)}
+                      </td>
+                      <td className="p-3.5 font-mono text-zinc-300">
+                        {formatCurrency(stCat?.byCategory['Produtos Naturais e Saúde'] || 0)}
                       </td>
                       <td className="p-3.5 font-mono text-zinc-300">
                         {formatCurrency(stCat?.byCategory['Papelaria'] || 0)}
                       </td>
                       <td className="p-3.5 font-mono text-zinc-300">
-                        {formatCurrency(stCat?.byCategory['Produtos de Limpeza'] || 0)}
+                        {formatCurrency(stCat?.byCategory['Higiene e Cuidados Pessoais'] || 0)}
                       </td>
                       <td className="p-3.5 font-mono text-zinc-300">
-                        {formatCurrency(stCat?.byCategory['Cosméticos'] || 0)}
+                        {formatCurrency(stCat?.byCategory['Limpeza'] || 0)}
                       </td>
                       <td className="p-3.5 text-emerald-400 font-semibold font-mono">
                         {formatCurrency(st.currentConsumptionBalance)}

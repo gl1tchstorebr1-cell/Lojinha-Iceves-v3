@@ -10,6 +10,30 @@ export function formatCurrency(value: number | undefined | null): string {
   }).format(value);
 }
 
+export function isProductPricePending(product?: { price?: number | null; priceStatus?: 'DEFINED' | 'PENDING' } | null): boolean {
+  if (!product) return true;
+  if (product.priceStatus === 'PENDING') return true;
+  if (product.price === null || product.price === undefined) return true;
+  const num = Number(product.price);
+  return Number.isNaN(num) || num <= 0;
+}
+
+export function formatProductPrice(
+  price: number | undefined | null,
+  priceStatus?: 'DEFINED' | 'PENDING'
+): string {
+  if (
+    priceStatus === 'PENDING' ||
+    price === undefined ||
+    price === null ||
+    Number.isNaN(Number(price)) ||
+    Number(price) <= 0
+  ) {
+    return 'Preço não definido';
+  }
+  return formatCurrency(Number(price));
+}
+
 export function formatDate(dateString: string | undefined | null): string {
   if (!dateString) return '-';
   try {

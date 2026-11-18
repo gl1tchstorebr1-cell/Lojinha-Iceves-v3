@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 
 export function LoginPage() {
   const { login, register } = useAuth();
@@ -275,7 +276,30 @@ export function LoginPage() {
                 )}
               </button>
 
-              <div className="pt-4 border-t border-white/[0.06] text-center">
+              {/* Quick 1-Click Admin Login */}
+              <div className="pt-3 border-t border-white/[0.06] space-y-2">
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={async () => {
+                    setError(null);
+                    setIsLoading(true);
+                    try {
+                      await login('admin.lojinha@gmail.com', 'Admin#Iceves2026');
+                    } catch (err: any) {
+                      setError(err.message || 'Erro ao entrar como Admin');
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-[#18181b] hover:bg-emerald-950/40 border border-emerald-500/35 text-emerald-400 font-bold text-xs transition cursor-pointer"
+                >
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Acessar Painel Admin (Coordenação ICEVES)</span>
+                </button>
+              </div>
+
+              <div className="pt-3 border-t border-white/[0.06] text-center">
                 <p className="text-xs text-zinc-400">
                   Ainda não possui uma conta?{' '}
                   <button
@@ -430,14 +454,17 @@ export function LoginPage() {
 
         </div>
 
-        {/* Footer info */}
-        <div className="flex items-center justify-center gap-2 text-center text-[11px] text-zinc-500">
-          <img
-            src="/assets/aistudio/image_e4461e45.png"
-            alt="ICEVES"
-            className="w-4 h-4 rounded-full object-cover bg-white ring-1 ring-emerald-500/30"
-          />
-          <span>Escola de Cristo — ICEVES • Lojinha 10ª Turma</span>
+        {/* Footer info & Optional PWA Install */}
+        <div className="flex flex-col items-center justify-center gap-2.5 text-center text-[11px] text-zinc-500">
+          <PWAInstallButton variant="topbar" />
+          <div className="flex items-center justify-center gap-2">
+            <img
+              src="/assets/aistudio/image_e4461e45.png"
+              alt="ICEVES"
+              className="w-4 h-4 rounded-full object-cover bg-white ring-1 ring-emerald-500/30"
+            />
+            <span>Escola de Cristo — ICEVES • Lojinha 10ª Turma</span>
+          </div>
         </div>
 
       </div>

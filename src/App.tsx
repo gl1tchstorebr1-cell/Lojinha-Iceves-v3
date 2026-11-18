@@ -1,21 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { TopBar } from './components/layout/TopBar';
-import { LoginPage } from './components/auth/LoginPage';
-import { Dashboard } from './components/dashboard/Dashboard';
-import { PointOfSale } from './components/pdv/PointOfSale';
-import { ProductsAndStock } from './components/products/ProductsAndStock';
-import { StudentsAndGuardians } from './components/students/StudentsAndGuardians';
-import { InvoicesAndClosing } from './components/invoices/InvoicesAndClosing';
-import { PixConference } from './components/pix/PixConference';
-import { StudentPortal } from './components/portal/StudentPortal';
-import { GuardianPortal } from './components/portal/GuardianPortal';
-import { WhatsAppAutomation } from './components/whatsapp/WhatsAppAutomation';
-import { AuditAndLedger } from './components/audit/AuditAndLedger';
-import { SystemSettingsView } from './components/settings/SystemSettingsView';
-import { PasseiosManagement } from './components/passeios/PasseiosManagement';
-import { PdvPasseiosView } from './components/passeios/PdvPasseiosView';
+import { OfflineBanner } from './components/pwa/OfflineBanner';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { loadOfflineSnapshot, saveOfflineSnapshot } from './utils/offlineSnapshotCache';
 import { 
   Product, 
   Sale, 
@@ -31,10 +21,37 @@ import {
   Passeio
 } from './types';
 import { api } from './services/api';
-import { CheckCircle2, ShieldCheck, HelpCircle, X, Sparkles, BookOpen } from 'lucide-react';
+import { CheckCircle2, ShieldCheck } from 'lucide-react';
+
+// Code-splitting / Lazy loading of modules for faster initial load
+const LoginPage = lazy(() => import('./components/auth/LoginPage').then(m => ({ default: m.LoginPage })));
+const Dashboard = lazy(() => import('./components/dashboard/Dashboard').then(m => ({ default: m.Dashboard })));
+const PointOfSale = lazy(() => import('./components/pdv/PointOfSale').then(m => ({ default: m.PointOfSale })));
+const ProductsAndStock = lazy(() => import('./components/products/ProductsAndStock').then(m => ({ default: m.ProductsAndStock })));
+const StudentsAndGuardians = lazy(() => import('./components/students/StudentsAndGuardians').then(m => ({ default: m.StudentsAndGuardians })));
+const InvoicesAndClosing = lazy(() => import('./components/invoices/InvoicesAndClosing').then(m => ({ default: m.InvoicesAndClosing })));
+const PixConference = lazy(() => import('./components/pix/PixConference').then(m => ({ default: m.PixConference })));
+const StudentPortal = lazy(() => import('./components/portal/StudentPortal').then(m => ({ default: m.StudentPortal })));
+const GuardianPortal = lazy(() => import('./components/portal/GuardianPortal').then(m => ({ default: m.GuardianPortal })));
+const WhatsAppAutomation = lazy(() => import('./components/whatsapp/WhatsAppAutomation').then(m => ({ default: m.WhatsAppAutomation })));
+const AuditAndLedger = lazy(() => import('./components/audit/AuditAndLedger').then(m => ({ default: m.AuditAndLedger })));
+const SystemSettingsView = lazy(() => import('./components/settings/SystemSettingsView').then(m => ({ default: m.SystemSettingsView })));
+const PasseiosManagement = lazy(() => import('./components/passeios/PasseiosManagement').then(m => ({ default: m.PasseiosManagement })));
+const PdvPasseiosView = lazy(() => import('./components/passeios/PdvPasseiosView').then(m => ({ default: m.PdvPasseiosView })));
+const CashRegisterAndFinance = lazy(() => import('./components/cash/CashRegisterAndFinance').then(m => ({ default: m.CashRegisterAndFinance })));
+const ReportsCenter = lazy(() => import('./components/reports/ReportsCenter').then(m => ({ default: m.ReportsCenter })));
+const IcevesAiAssistant = lazy(() => import('./components/ai/IcevesAiAssistant').then(m => ({ default: m.IcevesAiAssistant })));
+
+const ViewFallback = () => (
+  <div className="py-20 flex flex-col items-center justify-center space-y-3">
+    <div className="w-7 h-7 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+    <p className="text-xs font-medium text-zinc-400">Carregando módulo...</p>
+  </div>
+);
 
 function AppContent() {
-  const { user, role, isAdmin, isCashier, isStudent, isGuardian } = useAuth();
+  const { user, role, isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian } = useAuth();
+  const { isOnline } = useOnlineStatus();
 
   // Primary Data State
   const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -51,6 +68,7 @@ function AppContent() {
   const [passeios, setPasseios] = useState<Passeio[]>([]);
   const [selectedPortalStudentId, setSelectedPortalStudentId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(() => loadOfflineSnapshot()?.syncedAt || null);
 
   // Layout & Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -61,21 +79,23 @@ function AppContent() {
   // Auto switch tab when user role changes
   useEffect(() => {
     if (!user) return;
-    if (isAdmin) {
+    if (isAdmin || canManage || isViewer) {
       setActiveTab('dashboard');
     } else if (role === 'CASHIER') {
       setActiveTab('pdv');
+    } else if (role === 'STOCKIST') {
+      setActiveTab('products');
     } else if (isStudent) {
       setActiveTab('student_portal');
     } else if (isGuardian) {
       setActiveTab('guardian_portal');
     }
-  }, [role, user?.id, isAdmin, isStudent, isGuardian]);
+  }, [role, user?.id, isAdmin, canManage, isViewer, isStudent, isGuardian]);
 
-  // Load all initial data from server
-  const loadData = useCallback(async () => {
+  // Load all initial data from server (supports silent background sync and offline snapshot fallback)
+  const loadData = useCallback(async (silent = false) => {
     if (!user) return;
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     try {
       const [
         settingsData,
@@ -106,41 +126,89 @@ function AppContent() {
       setWhatsappNotifications(notificationsData);
       setPasseios(passeiosData);
 
-      // Load admin-only data if authorized
-      if (isAdmin) {
+      const syncedAt = new Date().toISOString();
+      setLastSyncedAt(syncedAt);
+      saveOfflineSnapshot({
+        syncedAt,
+        settings: settingsData,
+        products: productsData,
+        students: studentsData,
+        sales: salesData,
+        invoices: invoicesData,
+        pixPayments: pixData,
+        whatsappNotifications: notificationsData,
+        passeios: passeiosData,
+      });
+
+      // Load manager/admin/stockist auxiliary data if authorized
+      if (canManage || isStockist || isViewer) {
         try {
           const [guardiansData, movementsData, auditData, ledgerData] = await Promise.all([
-            api.getGuardians(),
-            api.getStockMovements(),
-            api.getAuditLogs(),
-            api.getFinancialLedger(),
+            canManage || isViewer ? api.getGuardians().catch(() => []) : Promise.resolve([]),
+            api.getStockMovements().catch(() => []),
+            canManage ? api.getAuditLogs().catch(() => []) : Promise.resolve([]),
+            canManage || isViewer ? api.getFinancialLedger().catch(() => []) : Promise.resolve([]),
           ]);
           setGuardians(guardiansData);
           setStockMovements(movementsData);
           setAuditLogs(auditData);
           setLedger(ledgerData);
-        } catch (e) {
+        } catch {
           // non-critical
         }
       }
     } catch (err) {
       console.error('Falha ao sincronizar dados com o servidor:', err);
+      const cached = loadOfflineSnapshot();
+      if (cached) {
+        setSettings(cached.settings);
+        setProducts(cached.products || []);
+        setStudents(cached.students || []);
+        setSales(cached.sales || []);
+        setInvoices(cached.invoices || []);
+        setPixPayments(cached.pixPayments || []);
+        setWhatsappNotifications(cached.whatsappNotifications || []);
+        setPasseios(cached.passeios || []);
+        setLastSyncedAt(cached.syncedAt);
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
-  }, [isAdmin, user]);
+  }, [canManage, isStockist, isViewer, user]);
 
   useEffect(() => {
     if (user) {
-      loadData();
+      loadData(false);
     }
   }, [user, loadData]);
 
-  // Safe navigation handler that prevents non-admins from opening admin-only tabs
+  // Auto-sync when connectivity returns
+  useEffect(() => {
+    if (isOnline && user) {
+      loadData(true);
+    }
+  }, [isOnline, user, loadData]);
+
+  const refreshSilent = useCallback(() => {
+    loadData(true);
+  }, [loadData]);
+
+  // Safe navigation handler enforcing RBAC roles
   const handleSafeNavigate = useCallback(
     (tab: string) => {
-      const adminOnlyTabs = ['passeios', 'students', 'closing', 'pix', 'whatsapp', 'audit', 'settings'];
-      const cashierOrAdminTabs = ['pdv', 'sales_history', 'products'];
+      const adminOnlyTabs = ['whatsapp', 'audit', 'settings'];
+      const managerOrAdminTabs = ['passeios', 'students', 'closing', 'pix', 'reports'];
+      const cashTabs = ['cash_register'];
+      const pdvTabs = ['pdv', 'sales_history'];
+      const stockTabs = ['products'];
+
+      const fallbackHome = () => {
+        if (isStudent) return 'student_portal';
+        if (isGuardian) return 'guardian_portal';
+        if (role === 'CASHIER') return 'pdv';
+        if (role === 'STOCKIST') return 'products';
+        return 'dashboard';
+      };
 
       if (tab === 'pdv_passeios') {
         const cashierPermitted =
@@ -151,16 +219,8 @@ function AppContent() {
               settings?.pdvPasseiosPermissions?.cashierCanCreatePasseios ||
               settings?.pdvPasseiosPermissions?.cashierCanAddExpenses
           );
-        if (!isAdmin && !cashierPermitted) {
-          if (isStudent) {
-            setActiveTab('student_portal');
-          } else if (isGuardian) {
-            setActiveTab('guardian_portal');
-          } else if (isCashier) {
-            setActiveTab('pdv');
-          } else {
-            setActiveTab('dashboard');
-          }
+        if (!canManage && !cashierPermitted) {
+          setActiveTab(fallbackHome());
           return;
         }
         setActiveTab(tab);
@@ -168,54 +228,50 @@ function AppContent() {
       }
 
       if (adminOnlyTabs.includes(tab) && !isAdmin) {
-        if (isStudent) {
-          setActiveTab('student_portal');
-        } else if (isGuardian) {
-          setActiveTab('guardian_portal');
-        } else if (isCashier) {
-          setActiveTab('pdv');
-        } else {
-          setActiveTab('dashboard');
-        }
+        setActiveTab(fallbackHome());
         return;
       }
 
-      if (cashierOrAdminTabs.includes(tab) && !(isAdmin || isCashier)) {
-        if (isStudent) {
-          setActiveTab('student_portal');
-        } else if (isGuardian) {
-          setActiveTab('guardian_portal');
-        } else {
-          setActiveTab('dashboard');
-        }
+      if (managerOrAdminTabs.includes(tab) && !canManage && !(isViewer && tab === 'reports')) {
+        setActiveTab(fallbackHome());
+        return;
+      }
+
+      if (cashTabs.includes(tab) && !(canManage || isCashier || isViewer)) {
+        setActiveTab(fallbackHome());
+        return;
+      }
+
+      if (pdvTabs.includes(tab) && !(canManage || isCashier)) {
+        setActiveTab(fallbackHome());
+        return;
+      }
+
+      if (stockTabs.includes(tab) && !(canManage || isCashier || isStockist || isViewer)) {
+        setActiveTab(fallbackHome());
         return;
       }
 
       setActiveTab(tab);
     },
-    [isAdmin, isCashier, isStudent, isGuardian, settings]
+    [isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian, role, settings]
   );
 
-  // If user is not logged in, show dedicated Login Page (placed after ALL hooks)
-  if (!user) {
-    return <LoginPage />;
-  }
-
   // Handlers for POS and Sales
-  const handleSaleCompleted = (newSale: Sale, updatedStudent: Student) => {
+  const handleSaleCompleted = useCallback((newSale: Sale, updatedStudent: Student) => {
     setSales(prev => [newSale, ...prev]);
     setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
-    loadData(); // Re-sync stock and notifications
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
-  const handleSaleReversed = (reversedSale: Sale, updatedStudent: Student) => {
+  const handleSaleReversed = useCallback((reversedSale: Sale, updatedStudent: Student) => {
     setSales(prev => [reversedSale, ...prev]);
     setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
-    loadData();
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
   // Handlers for Products and Stock
-  const handleProductSaved = (savedProduct: Product) => {
+  const handleProductSaved = useCallback((savedProduct: Product) => {
     setProducts(prev => {
       const exists = prev.some(p => p.id === savedProduct.id);
       if (exists) {
@@ -223,27 +279,27 @@ function AppContent() {
       }
       return [savedProduct, ...prev];
     });
-    loadData();
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
-  const handleStockAdjusted = (updatedProduct: Product) => {
+  const handleStockAdjusted = useCallback((updatedProduct: Product) => {
     setProducts(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
-    loadData();
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
   // Handlers for Pix Review
-  const handlePaymentReviewed = (payment: PixPayment, invoice: Invoice) => {
+  const handlePaymentReviewed = useCallback((payment: PixPayment, invoice: Invoice) => {
     setPixPayments(prev => prev.map(p => p.id === payment.id ? payment : p));
     setInvoices(prev => prev.map(i => i.id === invoice.id ? invoice : i));
-    loadData();
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
-  const handlePaymentSubmitted = (payment: PixPayment) => {
+  const handlePaymentSubmitted = useCallback((payment: PixPayment) => {
     setPixPayments(prev => [payment, ...prev]);
-    loadData();
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
-  const handleStudentUpdated = (updatedStudent: Student) => {
+  const handleStudentUpdated = useCallback((updatedStudent: Student) => {
     setStudents(prev => {
       const exists = prev.some(s => s.id === updatedStudent.id);
       if (exists) {
@@ -251,11 +307,11 @@ function AppContent() {
       }
       return [...prev, updatedStudent];
     });
-    loadData();
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
   // Handlers for Passeios
-  const handlePasseioSaved = (savedPasseio: Passeio) => {
+  const handlePasseioSaved = useCallback((savedPasseio: Passeio) => {
     setPasseios(prev => {
       const exists = prev.some(p => p.id === savedPasseio.id);
       if (exists) {
@@ -263,39 +319,65 @@ function AppContent() {
       }
       return [savedPasseio, ...prev];
     });
-    loadData();
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
-  const handlePasseioDeleted = (deletedId: string) => {
+  const handlePasseioDeleted = useCallback((deletedId: string) => {
     setPasseios(prev => prev.filter(p => p.id !== deletedId));
-    loadData();
-  };
+    refreshSilent();
+  }, [refreshSilent]);
 
-  // Pending counts for navigation badges
-  const pendingPixCount = pixPayments.filter(p => p.status === 'AGUARDANDO_CONFERENCIA').length;
-  const lowStockCount = products.filter(p => p.currentStock <= p.minStock).length;
+  // Pending counts for navigation badges (memoized)
+  const pendingPixCount = useMemo(
+    () => pixPayments.filter(p => p.status === 'AGUARDANDO_CONFERENCIA').length,
+    [pixPayments]
+  );
+  const lowStockCount = useMemo(
+    () => products.filter(p => p.status === 'ACTIVE' && !p.archived && p.currentStock <= p.minStock).length,
+    [products]
+  );
 
-  // Selected student for student portal
-  const currentStudent =
-    (isAdmin && selectedPortalStudentId
-      ? students.find(s => s.id === selectedPortalStudentId)
-      : students.find(
-          s =>
-            s.id === user?.studentId ||
-            s.email.toLowerCase() === (user?.email || '').toLowerCase() ||
-            s.name.toLowerCase() === (user?.name || '').toLowerCase()
-        )) || students[0];
-  // Selected guardian for guardian portal
-  const currentGuardian = guardians.find(g => g.id === user?.guardianId) || {
-    id: 'guardian-1',
-    name: 'Responsável / Família ICEVES',
-    cpf: '142.589.632-10',
-    email: 'familia.iceves@gmail.com',
-    phone: '(11) 98111-2233',
-    relationshipDefault: 'Responsável',
-    studentIds: students.map(s => s.id),
-    createdAt: '2026-11-01T08:00:00Z'
-  };
+  // Selected student for student portal (memoized)
+  const currentStudent = useMemo(
+    () =>
+      (isAdmin && selectedPortalStudentId
+        ? students.find(s => s.id === selectedPortalStudentId)
+        : students.find(
+            s =>
+              s.id === user?.studentId ||
+              s.email.toLowerCase() === (user?.email || '').toLowerCase() ||
+              s.name.toLowerCase() === (user?.name || '').toLowerCase()
+          )) || students[0],
+    [isAdmin, selectedPortalStudentId, students, user]
+  );
+
+  // Selected guardian for guardian portal (memoized)
+  const currentGuardian = useMemo(
+    () =>
+      guardians.find(g => g.id === user?.guardianId) || {
+        id: 'guardian-1',
+        name: 'Responsável / Família ICEVES',
+        cpf: '142.589.632-10',
+        email: 'familia.iceves@gmail.com',
+        phone: '(11) 98111-2233',
+        relationshipDefault: 'Responsável',
+        studentIds: students.map(s => s.id),
+        createdAt: '2026-11-01T08:00:00Z'
+      },
+    [guardians, user?.guardianId, students]
+  );
+
+  const handleOpenQuickSale = useCallback(() => handleSafeNavigate('pdv'), [handleSafeNavigate]);
+  const handleOpenMobileMenu = useCallback(() => setIsMobileOpen(true), []);
+
+  // If user is not logged in, show dedicated Login Page (placed after ALL hooks)
+  if (!user) {
+    return (
+      <Suspense fallback={<ViewFallback />}>
+        <LoginPage />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-[#fafafa] flex font-sans antialiased selection:bg-white selection:text-black">
@@ -311,7 +393,7 @@ function AppContent() {
         setIsCollapsed={setIsCollapsed}
         isMobileOpen={isMobileOpen}
         setIsMobileOpen={setIsMobileOpen}
-        onOpenQuickSale={() => handleSafeNavigate('pdv')}
+        onOpenQuickSale={handleOpenQuickSale}
       />
 
       {/* Main Content Column */}
@@ -324,20 +406,22 @@ function AppContent() {
           pixPayments={pixPayments}
           isCollapsed={isCollapsed}
           setIsCollapsed={setIsCollapsed}
-          onOpenMobileMenu={() => setIsMobileOpen(true)}
+          onOpenMobileMenu={handleOpenMobileMenu}
           onNavigate={handleSafeNavigate}
         />
 
         {/* Dynamic View Area */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
+          <OfflineBanner lastSyncedAt={lastSyncedAt} onSyncNow={() => loadData(false)} />
+
           {isLoading && products.length === 0 ? (
             <div className="py-24 flex flex-col items-center justify-center space-y-3">
               <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
               <p className="text-xs font-medium text-zinc-400">Sincronizando dados com o servidor...</p>
             </div>
           ) : (
-            <>
-              {/* DASHBOARD (Personalizado para Aluno ou Consolidado para Admin) */}
+            <Suspense fallback={<ViewFallback />}>
+              {/* DASHBOARD */}
               {activeTab === 'dashboard' && (
                 <Dashboard 
                   sales={sales}
@@ -350,8 +434,8 @@ function AppContent() {
                 />
               )}
 
-              {/* OPERAÇÕES (Exclusivo Admin / Caixa) */}
-              {(isAdmin || isCashier) && (activeTab === 'pdv' || (role === 'CASHIER' && activeTab === 'sales_history')) && (
+              {/* OPERAÇÕES (Admin / Gerente / Caixa) */}
+              {(canManage || isCashier) && (activeTab === 'pdv' || (role === 'CASHIER' && activeTab === 'sales_history')) && (
                 <PointOfSale 
                   products={products}
                   students={students}
@@ -361,7 +445,7 @@ function AppContent() {
                 />
               )}
 
-              {(isAdmin || isCashier) && activeTab === 'products' && (
+              {(canManage || isCashier || isStockist || isViewer) && activeTab === 'products' && (
                 <ProductsAndStock 
                   products={products}
                   stockMovements={stockMovements}
@@ -370,8 +454,33 @@ function AppContent() {
                 />
               )}
 
-              {/* PDV DE PASSEIOS (Admin ou Caixa autorizado) */}
-              {(isAdmin || isCashier) && activeTab === 'pdv_passeios' && (
+              {/* CAIXA & FINANCEIRO */}
+              {(canManage || isCashier || isViewer) && activeTab === 'cash_register' && (
+                <CashRegisterAndFinance
+                  sales={sales}
+                  onCashUpdated={refreshSilent}
+                />
+              )}
+
+              {/* RELATÓRIOS & EXPORTAÇÕES */}
+              {(canManage || isViewer) && activeTab === 'reports' && (
+                <ReportsCenter
+                  sales={sales}
+                  products={products}
+                  students={students}
+                  invoices={invoices}
+                  pixPayments={pixPayments}
+                  stockMovements={stockMovements}
+                />
+              )}
+
+              {/* ICEVES INTELIGÊNCIA (GEMINI AI) */}
+              {activeTab === 'ai_assistant' && (
+                <IcevesAiAssistant />
+              )}
+
+              {/* PDV DE PASSEIOS (Admin / Gerente ou Caixa autorizado) */}
+              {(canManage || isCashier) && activeTab === 'pdv_passeios' && (
                 <PdvPasseiosView 
                   students={students}
                   products={products}
@@ -379,13 +488,13 @@ function AppContent() {
                   sales={sales}
                   invoices={invoices}
                   settings={settings}
-                  onOperationLaunched={loadData}
+                  onOperationLaunched={refreshSilent}
                   onSettingsUpdated={setSettings}
                 />
               )}
 
-              {/* MÓDULOS EXCLUSIVOS DE ADMINISTRADOR */}
-              {isAdmin && activeTab === 'passeios' && (
+              {/* MÓDULOS DE GESTÃO (Admin / Gerente) */}
+              {canManage && activeTab === 'passeios' && (
                 <PasseiosManagement 
                   passeios={passeios}
                   students={students}
@@ -394,7 +503,7 @@ function AppContent() {
                 />
               )}
 
-              {isAdmin && activeTab === 'students' && (
+              {canManage && activeTab === 'students' && (
                 <StudentsAndGuardians 
                   students={students}
                   guardians={guardians}
@@ -403,15 +512,16 @@ function AppContent() {
                 />
               )}
 
-              {isAdmin && activeTab === 'closing' && (
+              {canManage && activeTab === 'closing' && (
                 <InvoicesAndClosing 
                   invoices={invoices}
                   students={students}
-                  onInvoicesUpdated={loadData}
+                  sales={sales}
+                  onInvoicesUpdated={refreshSilent}
                 />
               )}
 
-              {isAdmin && activeTab === 'pix' && (
+              {canManage && activeTab === 'pix' && (
                 <PixConference 
                   pixPayments={pixPayments}
                   invoices={invoices}
@@ -446,7 +556,7 @@ function AppContent() {
                   students={students}
                   onStudentUpdated={handleStudentUpdated}
                   onSettingsSaved={setSettings}
-                  onResetData={loadData}
+                  onResetData={() => loadData(false)}
                 />
               )}
 
@@ -477,7 +587,7 @@ function AppContent() {
                   onPaymentSubmitted={handlePaymentSubmitted}
                 />
               )}
-            </>
+            </Suspense>
           )}
         </main>
 
@@ -488,6 +598,7 @@ function AppContent() {
               <img
                 src="/assets/aistudio/image_e4461e45.png"
                 alt="Logo ICEVES"
+                decoding="async"
                 className="w-5 h-5 rounded-full object-cover bg-white ring-1 ring-emerald-500/40 shrink-0"
               />
               <span className="font-semibold text-zinc-300">{settings?.storeName || 'Lojinha Iceves'}</span>
@@ -655,8 +766,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

@@ -51,11 +51,13 @@ export function base44ApiPlugin(): Plugin {
 
           res.statusCode = response.status;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
           res.end(JSON.stringify(response.data));
         } catch (err: any) {
           console.error('Erro no plugin de API do Campus:', err);
           res.statusCode = 500;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
           res.end(JSON.stringify({ error: err.message || 'Erro interno no servidor' }));
         }
       });

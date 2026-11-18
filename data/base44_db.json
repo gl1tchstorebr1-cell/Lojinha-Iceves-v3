@@ -24,12 +24,22 @@
     "supabaseActive": true,
     "supabaseUrl": "https://brjsoaxvqrtxyofwxgkk.supabase.co",
     "supabaseAnonKey": "sb_publishable_mEQzWNPKvTxqWvzZ8u6XQA_2wlGfyLR",
+    "catalogVersion": "2026-ICEVES-70",
     "updatedAt": "2026-11-10T10:00:00Z",
     "updatedByUserName": "Administrador do Sistema",
     "currentCohortName": "10ª Turma",
     "cohortsPerSemester": 2,
     "graduationStartDay": 27,
-    "graduationEndDay": 30
+    "graduationEndDay": 30,
+    "pdvPasseiosPermissions": {
+      "cashierCanViewPasseios": false,
+      "cashierCanCreatePasseios": false,
+      "cashierCanAddExpenses": false,
+      "cashierCanSelectStudents": false,
+      "cashierCanConfirmLaunches": false,
+      "cashierCanViewHistory": false,
+      "cashierCanReverseLaunches": false
+    }
   },
   "users": [
     {
@@ -83,31 +93,200 @@
   ],
   "guardians": [
     {
-      "id": "guardian-1",
-      "name": "Responsável / Família ICEVES",
-      "cpf": "142.589.632-10",
-      "email": "familia.iceves@gmail.com",
-      "phone": "(11) 98111-2233",
+      "id": "guardian-etapa1-1",
+      "name": "Flaviane Maciel Rocha",
+      "cpf": "Não informado",
+      "email": "flaviane.maciel@gmail.com",
+      "phone": "94 99200-4759",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-12"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa1-2",
+      "name": "Evelyn Serra",
+      "cpf": "Não informado",
+      "email": "evelyn.serra@gmail.com",
+      "phone": "11 93091-5958",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-13"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa1-3",
+      "name": "Darling Lozada",
+      "cpf": "Não informado",
+      "email": "darling.lozada@gmail.com",
+      "phone": "58 416-2028274",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-17"
+      ],
+      "needsPhoneReview": true,
+      "phoneReviewNote": "Telefone informado como \"58 416-2028274\" (código internacional +58). Sinalizado para conferência sem alteração automática.",
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa1-4",
+      "name": "Maria do Amparo dos Santos de Morais",
+      "cpf": "Não informado",
+      "email": "maria.do@gmail.com",
+      "phone": "98 98751-8671",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-15"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa1-5",
+      "name": "Bill Stanley",
+      "cpf": "Não informado",
+      "email": "bill.stanley@gmail.com",
+      "phone": "66 99645-6370",
       "relationshipDefault": "Responsável",
       "studentIds": [
         "student-1",
-        "student-2",
-        "student-3",
-        "student-4",
-        "student-5",
-        "student-6",
-        "student-7",
-        "student-8",
-        "student-9",
-        "student-10",
-        "student-11",
-        "student-12",
-        "student-13",
-        "student-14",
-        "student-15",
-        "student-16",
-        "student-17"
+        "student-9"
       ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa1-6",
+      "name": "Wareli Leandro Nunes Ferreira",
+      "cpf": "Não informado",
+      "email": "wareli.leandro@gmail.com",
+      "phone": "31 98619-4449",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-11"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa1-7",
+      "name": "Janice Costa Germano Silva",
+      "cpf": "Não informado",
+      "email": "janice.costa@gmail.com",
+      "phone": "94 99129-7789",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-6"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa1-8",
+      "name": "Elber Rafael Ramos",
+      "cpf": "Não informado",
+      "email": "elber.rafael@gmail.com",
+      "phone": "62 99153-3710",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-2"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa2-9",
+      "name": "Jean Santos Viana",
+      "cpf": "Não informado",
+      "email": "jean.santos@gmail.com",
+      "phone": "33 99973-1040",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-3"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa2-10",
+      "name": "Renata Fidelis Bezerra Alves",
+      "cpf": "Não informado",
+      "email": "renata.fidelis@gmail.com",
+      "phone": "81 99431-8802",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-4"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa2-11",
+      "name": "Cristiane da Costa Santos",
+      "cpf": "Não informado",
+      "email": "cristiane.da@gmail.com",
+      "phone": "79 99449-3537",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-14"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa2-12",
+      "name": "Lucas Silva Fernandes",
+      "cpf": "Não informado",
+      "email": "lucas.silva@gmail.com",
+      "phone": "19 99670-1777",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-7"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa2-13",
+      "name": "Solange Almeida Santos",
+      "cpf": "Não informado",
+      "email": "solange.almeida@gmail.com",
+      "phone": "73 98117-7865",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-16"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa2-14",
+      "name": "Lívia Queiroz de Oliveira Ferreira",
+      "cpf": "Não informado",
+      "email": "livia.queiroz@gmail.com",
+      "phone": "37 99820-6885",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-5"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa2-15",
+      "name": "Itamar Viana Santos Morais",
+      "cpf": "Não informado",
+      "email": "itamar.viana@gmail.com",
+      "phone": "99 98110-5096",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-10"
+      ],
+      "createdAt": "2026-11-01T08:00:00Z"
+    },
+    {
+      "id": "guardian-etapa2-17",
+      "name": "Ceferino Oño",
+      "cpf": "Não informado",
+      "email": "ceferino.ono@gmail.com",
+      "phone": "54 9 2645 45-6122",
+      "relationshipDefault": "Responsável",
+      "studentIds": [
+        "student-8"
+      ],
+      "needsPhoneReview": true,
+      "phoneReviewNote": "Telefone informado como \"54 9 2645 45-6122\" (código internacional +54). Sinalizado para conferência sem alteração automática.",
       "createdAt": "2026-11-01T08:00:00Z"
     }
   ],
@@ -132,7 +311,17 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-5",
+          "guardianName": "Bill Stanley",
+          "guardianPhone": "66 99645-6370",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true,
+          "matchNote": "Nome na lista: \"Ana Vitoria Lisboa\" • Vinculado ao cadastro \"Ana Vitória Lisboa\" (EC10-001) • Responsável compartilhado com Ialisson Lisboa dos Santos (EC10-009)."
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -156,7 +345,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-8",
+          "guardianName": "Elber Rafael Ramos",
+          "guardianPhone": "62 99153-3710",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -180,7 +378,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa2-9",
+          "guardianName": "Jean Santos Viana",
+          "guardianPhone": "33 99973-1040",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -204,7 +411,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa2-10",
+          "guardianName": "Renata Fidelis Bezerra Alves",
+          "guardianPhone": "81 99431-8802",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -228,7 +444,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa2-14",
+          "guardianName": "Lívia Queiroz de Oliveira Ferreira",
+          "guardianPhone": "37 99820-6885",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -252,7 +477,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-7",
+          "guardianName": "Janice Costa Germano Silva",
+          "guardianPhone": "94 99129-7789",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -276,7 +510,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa2-12",
+          "guardianName": "Lucas Silva Fernandes",
+          "guardianPhone": "19 99670-1777",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -300,7 +543,19 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa2-17",
+          "guardianName": "Ceferino Oño",
+          "guardianPhone": "54 9 2645 45-6122",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true,
+          "needsPhoneReview": true,
+          "phoneReviewNote": "Telefone informado como \"54 9 2645 45-6122\" (código internacional +54). Sinalizado para conferência sem alteração automática.",
+          "matchNote": "Nome na lista: \"Ezequiel Oño\" • Vinculado ao cadastro completo existente \"Ezequiel Ismael Oño Goona\" (EC10-008)."
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -324,7 +579,17 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-5",
+          "guardianName": "Bill Stanley",
+          "guardianPhone": "66 99645-6370",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true,
+          "matchNote": "Nome na lista: \"Ialisson Lisboa Santos\" • Vinculado ao cadastro existente \"Ialisson Lisboa dos Santos\" (EC10-009) • Cadastro de Bill Stanley reutilizado."
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -348,7 +613,17 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa2-15",
+          "guardianName": "Itamar Viana Santos Morais",
+          "guardianPhone": "99 98110-5096",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true,
+          "matchNote": "Nome na lista: \"Izhak Sousa Morais\" • Vinculado ao cadastro existente \"Izhak Souza Morais\" (EC10-010)."
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -372,7 +647,17 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-6",
+          "guardianName": "Wareli Leandro Nunes Ferreira",
+          "guardianPhone": "31 98619-4449",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true,
+          "matchNote": "Nome na lista: \"Júlia Oliveira\" • Vinculado ao cadastro completo existente \"Júlia de Oliveira Ferreira\" (EC10-011)."
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -396,7 +681,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-1",
+          "guardianName": "Flaviane Maciel Rocha",
+          "guardianPhone": "94 99200-4759",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -420,7 +714,17 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-2",
+          "guardianName": "Evelyn Serra",
+          "guardianPhone": "11 93091-5958",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true,
+          "matchNote": "Nome na lista: \"Maria Eduarda Colombo Serra\" • Vinculado ao cadastro existente \"Maria Eduarda Serra\" (EC10-013)."
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -444,7 +748,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa2-11",
+          "guardianName": "Cristiane da Costa Santos",
+          "guardianPhone": "79 99449-3537",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -468,7 +781,17 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-4",
+          "guardianName": "Maria do Amparo dos Santos de Morais",
+          "guardianPhone": "98 98751-8671",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true,
+          "matchNote": "Nome na lista: \"Rayssa Gabriely dos Santos de Morais\" • Vinculado ao cadastro existente \"Rayssa Gabryele dos Santos de Morais\" (EC10-015)."
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -492,7 +815,16 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa2-13",
+          "guardianName": "Solange Almeida Santos",
+          "guardianPhone": "73 98117-7865",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     },
@@ -516,12 +848,1353 @@
         "WHATSAPP",
         "EMAIL"
       ],
-      "guardians": [],
+      "guardians": [
+        {
+          "guardianId": "guardian-etapa1-3",
+          "guardianName": "Darling Lozada",
+          "guardianPhone": "58 416-2028274",
+          "relationship": "Responsável",
+          "isPrimaryPayer": true,
+          "canAccessPortal": true,
+          "needsPhoneReview": true,
+          "phoneReviewNote": "Telefone informado como \"58 416-2028274\" (código internacional +58). Sinalizado para conferência sem alteração automática."
+        }
+      ],
       "notes": "10ª Turma - Escola de Cristo ICEVES (Formatura: 27 a 30)",
       "createdAt": "2026-11-01T08:00:00Z"
     }
   ],
   "products": [
+    {
+      "id": "prod-liv-001",
+      "name": "Bíblia pequena",
+      "category": "Livros e Literatura Cristã",
+      "price": 25,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-001",
+      "currentStock": 6,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/bible.jpg"
+      ],
+      "imageUrl": "/assets/products/bible.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-002",
+      "name": "Livro Tempo de Sair",
+      "category": "Livros e Literatura Cristã",
+      "price": null,
+      "priceStatus": "PENDING",
+      "internalCode": "LIV-002",
+      "currentStock": 9,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-003",
+      "name": "Adolescentes Moldados pelo Espírito",
+      "category": "Livros e Literatura Cristã",
+      "price": 35,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-003",
+      "currentStock": 11,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-004",
+      "name": "Face a Face com o Verdadeiro Evangelho",
+      "category": "Livros e Literatura Cristã",
+      "price": 25,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-004",
+      "currentStock": 4,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-005",
+      "name": "Conselho de Pedro aos Pais",
+      "category": "Livros e Literatura Cristã",
+      "price": 25,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-005",
+      "currentStock": 3,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-006",
+      "name": "Jovem, Você Vai se Arriscar",
+      "category": "Livros e Literatura Cristã",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-006",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-007",
+      "name": "O Que Farei para Herdar a Vida Eterna",
+      "category": "Livros e Literatura Cristã",
+      "price": 25,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-007",
+      "currentStock": 197,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-008",
+      "name": "Por Que Jesus Ainda Não Voltou",
+      "category": "Livros e Literatura Cristã",
+      "price": 20,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-008",
+      "currentStock": 47,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-009",
+      "name": "Pornografia: O Inimigo Silencioso",
+      "category": "Livros e Literatura Cristã",
+      "price": 40,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-009",
+      "currentStock": 16,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-010",
+      "name": "Como Orar por Sua Futura Esposa",
+      "category": "Livros e Literatura Cristã",
+      "price": 25,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-010",
+      "currentStock": 5,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-011",
+      "name": "Como Orar por Seu Futuro Marido",
+      "category": "Livros e Literatura Cristã",
+      "price": 25,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-011",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-012",
+      "name": "Mães Orando, Filhos Protegidos",
+      "category": "Livros e Literatura Cristã",
+      "price": 35,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-012",
+      "currentStock": 6,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-013",
+      "name": "Florescendo em Virtude",
+      "category": "Livros e Literatura Cristã",
+      "price": 25,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-013",
+      "currentStock": 10,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-014",
+      "name": "Guiados pelo Espírito",
+      "category": "Livros e Literatura Cristã",
+      "price": null,
+      "priceStatus": "PENDING",
+      "internalCode": "LIV-014",
+      "currentStock": 4,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-015",
+      "name": "Bateria, Rock e Adoração",
+      "category": "Livros e Literatura Cristã",
+      "price": 20,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-015",
+      "currentStock": 122,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-016",
+      "name": "Um Primeiro Rascunho da História",
+      "category": "Livros e Literatura Cristã",
+      "price": 40,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-016",
+      "currentStock": 53,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-017",
+      "name": "Oito Passos para Saúde",
+      "category": "Livros e Literatura Cristã",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-017",
+      "currentStock": 168,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-018",
+      "name": "A Proximidade do Seu Salvador",
+      "category": "Livros e Literatura Cristã",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-018",
+      "currentStock": 6,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-019",
+      "name": "Liberdade Religiosa",
+      "category": "Livros e Literatura Cristã",
+      "price": null,
+      "priceStatus": "PENDING",
+      "internalCode": "LIV-019",
+      "currentStock": 34,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-020",
+      "name": "A Terra do Tesouro Perdido",
+      "category": "Livros e Literatura Cristã",
+      "price": null,
+      "priceStatus": "PENDING",
+      "internalCode": "LIV-020",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-021",
+      "name": "A Única Esperança",
+      "category": "Livros e Literatura Cristã",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-021",
+      "currentStock": 8,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-022",
+      "name": "No Deserto da Tentação",
+      "category": "Livros e Literatura Cristã",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-022",
+      "currentStock": 7,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-023",
+      "name": "Fé e Obras",
+      "category": "Livros e Literatura Cristã",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-023",
+      "currentStock": 8,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-024",
+      "name": "O Livro Amargo",
+      "category": "Livros e Literatura Cristã",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-024",
+      "currentStock": 8,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-025",
+      "name": "Mapa do Tesouro",
+      "category": "Livros e Literatura Cristã",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-025",
+      "currentStock": 4,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-026",
+      "name": "Projetado para Curar",
+      "category": "Livros e Literatura Cristã",
+      "price": 50,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-026",
+      "currentStock": 1,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-027",
+      "name": "Saúde Nua e Crua",
+      "category": "Livros e Literatura Cristã",
+      "price": 30,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-027",
+      "currentStock": 17,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-028",
+      "name": "A Máquina Viva",
+      "category": "Livros e Literatura Cristã",
+      "price": null,
+      "priceStatus": "PENDING",
+      "internalCode": "LIV-028",
+      "currentStock": 7,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-029",
+      "name": "Trata-se de Amar Pessoas",
+      "category": "Livros e Literatura Cristã",
+      "price": null,
+      "priceStatus": "PENDING",
+      "internalCode": "LIV-029",
+      "currentStock": 10,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/health_book.jpg"
+      ],
+      "imageUrl": "/assets/products/health_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-liv-030",
+      "name": "O Verbo se Fez Carne",
+      "category": "Livros e Literatura Cristã",
+      "price": 30,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIV-030",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/christian_book.jpg"
+      ],
+      "imageUrl": "/assets/products/christian_book.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-001",
+      "name": "Paçocas",
+      "category": "Alimentos e Snacks",
+      "price": 0.6,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-001",
+      "currentStock": 189,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/pacoca.jpg"
+      ],
+      "imageUrl": "/assets/products/pacoca.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-002",
+      "name": "Barrinha de Cereal Kobber",
+      "category": "Alimentos e Snacks",
+      "price": 2.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-002",
+      "currentStock": 17,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cereal_bar.jpg"
+      ],
+      "imageUrl": "/assets/products/cereal_bar.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-003",
+      "name": "Nutry Cereais",
+      "category": "Alimentos e Snacks",
+      "price": 3,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-003",
+      "currentStock": 119,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cereal_bar.jpg"
+      ],
+      "imageUrl": "/assets/products/cereal_bar.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-004",
+      "name": "Nutry Nuts",
+      "category": "Alimentos e Snacks",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-004",
+      "currentStock": 50,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cereal_bar.jpg"
+      ],
+      "imageUrl": "/assets/products/cereal_bar.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-005",
+      "name": "Rosquinha Rancheiro Sabor Coco",
+      "category": "Alimentos e Snacks",
+      "price": 8,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-005",
+      "currentStock": 17,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cookies_granola.jpg"
+      ],
+      "imageUrl": "/assets/products/cookies_granola.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-006",
+      "name": "Rosquinha Rancheiro Sabor Maçã com Canela",
+      "category": "Alimentos e Snacks",
+      "price": 8.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-006",
+      "currentStock": 7,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cookies_granola.jpg"
+      ],
+      "imageUrl": "/assets/products/cookies_granola.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-007",
+      "name": "Granola Salgada",
+      "category": "Alimentos e Snacks",
+      "price": 13,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-007",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cookies_granola.jpg"
+      ],
+      "imageUrl": "/assets/products/cookies_granola.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-008",
+      "name": "Granola Doce",
+      "category": "Alimentos e Snacks",
+      "price": 15,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-008",
+      "currentStock": 20,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cookies_granola.jpg"
+      ],
+      "imageUrl": "/assets/products/cookies_granola.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-009",
+      "name": "Chips de Arroz Integral Cebola e Salsa",
+      "category": "Alimentos e Snacks",
+      "price": 8.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-009",
+      "currentStock": 9,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/savory_snacks.jpg"
+      ],
+      "imageUrl": "/assets/products/savory_snacks.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-010",
+      "name": "Barrinha Kobber Banana e Mel",
+      "category": "Alimentos e Snacks",
+      "price": 2.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-010",
+      "currentStock": 17,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cereal_bar.jpg"
+      ],
+      "imageUrl": "/assets/products/cereal_bar.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-011",
+      "name": "Sucrilhos 500g",
+      "category": "Alimentos e Snacks",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-011",
+      "currentStock": 4,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cookies_granola.jpg"
+      ],
+      "imageUrl": "/assets/products/cookies_granola.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-012",
+      "name": "Biscoito de Polvilho",
+      "category": "Alimentos e Snacks",
+      "price": 3,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-012",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cookies_granola.jpg"
+      ],
+      "imageUrl": "/assets/products/cookies_granola.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-013",
+      "name": "Farofa",
+      "category": "Alimentos e Snacks",
+      "price": 8.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-013",
+      "currentStock": 29,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/savory_snacks.jpg"
+      ],
+      "imageUrl": "/assets/products/savory_snacks.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-014",
+      "name": "Cream Cracker Rancheiro",
+      "category": "Alimentos e Snacks",
+      "price": 5.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-014",
+      "currentStock": 14,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/cookies_granola.jpg"
+      ],
+      "imageUrl": "/assets/products/cookies_granola.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-015",
+      "name": "Farinha de Mandioca",
+      "category": "Alimentos e Snacks",
+      "price": 8.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-015",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/savory_snacks.jpg"
+      ],
+      "imageUrl": "/assets/products/savory_snacks.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-016",
+      "name": "Rapadura",
+      "category": "Alimentos e Snacks",
+      "price": 12,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-016",
+      "currentStock": 7,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/savory_snacks.jpg"
+      ],
+      "imageUrl": "/assets/products/savory_snacks.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-ali-017",
+      "name": "Amendoim Crocante Cebola e Salsa",
+      "category": "Alimentos e Snacks",
+      "price": 3.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "ALI-017",
+      "currentStock": 21,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/savory_snacks.jpg"
+      ],
+      "imageUrl": "/assets/products/savory_snacks.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-nat-001",
+      "name": "Extrato de Própolis Grão do Céu",
+      "category": "Produtos Naturais e Saúde",
+      "price": 20,
+      "priceStatus": "DEFINED",
+      "internalCode": "NAT-001",
+      "currentStock": 7,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/natural_health.jpg"
+      ],
+      "imageUrl": "/assets/products/natural_health.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-nat-002",
+      "name": "Pomadas de Própolis",
+      "category": "Produtos Naturais e Saúde",
+      "price": 20,
+      "priceStatus": "DEFINED",
+      "internalCode": "NAT-002",
+      "currentStock": 3,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/natural_health.jpg"
+      ],
+      "imageUrl": "/assets/products/natural_health.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-nat-003",
+      "name": "Óleo de Copaíba",
+      "category": "Produtos Naturais e Saúde",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "NAT-003",
+      "currentStock": 10,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/natural_health.jpg"
+      ],
+      "imageUrl": "/assets/products/natural_health.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-nat-004",
+      "name": "Extrato de Própolis",
+      "category": "Produtos Naturais e Saúde",
+      "price": 25,
+      "priceStatus": "DEFINED",
+      "internalCode": "NAT-004",
+      "currentStock": 3,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/natural_health.jpg"
+      ],
+      "imageUrl": "/assets/products/natural_health.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-nat-005",
+      "name": "Mel ICEVES",
+      "category": "Produtos Naturais e Saúde",
+      "price": 12,
+      "priceStatus": "DEFINED",
+      "internalCode": "NAT-005",
+      "currentStock": 7,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/natural_health.jpg"
+      ],
+      "imageUrl": "/assets/products/natural_health.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-pap-001",
+      "name": "Marca-texto Amarelo",
+      "category": "Papelaria",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "PAP-001",
+      "currentStock": 7,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/stationery_markers.jpg"
+      ],
+      "imageUrl": "/assets/products/stationery_markers.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-pap-002",
+      "name": "Marca-texto Laranja",
+      "category": "Papelaria",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "PAP-002",
+      "currentStock": 9,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/stationery_markers.jpg"
+      ],
+      "imageUrl": "/assets/products/stationery_markers.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-pap-003",
+      "name": "Caneta Ponta Fina",
+      "category": "Papelaria",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "PAP-003",
+      "currentStock": 13,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/stationery_markers.jpg"
+      ],
+      "imageUrl": "/assets/products/stationery_markers.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-001",
+      "name": "Sabão em Pedra",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-001",
+      "currentStock": 32,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/soap_hygiene.jpg"
+      ],
+      "imageUrl": "/assets/products/soap_hygiene.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-002",
+      "name": "Sabonete Nivea",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-002",
+      "currentStock": 3,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/soap_hygiene.jpg"
+      ],
+      "imageUrl": "/assets/products/soap_hygiene.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-003",
+      "name": "Cotonete Reale",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-003",
+      "currentStock": 4,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/soap_hygiene.jpg"
+      ],
+      "imageUrl": "/assets/products/soap_hygiene.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-004",
+      "name": "Creme Skala",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 15,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-004",
+      "currentStock": 8,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/hair_care.jpg"
+      ],
+      "imageUrl": "/assets/products/hair_care.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-005",
+      "name": "Kit Seda Shampoo + Condicionador",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 28,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-005",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/hair_care.jpg"
+      ],
+      "imageUrl": "/assets/products/hair_care.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-006",
+      "name": "Escova de Dente Oral-B",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 7.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-006",
+      "currentStock": 5,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/oral_care.jpg"
+      ],
+      "imageUrl": "/assets/products/oral_care.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-007",
+      "name": "Prestobarba BIC",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 2.5,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-007",
+      "currentStock": 8,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/oral_care.jpg"
+      ],
+      "imageUrl": "/assets/products/oral_care.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-008",
+      "name": "Absorvente Intimus",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 7,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-008",
+      "currentStock": 3,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/soap_hygiene.jpg"
+      ],
+      "imageUrl": "/assets/products/soap_hygiene.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-009",
+      "name": "Absorvente Always",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 11,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-009",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/soap_hygiene.jpg"
+      ],
+      "imageUrl": "/assets/products/soap_hygiene.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-010",
+      "name": "Pasta de Dente Sorriso",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 4,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-010",
+      "currentStock": 8,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/oral_care.jpg"
+      ],
+      "imageUrl": "/assets/products/oral_care.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-011",
+      "name": "Desodorante Giovanna Baby",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 12,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-011",
+      "currentStock": 12,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/oral_care.jpg"
+      ],
+      "imageUrl": "/assets/products/oral_care.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-012",
+      "name": "Lenço Umedecido Bebê Limpinho CIMED",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 14,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-012",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/soap_hygiene.jpg"
+      ],
+      "imageUrl": "/assets/products/soap_hygiene.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-013",
+      "name": "Tennys Pé",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 14,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-013",
+      "currentStock": 2,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/oral_care.jpg"
+      ],
+      "imageUrl": "/assets/products/oral_care.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-hig-014",
+      "name": "Papel Higiênico Persona VIP",
+      "category": "Higiene e Cuidados Pessoais",
+      "price": 18,
+      "priceStatus": "DEFINED",
+      "internalCode": "HIG-014",
+      "currentStock": 12,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/soap_hygiene.jpg"
+      ],
+      "imageUrl": "/assets/products/soap_hygiene.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
+    {
+      "id": "prod-lim-001",
+      "name": "Sabão Tixan em Pó 400g",
+      "category": "Limpeza",
+      "price": 10,
+      "priceStatus": "DEFINED",
+      "internalCode": "LIM-001",
+      "currentStock": 6,
+      "minStock": 5,
+      "status": "ACTIVE",
+      "archived": false,
+      "images": [
+        "/assets/products/laundry_detergent.jpg"
+      ],
+      "imageUrl": "/assets/products/laundry_detergent.jpg",
+      "unit": "un",
+      "createdAt": "2026-11-17T11:00:00Z",
+      "updatedAt": "2026-11-17T11:00:00Z"
+    },
     {
       "id": "prod-1",
       "name": "Suco Natural de Laranja 300ml",
@@ -531,16 +2204,20 @@
       "barcode": "7891000101",
       "currentStock": 30,
       "minStock": 10,
-      "status": "ACTIVE",
+      "status": "INACTIVE",
       "unit": "un",
       "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-29T19:16:32.524Z",
+      "updatedAt": "2026-11-18T17:45:31.743Z",
       "images": [
         "https://images.unsplash.com/photo-1613478223719-2ab802602423?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1600271886742-f049cd451bba?w=500&auto=format&fit=crop&q=80"
       ],
-      "imageUrl": "https://images.unsplash.com/photo-1613478223719-2ab802602423?w=500&auto=format&fit=crop&q=80"
+      "imageUrl": "https://images.unsplash.com/photo-1613478223719-2ab802602423?w=500&auto=format&fit=crop&q=80",
+      "archived": true,
+      "archivedAt": "2026-11-18T17:45:31.743Z",
+      "archivedReason": "Substituído na atualização oficial do catálogo (preservado para histórico)",
+      "priceStatus": "DEFINED"
     },
     {
       "id": "prod-2",
@@ -551,16 +2228,20 @@
       "barcode": "7891000102",
       "currentStock": 47,
       "minStock": 15,
-      "status": "ACTIVE",
+      "status": "INACTIVE",
       "unit": "un",
       "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-29T19:16:32.524Z",
+      "updatedAt": "2026-11-18T17:45:31.743Z",
       "images": [
         "https://images.unsplash.com/photo-1598110750419-75a89df2ebbe?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500&auto=format&fit=crop&q=80"
       ],
-      "imageUrl": "https://images.unsplash.com/photo-1598110750419-75a89df2ebbe?w=500&auto=format&fit=crop&q=80"
+      "imageUrl": "https://images.unsplash.com/photo-1598110750419-75a89df2ebbe?w=500&auto=format&fit=crop&q=80",
+      "archived": true,
+      "archivedAt": "2026-11-18T17:45:31.743Z",
+      "archivedReason": "Substituído na atualização oficial do catálogo (preservado para histórico)",
+      "priceStatus": "DEFINED"
     },
     {
       "id": "prod-3",
@@ -571,56 +2252,20 @@
       "barcode": "7891000103",
       "currentStock": 15,
       "minStock": 8,
-      "status": "ACTIVE",
+      "status": "INACTIVE",
       "unit": "un",
       "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-11-11T16:52:31.100Z",
+      "updatedAt": "2026-11-18T17:45:31.743Z",
       "images": [
         "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1553909489-cd47e0907980?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1509722747041-616f39b57569?w=500&auto=format&fit=crop&q=80"
       ],
-      "imageUrl": "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=500&auto=format&fit=crop&q=80"
-    },
-    {
-      "id": "prod-4",
-      "name": "Água Mineral sem Gás 500ml",
-      "category": "Alimentícios",
-      "price": 4,
-      "internalCode": "BEB-004",
-      "barcode": "7891000104",
-      "currentStock": 65,
-      "minStock": 20,
-      "status": "ACTIVE",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z",
-      "images": [
-        "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1553909489-cd47e0907980?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80"
-    },
-    {
-      "id": "prod-5",
-      "name": "Brownie Artesanal Chocolate Belga",
-      "category": "Alimentícios",
-      "price": 8.5,
-      "internalCode": "DOC-005",
-      "barcode": "7891000105",
-      "currentStock": 22,
-      "minStock": 10,
-      "status": "ACTIVE",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z",
-      "images": [
-        "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1515037893149-de7f840978e2?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1564355808539-22fda35bed7e?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=500&auto=format&fit=crop&q=80"
+      "imageUrl": "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=500&auto=format&fit=crop&q=80",
+      "archived": true,
+      "archivedAt": "2026-11-18T17:45:31.743Z",
+      "archivedReason": "Substituído na atualização oficial do catálogo (preservado para histórico)",
+      "priceStatus": "DEFINED"
     },
     {
       "id": "prod-6",
@@ -631,56 +2276,20 @@
       "barcode": "7891000106",
       "currentStock": 38,
       "minStock": 12,
-      "status": "ACTIVE",
+      "status": "INACTIVE",
       "unit": "un",
       "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-29T19:16:02.424Z",
+      "updatedAt": "2026-11-18T17:45:31.743Z",
       "images": [
         "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1553909489-cd47e0907980?w=500&auto=format&fit=crop&q=80"
       ],
-      "imageUrl": "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80"
-    },
-    {
-      "id": "prod-7",
-      "name": "Caderno Universitário 10 Matérias Campus",
-      "category": "Papelaria",
-      "price": 28.9,
-      "internalCode": "PAP-007",
-      "barcode": "7891000107",
-      "currentStock": 14,
-      "minStock": 6,
-      "status": "ACTIVE",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z",
-      "images": [
-        "https://images.unsplash.com/photo-1568205612837-017257d2310a?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1456735190827-d1262f71b8a3?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1568205612837-017257d2310a?w=500&auto=format&fit=crop&q=80"
-    },
-    {
-      "id": "prod-8",
-      "name": "Caneta Esferográfica Gel Ponta 0.5",
-      "category": "Papelaria",
-      "price": 5.5,
-      "internalCode": "PAP-008",
-      "barcode": "7891000108",
-      "currentStock": 85,
-      "minStock": 25,
-      "status": "ACTIVE",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z",
-      "images": [
-        "https://images.unsplash.com/photo-1583485088034-697b5bc54ccd?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1585336261026-7f570e303b6d?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1569683795645-b62e50fbf103?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1583485088034-697b5bc54ccd?w=500&auto=format&fit=crop&q=80"
+      "imageUrl": "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80",
+      "archived": true,
+      "archivedAt": "2026-11-18T17:45:31.743Z",
+      "archivedReason": "Substituído na atualização oficial do catálogo (preservado para histórico)",
+      "priceStatus": "DEFINED"
     },
     {
       "id": "prod-9",
@@ -691,175 +2300,20 @@
       "barcode": "7891000109",
       "currentStock": 4,
       "minStock": 8,
-      "status": "ACTIVE",
+      "status": "INACTIVE",
       "unit": "un",
       "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z",
+      "updatedAt": "2026-11-18T17:45:31.743Z",
       "images": [
         "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1553909489-cd47e0907980?w=500&auto=format&fit=crop&q=80"
       ],
-      "imageUrl": "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80"
-    },
-    {
-      "id": "prod-10",
-      "name": "Garrafa Térmica Inox Campus 600ml",
-      "category": "Alimentícios",
-      "price": 55,
-      "internalCode": "UNI-010",
-      "barcode": "7891000110",
-      "currentStock": 0,
-      "minStock": 5,
-      "status": "ACTIVE",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z",
-      "images": [
-        "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1553909489-cd47e0907980?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80"
-    },
-    {
-      "id": "prod-14",
-      "name": "Detergente Líquido Neutro Concentrado 500ml",
-      "category": "Produtos de Limpeza",
-      "price": 4.8,
-      "internalCode": "LIM-008",
-      "barcode": "7891000108",
-      "currentStock": 30,
-      "minStock": 10,
-      "status": "ACTIVE",
-      "images": [
-        "https://images.unsplash.com/photo-1585670270608-b4be4fb880ed?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1584820927498-cfe5211fd8bf?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1563453392212-326f5e854473?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1585670270608-b4be4fb880ed?w=500&auto=format&fit=crop&q=80",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z"
-    },
-    {
-      "id": "prod-15",
-      "name": "Álcool 70% Spray Higienizador 500ml",
-      "category": "Produtos de Limpeza",
-      "price": 9.9,
-      "internalCode": "LIM-009",
-      "barcode": "7891000109",
-      "currentStock": 42,
-      "minStock": 12,
-      "status": "ACTIVE",
-      "images": [
-        "https://images.unsplash.com/photo-1584744982491-665216d95f8b?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1584483766114-2cea6facdf57?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1584362917165-526a968579e8?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1584744982491-665216d95f8b?w=500&auto=format&fit=crop&q=80",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z"
-    },
-    {
-      "id": "prod-16",
-      "name": "Pano de Microfibra Multiuso (Kit 3 unidades)",
-      "category": "Produtos de Limpeza",
-      "price": 14.5,
-      "internalCode": "LIM-010",
-      "barcode": "7891000110",
-      "currentStock": 25,
-      "minStock": 8,
-      "status": "ACTIVE",
-      "images": [
-        "https://images.unsplash.com/photo-1563453392212-326f5e854473?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1585670270608-b4be4fb880ed?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1584820927498-cfe5211fd8bf?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1563453392212-326f5e854473?w=500&auto=format&fit=crop&q=80",
-      "unit": "pct",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z"
-    },
-    {
-      "id": "prod-11",
-      "name": "Sabonete Líquido Hidratante Erva-Doce 250ml",
-      "category": "Cosméticos",
-      "price": 13.9,
-      "internalCode": "COS-011",
-      "barcode": "7891000111",
-      "currentStock": 20,
-      "minStock": 8,
-      "status": "ACTIVE",
-      "images": [
-        "https://images.unsplash.com/photo-1608248597359-3a32247c4e57?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1556228720-195a672e8a03?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1608248597359-3a32247c4e57?w=500&auto=format&fit=crop&q=80",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z"
-    },
-    {
-      "id": "prod-12",
-      "name": "Hidratante Labial Manteiga de Cacau",
-      "category": "Cosméticos",
-      "price": 6.9,
-      "internalCode": "COS-012",
-      "barcode": "7891000112",
-      "currentStock": 35,
-      "minStock": 10,
-      "status": "ACTIVE",
-      "images": [
-        "https://images.unsplash.com/photo-1599305090598-fe179d501227?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1526947425960-945c6e72858f?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1599305090598-fe179d501227?w=500&auto=format&fit=crop&q=80",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z"
-    },
-    {
-      "id": "prod-13",
-      "name": "Creme Hidratante para Mãos com Karité 50g",
-      "category": "Cosméticos",
-      "price": 16.5,
-      "internalCode": "COS-013",
-      "barcode": "7891000113",
-      "currentStock": 22,
-      "minStock": 8,
-      "status": "ACTIVE",
-      "images": [
-        "https://images.unsplash.com/photo-1617897903246-719242758050?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1556228720-195a672e8a03?w=500&auto=format&fit=crop&q=80",
-        "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=500&auto=format&fit=crop&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1617897903246-719242758050?w=500&auto=format&fit=crop&q=80",
-      "unit": "un",
-      "createdAt": "2026-01-20T08:00:00Z",
-      "updatedAt": "2026-10-20T08:00:00Z"
-    },
-    {
-      "id": "prod-6004",
-      "name": "Sabonete Antisséptico em Barra",
-      "category": "Cosméticos",
-      "price": 5.9,
-      "internalCode": "COS-099",
-      "currentStock": 20,
-      "minStock": 5,
-      "status": "ACTIVE",
-      "images": [
-        "https://images.unsplash.com/photo-1607006314144-8c857738c823?w=500",
-        "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500",
-        "https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=500"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1607006314144-8c857738c823?w=500",
-      "unit": "un",
-      "createdAt": "2026-11-10T18:11:56.004Z",
-      "updatedAt": "2026-11-10T18:11:56.004Z"
+      "imageUrl": "https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=500&auto=format&fit=crop&q=80",
+      "archived": true,
+      "archivedAt": "2026-11-18T17:45:31.743Z",
+      "archivedReason": "Substituído na atualização oficial do catálogo (preservado para histórico)",
+      "priceStatus": "DEFINED"
     }
   ],
   "stockMovements": [
@@ -1031,6 +2485,28 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "AUD-1795024159104-532",
+      "timestamp": "2026-11-18T17:49:19.104Z",
+      "userId": "user-admin",
+      "userName": "Coordenação ICEVES",
+      "userRole": "ADMIN",
+      "action": "EXPORTACAO_BACKUP_CSV",
+      "module": "FATURAS",
+      "details": "Backup offline CSV (COMBINED) exportado pelo administrador: 0 fatura(s) e 1 venda(s).",
+      "status": "SUCESSO"
+    },
+    {
+      "id": "AUD-1795023931743-CATALOG",
+      "timestamp": "2026-11-18T17:45:31.743Z",
+      "userId": "system",
+      "userName": "Sistema (Migração Controlada)",
+      "userRole": "ADMIN",
+      "action": "ATUALIZACAO_CATALOGO_ESTOQUE",
+      "module": "ESTOQUE",
+      "details": "Catálogo atualizado (2026-ICEVES-70). Backup: base44_db.pre-catalog-2026-ICEVES-70-2026-11-18T17-45-31-742Z.json. Removidos sem histórico: 12. Arquivados com histórico: 5 [Suco Natural de Laranja 300ml (prod-1), Pão de Queijo Mineiro Artesanal (prod-2), Sanduíche Natural Peito de Frango (prod-3), Barra de Cereal Nuts & Cacau (prod-6), Camisa Polo Oficial Campus (prod-9)]. Categorias anteriores: [Alimentícios, Papelaria, Produtos de Limpeza, Cosméticos]. Cadastrados: 70 produtos em 6 categorias oficiais.",
+      "status": "SUCESSO"
+    },
     {
       "id": "AUD-1794424757566-459",
       "timestamp": "2026-11-11T19:19:17.566Z",
@@ -1229,5 +2705,6 @@
       "createdAt": "2026-11-01T08:00:00Z",
       "updatedAt": "2026-11-01T08:00:00Z"
     }
-  ]
+  ],
+  "tripOperations": []
 }

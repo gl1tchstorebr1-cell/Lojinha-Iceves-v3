@@ -22,6 +22,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // API middleware handler
 app.all('/api/*', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const userIdHeader = (req.headers['x-user-id'] as string) || '';
     let currentUser: any = undefined;
@@ -44,11 +45,25 @@ app.all('/api/*', async (req, res) => {
   }
 });
 
-// Serve frontend static assets from dist
-app.use(express.static(path.join(__dirname, 'dist')));
+// Serve hashed Vite assets with immutable 1-year cache
+app.use('/assets', express.static(path.join(__dirname, 'dist', 'assets'), {
+  maxAge: '1y',
+  immutable: true,
+}));
+
+// Serve remaining static files from dist with short cache and no-cache for HTML
+app.use(express.static(path.join(__dirname, 'dist'), {
+  maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
 
 // Fallback to index.html for SPA routing
 app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 

@@ -20,16 +20,21 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Archive,
+  Tag,
+  DollarSign,
+  CheckCircle2
 } from 'lucide-react';
 import { Product, StockMovement, ProductCategory } from '../../types';
-import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, formatProductPrice, isProductPricePending } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { 
   getProductImages, 
   compressProductImageFileToDataUrl, 
-  getCategoryBadgeColor 
+  getCategoryBadgeColor,
+  OFFICIAL_PRODUCT_CATEGORIES
 } from '../../utils/productImages';
 
 interface ProductsAndStockProps {
@@ -45,12 +50,13 @@ export function ProductsAndStock({
   onProductSaved, 
   onStockAdjusted 
 }: ProductsAndStockProps) {
-  const { user, isAdmin } = useAuth();
+  const { canManage, isStockist } = useAuth();
+  const canEditInventory = canManage || isStockist;
 
   // Search & filter
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('TODAS');
-  const [filterStockStatus, setFilterStockStatus] = useState<'ALL' | 'LOW' | 'OUT'>('ALL');
+  const [filterStockStatus, setFilterStockStatus] = useState<'ALL' | 'OK' | 'LOW' | 'OUT' | 'PENDING_PRICE' | 'ARCHIVED'>('ALL');
   const [activeTab, setActiveTab] = useState<'catalog' | 'movements'>('catalog');
 
   // Modals & Gallery
@@ -61,11 +67,14 @@ export function ProductsAndStock({
   const [galleryProduct, setGalleryProduct] = useState<Product | null>(null);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
 
-  // Form states for Product (até 3 imagens)
+  // Form states for Product (até 3 imagens + descrição + custo)
   const [formData, setFormData] = useState<Partial<Product> & { images: string[] }>({
     name: '',
-    category: 'Alimentícios',
+    description: '',
+    category: 'Alimentos e Snacks',
     price: 0,
+    costPrice: undefined,
+    priceStatus: 'DEFINED',
     internalCode: '',
     barcode: '',
     currentStock: 0,
@@ -81,24 +90,36 @@ export function ProductsAndStock({
   const [formError, setFormError] = useState<string | null>(null);
 
   // Form states for Stock Adjust
-  const [adjustType, setAdjustType] = useState<'ENTRADA' | 'AJUSTE_MANUAL'>('ENTRADA');
+  const [adjustType, setAdjustType] = useState<'ENTRADA' | 'AJUSTE_MANUAL' | 'PERDA_AVARIA'>('ENTRADA');
   const [adjustQty, setAdjustQty] = useState<number>(10);
   const [adjustReason, setAdjustReason] = useState<string>('');
   const [isAdjusting, setIsAdjusting] = useState(false);
   const [adjustError, setAdjustError] = useState<string | null>(null);
 
-  // 4 categorias exclusivas solicitadas pela coordenação
+  // 6 categorias oficiais do catálogo
   const categories: (ProductCategory | 'TODAS')[] = [
     'TODAS',
-    'Alimentícios',
-    'Papelaria',
-    'Produtos de Limpeza',
-    'Cosméticos'
+    ...OFFICIAL_PRODUCT_CATEGORIES
   ];
 
+  const activeProducts = products.filter(p => p.status === 'ACTIVE' && !p.archived);
+  const archivedProducts = products.filter(p => p.archived || p.status === 'INACTIVE');
+
+  // Métricas de Estoque (ETAPA 6) sobre produtos ativos
+  const totalActiveProducts = activeProducts.length;
+  const totalUnitsInStock = activeProducts.reduce((acc, p) => acc + (Number(p.currentStock) || 0), 0);
+  const lowStockCount = activeProducts.filter(p => p.currentStock > 0 && p.currentStock <= p.minStock).length;
+  const outOfStockCount = activeProducts.filter(p => p.currentStock === 0).length;
+  const pendingPriceCount = activeProducts.filter(p => isProductPricePending(p)).length;
+  const estimatedStockValue = activeProducts.reduce((acc, p) => {
+    if (isProductPricePending(p)) return acc;
+    return acc + Number(p.price) * (Number(p.currentStock) || 0);
+  }, 0);
+
   // Filtered products
-  const filteredProducts = products.filter(p => {
-    const matchesCat = selectedCategory === 'TODAS' || p.category === selectedCategory;
+  const sourceProducts = filterStockStatus === 'ARCHIVED' ? archivedProducts : activeProducts;
+  const filteredProducts = sourceProducts.filter(p => {
+    const matchesCat = filterStockStatus === 'ARCHIVED' || selectedCategory === 'TODAS' || p.category === selectedCategory;
     const q = searchTerm.toLowerCase();
     const matchesSearch = !q || (
       p.name.toLowerCase().includes(q) ||
@@ -106,23 +127,27 @@ export function ProductsAndStock({
       (p.barcode && p.barcode.toLowerCase().includes(q))
     );
     let matchesStock = true;
-    if (filterStockStatus === 'LOW') {
+    if (filterStockStatus === 'OK') {
+      matchesStock = p.currentStock > p.minStock;
+    } else if (filterStockStatus === 'LOW') {
       matchesStock = p.currentStock > 0 && p.currentStock <= p.minStock;
     } else if (filterStockStatus === 'OUT') {
       matchesStock = p.currentStock === 0;
+    } else if (filterStockStatus === 'PENDING_PRICE') {
+      matchesStock = isProductPricePending(p);
     }
     return matchesCat && matchesSearch && matchesStock;
   });
-
-  const lowStockCount = products.filter(p => p.currentStock > 0 && p.currentStock <= p.minStock).length;
-  const outOfStockCount = products.filter(p => p.currentStock === 0).length;
 
   const openNewProductModal = () => {
     setEditingProduct(null);
     setFormData({
       name: '',
-      category: 'Alimentícios',
-      price: 0,
+      description: '',
+      category: 'Alimentos e Snacks',
+      price: null,
+      costPrice: undefined,
+      priceStatus: 'DEFINED',
       internalCode: `INT-${Math.floor(Math.random() * 9000 + 1000)}`,
       barcode: '',
       currentStock: 10,
@@ -145,9 +170,14 @@ export function ProductsAndStock({
       existingImgs[1] || '',
       existingImgs[2] || ''
     ];
+    const pending = isProductPricePending(product);
     setFormData({
       ...product,
-      category: (product.category as ProductCategory) || 'Alimentícios',
+      description: product.description || '',
+      costPrice: product.costPrice ?? undefined,
+      category: (product.category as ProductCategory) || 'Alimentos e Snacks',
+      price: pending ? null : product.price,
+      priceStatus: pending ? 'PENDING' : 'DEFINED',
       images: paddedImgs
     });
     setFormError(null);
@@ -200,8 +230,16 @@ export function ProductsAndStock({
       setFormError('O nome do produto é obrigatório.');
       return;
     }
-    if ((formData.price || 0) < 0) {
-      setFormError('O preço não pode ser negativo.');
+    const isPending = formData.priceStatus === 'PENDING';
+    if (!isPending) {
+      const numericPrice = Number(formData.price);
+      if (Number.isNaN(numericPrice) || numericPrice <= 0) {
+        setFormError('Informe um preço válido maior que R$ 0,00 ou marque como "Preço não definido".');
+        return;
+      }
+    }
+    if ((Number(formData.currentStock) || 0) < 0) {
+      setFormError('O estoque não pode ser negativo.');
       return;
     }
 
@@ -210,8 +248,17 @@ export function ProductsAndStock({
 
     try {
       const finalImages = formData.images.filter(img => Boolean(img && img.trim()));
+      const parsedCost = formData.costPrice !== undefined && formData.costPrice !== null && !Number.isNaN(Number(formData.costPrice))
+        ? Math.max(0, Number(formData.costPrice))
+        : undefined;
       const payload: Partial<Product> = {
         ...formData,
+        description: formData.description?.trim() || undefined,
+        price: isPending ? null : Number(formData.price),
+        costPrice: parsedCost,
+        priceStatus: isPending ? 'PENDING' : 'DEFINED',
+        currentStock: Math.max(0, Number(formData.currentStock) || 0),
+        minStock: Math.max(1, Number(formData.minStock) || 1),
         images: finalImages,
         imageUrl: finalImages[0] || undefined
       };
@@ -276,7 +323,7 @@ export function ProductsAndStock({
         </div>
 
         <div className="flex items-center gap-2">
-          {isAdmin && (
+          {canEditInventory && (
             <button
               onClick={openNewProductModal}
               className="flex items-center gap-2 bg-[#F5F5F5] hover:bg-white text-[#101010] px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
@@ -293,7 +340,7 @@ export function ProductsAndStock({
                 activeTab === 'catalog' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
               }`}
             >
-              Catálogo ({products.length})
+              Catálogo Ativo ({totalActiveProducts})
             </button>
             <button
               onClick={() => setActiveTab('movements')}
@@ -307,77 +354,164 @@ export function ProductsAndStock({
         </div>
       </div>
 
-      {/* Stock Health Badges */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {/* ETAPA 6 — Indicadores Estratégicos do Painel de Estoque */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <button
           onClick={() => setFilterStockStatus('ALL')}
           className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
-            filterStockStatus === 'ALL' ? 'bg-[#242424] text-[#F5F5F5] border-[#404040]' : 'bg-[#181818] text-[#A1A1AA] border-[#262626]'
+            filterStockStatus === 'ALL' ? 'bg-[#242424] text-[#F5F5F5] border-[#404040]' : 'bg-[#181818] text-[#A1A1AA] border-[#262626] hover:border-[#353535]'
           }`}
         >
-          <span className="text-[10px] uppercase font-bold tracking-wider text-[#71717A]">Total Cadastrado</span>
-          <span className="block text-xl font-black mt-0.5 text-[#F5F5F5]">{products.length} produtos</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-[#71717A]">Produtos Ativos</span>
+            <Package className="w-3.5 h-3.5 text-emerald-400" />
+          </div>
+          <span className="block text-xl font-black mt-1 text-[#F5F5F5] font-mono">{totalActiveProducts}</span>
+          <span className="text-[10px] text-[#71717A]">em 6 categorias</span>
+        </button>
+
+        <button
+          onClick={() => setFilterStockStatus(filterStockStatus === 'OK' ? 'ALL' : 'OK')}
+          className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+            filterStockStatus === 'OK' ? 'bg-[#172820] text-[#F5F5F5] border-emerald-500/50' : 'bg-[#181818] text-[#A1A1AA] border-[#262626] hover:border-[#353535]'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400">Total de Unidades</span>
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+          </div>
+          <span className="block text-xl font-black mt-1 text-emerald-300 font-mono">{totalUnitsInStock} un.</span>
+          <span className="text-[10px] text-[#71717A]">unidades em estoque</span>
         </button>
 
         <button
           onClick={() => setFilterStockStatus(filterStockStatus === 'LOW' ? 'ALL' : 'LOW')}
           className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
-            filterStockStatus === 'LOW' ? 'bg-[#2E2413] text-[#F5F5F5] border-amber-500/50' : 'bg-[#181818] text-[#A1A1AA] border-[#262626]'
+            filterStockStatus === 'LOW' ? 'bg-[#2E2413] text-[#F5F5F5] border-amber-500/50' : 'bg-[#181818] text-[#A1A1AA] border-[#262626] hover:border-[#353535]'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400">Abaixo do Mínimo</span>
-            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400">Estoque Baixo</span>
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
           </div>
-          <span className="block text-xl font-black mt-0.5 text-amber-300">{lowStockCount} produtos</span>
+          <span className="block text-xl font-black mt-1 text-amber-300 font-mono">{lowStockCount}</span>
+          <span className="text-[10px] text-[#71717A]">abaixo do mínimo</span>
         </button>
 
         <button
           onClick={() => setFilterStockStatus(filterStockStatus === 'OUT' ? 'ALL' : 'OUT')}
           className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
-            filterStockStatus === 'OUT' ? 'bg-[#2E1616] text-[#F5F5F5] border-rose-500/50' : 'bg-[#181818] text-[#A1A1AA] border-[#262626]'
+            filterStockStatus === 'OUT' ? 'bg-[#2E1616] text-[#F5F5F5] border-rose-500/50' : 'bg-[#181818] text-[#A1A1AA] border-[#262626] hover:border-[#353535]'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-rose-400">Esgotados</span>
-            <Boxes className="w-4 h-4 text-rose-400" />
+            <span className="text-[10px] uppercase font-bold tracking-wider text-rose-400">Sem Estoque</span>
+            <Boxes className="w-3.5 h-3.5 text-rose-400" />
           </div>
-          <span className="block text-xl font-black mt-0.5 text-rose-300">{outOfStockCount} produtos</span>
+          <span className="block text-xl font-black mt-1 text-rose-300 font-mono">{outOfStockCount}</span>
+          <span className="text-[10px] text-[#71717A]">itens esgotados</span>
         </button>
+
+        <button
+          onClick={() => setFilterStockStatus(filterStockStatus === 'PENDING_PRICE' ? 'ALL' : 'PENDING_PRICE')}
+          className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+            filterStockStatus === 'PENDING_PRICE' ? 'bg-[#2C2112] text-[#F5F5F5] border-amber-400/60' : 'bg-[#181818] text-[#A1A1AA] border-[#262626] hover:border-[#353535]'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-amber-300">Sem Preço</span>
+            <Tag className="w-3.5 h-3.5 text-amber-300" />
+          </div>
+          <span className="block text-xl font-black mt-1 text-amber-200 font-mono">{pendingPriceCount}</span>
+          <span className="text-[10px] text-[#71717A]">bloqueados no PDV</span>
+        </button>
+
+        <div className="p-3.5 rounded-2xl border bg-[#181818] border-[#262626] text-left">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-teal-400">Valor Estimado</span>
+            <DollarSign className="w-3.5 h-3.5 text-teal-400" />
+          </div>
+          <span className="block text-lg font-black mt-1 text-[#F5F5F5] font-mono">
+            {formatCurrency(estimatedStockValue)}
+          </span>
+          <span className="text-[10px] text-[#71717A]">itens com preço definido</span>
+        </div>
       </div>
 
       {activeTab === 'catalog' ? (
         <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] shadow-xs p-4 space-y-4">
           
           {/* Filters Bar */}
-          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-            <div className="relative w-full sm:w-72">
-              <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Filtrar por nome ou código..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-emerald-500"
-              />
+          <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar por nome ou código..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <select
+                value={filterStockStatus}
+                onChange={(e) => setFilterStockStatus(e.target.value as any)}
+                className="px-3 py-1.5 text-xs bg-[#151515] border border-[#282828] rounded-xl text-[#F5F5F5] font-semibold focus:outline-none focus:border-emerald-500 cursor-pointer"
+              >
+                <option value="ALL">Status: Todos Ativos ({totalActiveProducts})</option>
+                <option value="OK">Estoque Normal</option>
+                <option value="LOW">Estoque Baixo ({lowStockCount})</option>
+                <option value="OUT">Sem Estoque ({outOfStockCount})</option>
+                <option value="PENDING_PRICE">Preço Pendente ({pendingPriceCount})</option>
+                {archivedProducts.length > 0 && (
+                  <option value="ARCHIVED">Histórico Arquivado ({archivedProducts.length})</option>
+                )}
+              </select>
             </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 scrollbar-none">
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                    selectedCategory === cat
-                      ? 'bg-[#282828] text-[#F5F5F5] border border-[#3A3A3A]'
-                      : 'bg-[#151515] text-[#A1A1AA] hover:text-[#F5F5F5]'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
+            {filterStockStatus !== 'ARCHIVED' && (
+              <div className="flex items-center gap-1.5 overflow-x-auto w-full lg:w-auto pb-1 scrollbar-none">
+                {categories.map(cat => {
+                  const count = cat === 'TODAS'
+                    ? activeProducts.length
+                    : activeProducts.filter(p => p.category === cat).length;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                        selectedCategory === cat
+                          ? 'bg-[#282828] text-[#F5F5F5] border border-[#3A3A3A]'
+                          : 'bg-[#151515] text-[#A1A1AA] hover:text-[#F5F5F5]'
+                      }`}
+                    >
+                      {cat} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
+
+          {filterStockStatus === 'ARCHIVED' && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Archive className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  Itens substituídos na atualização do catálogo que possuíam vendas ou movimentações anteriores foram <strong>arquivados</strong> para preservar o histórico financeiro.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFilterStockStatus('ALL')}
+                className="px-2.5 py-1 rounded-lg bg-[#222] text-white font-semibold shrink-0 cursor-pointer"
+              >
+                Voltar aos Ativos
+              </button>
+            </div>
+          )}
 
           {/* Table */}
           <div className="overflow-x-auto">
@@ -397,6 +531,7 @@ export function ProductsAndStock({
                 {filteredProducts.map(product => {
                   const isOut = product.currentStock === 0;
                   const isLow = product.currentStock > 0 && product.currentStock <= product.minStock;
+                  const isPendingPrice = isProductPricePending(product);
 
                   return (
                     <tr key={product.id} className="hover:bg-[#202020] transition">
@@ -415,6 +550,9 @@ export function ProductsAndStock({
                               <img
                                 src={getProductImages(product)[0]}
                                 alt={product.name}
+                                loading="lazy"
+                                decoding="async"
+                                referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover group-hover/img:scale-105 transition duration-200"
                               />
                             ) : (
@@ -440,6 +578,11 @@ export function ProductsAndStock({
                               <span className="text-[10px] text-[#71717A] font-mono">
                                 {product.unit}
                               </span>
+                              {product.archived && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-700/40 text-zinc-300 border border-zinc-600/40 font-semibold">
+                                  Arquivado
+                                </span>
+                              )}
                               {getProductImages(product).length > 0 ? (
                                 <button
                                   type="button"
@@ -453,13 +596,15 @@ export function ProductsAndStock({
                                   {getProductImages(product).length === 1 ? '1 foto' : `${getProductImages(product).length} fotos`}
                                 </button>
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => openEditProductModal(product)}
-                                  className="text-[10px] text-amber-400/80 hover:text-amber-300 flex items-center gap-0.5 cursor-pointer"
-                                >
-                                  + Adicionar fotos
-                                </button>
+                                !product.archived && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditProductModal(product)}
+                                    className="text-[10px] text-amber-400/80 hover:text-amber-300 flex items-center gap-0.5 cursor-pointer"
+                                  >
+                                    + Adicionar fotos
+                                  </button>
+                                )
                               )}
                             </div>
                           </div>
@@ -469,7 +614,7 @@ export function ProductsAndStock({
                         {(() => {
                           const badge = getCategoryBadgeColor(product.category);
                           return (
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.bg} ${badge.text} ${badge.border}`}>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${badge.bg} ${badge.text} ${badge.border}`}>
                               {product.category}
                             </span>
                           );
@@ -479,8 +624,34 @@ export function ProductsAndStock({
                         {product.internalCode}
                         {product.barcode && <span className="block text-[10px] text-[#555]">{product.barcode}</span>}
                       </td>
-                      <td className="py-3 px-4 font-mono font-extrabold text-[#F5F5F5]">
-                        {formatCurrency(product.price)}
+                      <td className="py-3 px-4">
+                        {isPendingPrice ? (
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 whitespace-nowrap">
+                              Preço não definido
+                            </span>
+                            {canEditInventory && !product.archived && (
+                              <button
+                                type="button"
+                                onClick={() => openEditProductModal(product)}
+                                className="text-[10px] text-emerald-400 hover:underline font-semibold cursor-pointer"
+                              >
+                                Definir preço
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="font-mono font-extrabold text-[#F5F5F5] block">
+                              {formatProductPrice(product.price, product.priceStatus)}
+                            </span>
+                            {typeof product.costPrice === 'number' && product.costPrice > 0 && Number(product.price) > 0 && (
+                              <span className="text-[10px] text-emerald-400/90 font-mono">
+                                Margem {(((Number(product.price) - product.costPrice) / Number(product.price)) * 100).toFixed(0)}%
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold text-xs ${
@@ -498,8 +669,8 @@ export function ProductsAndStock({
                       <td className="py-3 px-4 text-[#71717A]">
                         {product.minStock} {product.unit}
                       </td>
-                      <td className="py-3 px-4 text-right space-x-1">
-                        {isAdmin && (
+                      <td className="py-3 px-4 text-right space-x-1 whitespace-nowrap">
+                        {canEditInventory && !product.archived && (
                           <>
                             <button
                               onClick={() => openEditProductModal(product)}
@@ -585,6 +756,11 @@ export function ProductsAndStock({
                       {mov.type === 'AJUSTE_MANUAL' && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
                           Ajuste de Inventário
+                        </span>
+                      )}
+                      {mov.type === 'PERDA_AVARIA' && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          Perda / Avaria
                         </span>
                       )}
                     </td>
@@ -691,6 +867,9 @@ export function ProductsAndStock({
                               <img
                                 src={slotImg}
                                 alt={`Foto ${slotIdx + 1}`}
+                                loading="lazy"
+                                decoding="async"
+                                referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover"
                               />
                               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 p-2">
@@ -792,31 +971,93 @@ export function ProductsAndStock({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-[#D4D4D8] mb-1">Descrição (Opcional)</label>
+                <textarea
+                  rows={2}
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Detalhes, sabor, embalagem ou observações do produto..."
+                  className="w-full p-2 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-bold text-[#D4D4D8] mb-1">Categoria (Apenas 4)</label>
+                  <label className="block font-bold text-[#D4D4D8] mb-1">Categoria (6 Oficiais)</label>
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value as ProductCategory })}
                     className="w-full p-2 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-bold"
                   >
-                    <option value="Alimentícios">Alimentícios</option>
-                    <option value="Papelaria">Papelaria</option>
-                    <option value="Produtos de Limpeza">Produtos de Limpeza</option>
-                    <option value="Cosméticos">Cosméticos</option>
+                    {OFFICIAL_PRODUCT_CATEGORIES.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-[#D4D4D8] mb-1">Preço Atual (R$)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-[#D4D4D8]">Preço Venda (R$)</label>
+                    <label className="inline-flex items-center gap-1 text-[10px] text-amber-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.priceStatus === 'PENDING'}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            priceStatus: e.target.checked ? 'PENDING' : 'DEFINED',
+                            price: e.target.checked ? null : (formData.price && formData.price > 0 ? formData.price : 0)
+                          })
+                        }
+                        className="rounded border-zinc-600 text-amber-500 focus:ring-amber-500"
+                      />
+                      <span>Pendente</span>
+                    </label>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    disabled={formData.priceStatus === 'PENDING'}
+                    placeholder={formData.priceStatus === 'PENDING' ? 'Preço pendente' : 'Ex: 15.00'}
+                    value={formData.priceStatus === 'PENDING' ? '' : (formData.price ?? '')}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData,
+                        priceStatus: 'DEFINED',
+                        price: val === '' ? 0 : parseFloat(val)
+                      });
+                    }}
+                    className="w-full p-2 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-mono font-bold disabled:opacity-50"
+                    required={formData.priceStatus !== 'PENDING'}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-[#D4D4D8]">Preço Custo (R$)</label>
+                    {formData.priceStatus !== 'PENDING' && Number(formData.price) > 0 && Number(formData.costPrice) > 0 && (
+                      <span className="text-[10px] font-mono text-emerald-400">
+                        Margem {(((Number(formData.price) - Number(formData.costPrice)) / Number(formData.price)) * 100).toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
-                    value={formData.price ?? 0}
-                    onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-                    className="w-full p-2 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-mono font-bold"
-                    required
+                    placeholder="Opcional"
+                    value={formData.costPrice ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData,
+                        costPrice: val === '' ? undefined : parseFloat(val)
+                      });
+                    }}
+                    className="w-full p-2 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-mono"
                   />
                 </div>
               </div>
@@ -921,35 +1162,61 @@ export function ProductsAndStock({
             <form onSubmit={handleAdjustStock} className="space-y-3 text-xs">
               <div>
                 <label className="block font-bold text-[#D4D4D8] mb-1">Tipo de Operação</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => setAdjustType('ENTRADA')}
+                    onClick={() => {
+                      setAdjustType('ENTRADA');
+                      setAdjustQty(10);
+                      setAdjustReason('Reposição de estoque semanal');
+                    }}
                     className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
                       adjustType === 'ENTRADA' ? 'bg-[#1D2B20] border-emerald-500 text-emerald-400' : 'bg-[#151515] border-[#282828] text-[#71717A]'
                     }`}
                   >
-                    + Entrada / Compra
+                    + Entrada
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAdjustType('AJUSTE_MANUAL')}
+                    onClick={() => {
+                      setAdjustType('AJUSTE_MANUAL');
+                      setAdjustQty(adjustingProduct.currentStock);
+                      setAdjustReason('Contagem de inventário');
+                    }}
                     className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
                       adjustType === 'AJUSTE_MANUAL' ? 'bg-[#2E2413] border-amber-500 text-amber-300' : 'bg-[#151515] border-[#282828] text-[#71717A]'
                     }`}
                   >
-                    Contagem / Inventário
+                    Inventário
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdjustType('PERDA_AVARIA');
+                      setAdjustQty(1);
+                      setAdjustReason('');
+                    }}
+                    className={`p-2 rounded-xl border font-bold text-center cursor-pointer transition ${
+                      adjustType === 'PERDA_AVARIA' ? 'bg-rose-950/50 border-rose-500 text-rose-400' : 'bg-[#151515] border-[#282828] text-[#71717A]'
+                    }`}
+                  >
+                    Perda / Avaria
                   </button>
                 </div>
               </div>
 
               <div>
                 <label className="block font-bold text-[#D4D4D8] mb-1">
-                  {adjustType === 'ENTRADA' ? 'Quantidade a Adicionar (+):' : 'Nova Quantidade Real Contada:'}
+                  {adjustType === 'ENTRADA'
+                    ? 'Quantidade a Adicionar (+):'
+                    : adjustType === 'PERDA_AVARIA'
+                    ? 'Quantidade Baixada por Perda / Avaria (-):'
+                    : 'Nova Quantidade Real Contada:'}
                 </label>
                 <input
                   type="number"
-                  min="0"
+                  min={adjustType === 'AJUSTE_MANUAL' ? '0' : '1'}
+                  max={adjustType === 'PERDA_AVARIA' ? adjustingProduct.currentStock : undefined}
                   value={adjustQty}
                   onChange={(e) => setAdjustQty(parseInt(e.target.value, 10) || 0)}
                   className="w-full p-2 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] font-mono font-bold text-sm focus:border-emerald-500 focus:outline-none"
@@ -1017,6 +1284,8 @@ export function ProductsAndStock({
                 <img
                   src={getProductImages(galleryProduct)[activeGalleryIndex] || getProductImages(galleryProduct)[0]}
                   alt={galleryProduct.name}
+                  decoding="async"
+                  referrerPolicy="no-referrer"
                   className="w-full h-full object-contain"
                 />
               ) : (
@@ -1061,7 +1330,7 @@ export function ProductsAndStock({
                         : 'border-[#2C2C2C] opacity-60 hover:opacity-100'
                     }`}
                   >
-                    <img src={img} alt={`Miniatura ${idx + 1}`} className="w-full h-full object-cover" />
+                    <img src={img} alt={`Miniatura ${idx + 1}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     <span className="absolute bottom-0 right-0 bg-black/80 text-white font-mono text-[9px] px-1 font-bold">
                       {idx + 1}
                     </span>
@@ -1077,11 +1346,11 @@ export function ProductsAndStock({
                   Código: <strong className="text-white font-mono">{galleryProduct.internalCode}</strong> • Estoque: <strong className="text-white font-mono">{galleryProduct.currentStock} {galleryProduct.unit}</strong>
                 </span>
                 <span className="text-base font-extrabold text-[#F5F5F5] font-mono">
-                  {formatCurrency(galleryProduct.price)}
+                  {formatProductPrice(galleryProduct.price, galleryProduct.priceStatus)}
                 </span>
               </div>
               <div className="flex gap-2">
-                {isAdmin && (
+                {canEditInventory && (
                   <button
                     type="button"
                     onClick={() => {

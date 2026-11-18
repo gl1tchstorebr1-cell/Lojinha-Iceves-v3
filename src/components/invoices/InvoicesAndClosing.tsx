@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   FileText, 
   Calendar, 
@@ -20,10 +20,19 @@ import {
   Edit3,
   Save,
   RotateCcw,
-  Trash2
+  Trash2,
+  ChevronDown,
+  FileSpreadsheet
 } from 'lucide-react';
-import { Invoice, MonthlyClosingPreview, InvoiceStatus, Student } from '../../types';
+import { Invoice, MonthlyClosingPreview, InvoiceStatus, Student, Sale } from '../../types';
 import { formatCurrency, formatDate, formatDateTime, formatPeriod } from '../../utils/formatters';
+import {
+  buildCombinedFinancialBackupCsvRows,
+  buildInvoicesOnlyCsvRows,
+  buildSalesOnlyCsvRows,
+  downloadCsvFile,
+  getExportDateSlug
+} from '../../utils/csvExport';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { QrCodeDisplay } from '../common/QrCodeDisplay';
@@ -32,12 +41,14 @@ import { MercadoPagoCheckoutModal } from '../payment/MercadoPagoCheckoutModal';
 interface InvoicesAndClosingProps {
   invoices: Invoice[];
   students: Student[];
+  sales?: Sale[];
   onInvoicesUpdated: () => void;
 }
 
 export function InvoicesAndClosing({ 
   invoices, 
   students, 
+  sales = [],
   onInvoicesUpdated 
 }: InvoicesAndClosingProps) {
   const { user, isAdmin } = useAuth();
@@ -69,6 +80,30 @@ export function InvoicesAndClosing({
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
   const [invoiceSaveSuccess, setInvoiceSaveSuccess] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
+
+  // Offline CSV Backup Export state
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const openInvoiceDetails = (invoice: Invoice, startEditing = false) => {
     setSelectedInvoice(invoice);
@@ -201,11 +236,65 @@ export function InvoicesAndClosing({
     setTimeout(() => setCopiedPix(false), 2000);
   };
 
+  const hasActiveInvoiceFilters = invoiceSearch.trim().length > 0 || statusFilter !== 'TODAS';
+
+  const handleExportCsv = (mode: 'COMBINED' | 'INVOICES' | 'INVOICES_FILTERED' | 'SALES') => {
+    if (!isAdmin) return;
+    const dateSlug = getExportDateSlug();
+    let filename = '';
+    let rows: unknown[][] = [];
+    let feedbackMsg = '';
+    let auditInvoicesCount = invoices.length;
+    let auditSalesCount = sales.length;
+
+    if (mode === 'COMBINED') {
+      filename = `backup-faturas-vendas-${dateSlug}.csv`;
+      rows = buildCombinedFinancialBackupCsvRows({
+        invoices,
+        sales,
+        students,
+        exportedBy: user?.name || 'Administrador'
+      });
+      feedbackMsg = `Backup offline exportado: ${invoices.length} fatura(s) e ${sales.length} venda(s) em ${filename}.`;
+    } else if (mode === 'INVOICES') {
+      filename = `relatorio-faturas-${dateSlug}.csv`;
+      rows = buildInvoicesOnlyCsvRows(invoices, students);
+      auditSalesCount = 0;
+      feedbackMsg = `Relatório de faturas exportado: ${invoices.length} registro(s) em ${filename}.`;
+    } else if (mode === 'INVOICES_FILTERED') {
+      filename = `relatorio-faturas-filtradas-${dateSlug}.csv`;
+      rows = buildInvoicesOnlyCsvRows(filteredInvoices, students);
+      auditInvoicesCount = filteredInvoices.length;
+      auditSalesCount = 0;
+      feedbackMsg = `Relatório filtrado exportado: ${filteredInvoices.length} fatura(s) em ${filename}.`;
+    } else {
+      filename = `relatorio-vendas-${dateSlug}.csv`;
+      rows = buildSalesOnlyCsvRows(sales, students);
+      auditInvoicesCount = 0;
+      feedbackMsg = `Relatório de vendas exportado: ${sales.length} registro(s) em ${filename}.`;
+    }
+
+    downloadCsvFile(filename, rows);
+    setShowExportMenu(false);
+    setExportFeedback(feedbackMsg);
+    setTimeout(() => setExportFeedback(null), 5000);
+
+    api
+      .logFinancialCsvExport({
+        exportType: mode,
+        invoicesCount: auditInvoicesCount,
+        salesCount: auditSalesCount
+      })
+      .catch(() => {
+        // Non-blocking audit log so offline/local download always completes cleanly
+      });
+  };
+
   return (
     <div className="space-y-5">
       
       {/* Top Banner */}
-      <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828] shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-emerald-400" />
@@ -218,25 +307,146 @@ export function InvoicesAndClosing({
           </p>
         </div>
 
-        <div className="flex bg-[#151515] p-1 rounded-xl border border-[#282828] text-xs">
-          <button
-            onClick={() => setActiveTab('closing_engine')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-              activeTab === 'closing_engine' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
-            }`}
-          >
-            Rotina de Fechamento
-          </button>
-          <button
-            onClick={() => setActiveTab('invoices_list')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-              activeTab === 'invoices_list' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
-            }`}
-          >
-            Faturas Emitidas ({invoices.length})
-          </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {isAdmin && (
+            <div className="relative" ref={exportMenuRef}>
+              <div className="inline-flex rounded-xl border border-emerald-500/35 bg-emerald-500/10 shadow-xs overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => handleExportCsv('COMBINED')}
+                  className="px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 hover:text-emerald-200 transition flex items-center gap-1.5 cursor-pointer"
+                  title="Baixar backup offline completo (Faturas e Vendas) em CSV"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Exportar CSV (Faturas e Vendas)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowExportMenu(prev => !prev)}
+                  aria-label="Opções de exportação CSV"
+                  aria-expanded={showExportMenu}
+                  className="px-2 py-2 border-l border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 hover:text-emerald-200 transition flex items-center cursor-pointer"
+                  title="Escolher tipo de relatório CSV"
+                >
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+
+              {showExportMenu && (
+                <div className="absolute right-0 mt-2 w-72 rounded-xl bg-[#161616] border border-[#303030] shadow-2xl p-1.5 z-30 space-y-1">
+                  <div className="px-2.5 py-1.5 border-b border-[#242424]">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#71717A] block">
+                      Backup Offline Financeiro (.CSV)
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportCsv('COMBINED')}
+                    className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[#222222] transition flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="text-xs font-bold text-[#F5F5F5] block">
+                        Relatório Completo (Faturas + Vendas)
+                      </span>
+                      <span className="text-[10px] text-[#A1A1AA]">
+                        {invoices.length} fatura(s) e {sales.length} venda(s) com resumo geral
+                      </span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportCsv('INVOICES')}
+                    className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[#222222] transition flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="text-xs font-bold text-[#F5F5F5] block">
+                        Somente Faturas Emitidas
+                      </span>
+                      <span className="text-[10px] text-[#A1A1AA]">
+                        Todas as {invoices.length} fatura(s) com saldos e itens
+                      </span>
+                    </div>
+                  </button>
+
+                  {hasActiveInvoiceFilters && (
+                    <button
+                      type="button"
+                      onClick={() => handleExportCsv('INVOICES_FILTERED')}
+                      className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[#222222] transition flex items-start gap-2.5 cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-xs font-bold text-[#F5F5F5] block">
+                          Faturas Filtradas na Tela
+                        </span>
+                        <span className="text-[10px] text-[#A1A1AA]">
+                          Exportar apenas as {filteredInvoices.length} fatura(s) visíveis
+                        </span>
+                      </div>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportCsv('SALES')}
+                    className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[#222222] transition flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-violet-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="text-xs font-bold text-[#F5F5F5] block">
+                        Somente Vendas (PDV & Passeios)
+                      </span>
+                      <span className="text-[10px] text-[#A1A1AA]">
+                        Todas as {sales.length} venda(s) concluídas e estornadas
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex bg-[#151515] p-1 rounded-xl border border-[#282828] text-xs">
+            <button
+              onClick={() => setActiveTab('closing_engine')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeTab === 'closing_engine' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
+              }`}
+            >
+              Rotina de Fechamento
+            </button>
+            <button
+              onClick={() => setActiveTab('invoices_list')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeTab === 'invoices_list' ? 'bg-[#282828] text-[#F5F5F5]' : 'text-[#A1A1AA] hover:text-[#F5F5F5]'
+              }`}
+            >
+              Faturas Emitidas ({invoices.length})
+            </button>
+          </div>
         </div>
       </div>
+
+      {exportFeedback && (
+        <div className="p-3.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs rounded-xl flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-semibold">
+            <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{exportFeedback}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExportFeedback(null)}
+            className="text-emerald-300 hover:text-white font-bold text-sm cursor-pointer px-1"
+            aria-label="Fechar aviso"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {activeTab === 'closing_engine' ? (
         <div className="space-y-6">

@@ -27,11 +27,18 @@ import {
   Link2,
   ShieldCheck,
   Lock,
-  Mail
+  Mail,
+  Sun,
+  Moon,
+  Smartphone,
+  Globe
 } from 'lucide-react';
 import { SystemSettings, Student } from '../../types';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { usePWAInstall } from '../../hooks/usePWAInstall';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { getInitialsAvatar, compressImageFileToDataUrl } from '../../utils/avatar';
 
 interface SystemSettingsViewProps {
@@ -50,6 +57,8 @@ export function SystemSettingsView({
   onResetData 
 }: SystemSettingsViewProps) {
   const { isAdmin } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const { isInstalled, isInstallable, isIOS, updateAvailable, applyUpdate } = usePWAInstall();
 
   const [formData, setFormData] = useState<Partial<SystemSettings>>({
     institutionName: settings?.institutionName || 'Escola de Cristo - ICEVES',
@@ -434,6 +443,84 @@ export function SystemSettingsView({
 
       <form onSubmit={handleSave} className="space-y-6">
         
+        {/* 0. Aplicativo Instalável (PWA), Tema & Padrão Regional */}
+        <div className="bg-[#1B1B1B] rounded-2xl border border-emerald-500/30 p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242424] pb-3">
+            <div className="flex items-center gap-2.5">
+              <Smartphone className="w-4 h-4 text-emerald-400" />
+              <div>
+                <h3 className="font-semibold text-[#F5F5F5] text-sm">
+                  0. Aplicativo Instalável (PWA), Aparência & Localização
+                </h3>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  Instale a Lojinha Iceves diretamente no computador, tablet ou celular como aplicativo nativo (modo standalone).
+                </p>
+              </div>
+            </div>
+            <PWAInstallButton variant="settings" />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828] space-y-2">
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Status da Instalação PWA</span>
+              <div className="font-semibold text-[#F5F5F5]">
+                {isInstalled
+                  ? 'Instalado (Modo App Standalone)'
+                  : isInstallable
+                  ? 'Pronto para Instalação Nativa'
+                  : isIOS
+                  ? 'Compatível via Safari (Adicionar à Tela de Início)'
+                  : 'Navegador Web / Preview'}
+              </div>
+              {updateAvailable && (
+                <button
+                  type="button"
+                  onClick={applyUpdate}
+                  className="px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer"
+                >
+                  Atualizar Versão Agora
+                </button>
+              )}
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828] space-y-2">
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Tema da Interface</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTheme('dark')}
+                  className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border cursor-pointer transition ${
+                    theme === 'dark'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : 'bg-[#1F1F1F] text-zinc-400 border-[#2C2C2C]'
+                  }`}
+                >
+                  <Moon className="w-3.5 h-3.5" /> Escuro
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border cursor-pointer transition ${
+                    theme === 'light'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : 'bg-[#1F1F1F] text-zinc-400 border-[#2C2C2C]'
+                  }`}
+                >
+                  <Sun className="w-3.5 h-3.5" /> Claro
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828] space-y-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold flex items-center gap-1">
+                <Globe className="w-3 h-3 text-emerald-400" /> Padrão Regional
+              </span>
+              <div className="font-semibold text-[#F5F5F5]">Português (Brasil) • BRL (R$)</div>
+              <div className="text-[11px] text-[#A1A1AA]">Fuso horário: America/Sao_Paulo</div>
+            </div>
+          </div>
+        </div>
+
         {/* 1. Identificação da Loja & Instituição */}
         <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#242424] pb-3">

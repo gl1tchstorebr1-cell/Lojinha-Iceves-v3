@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { 
-  Command, 
   LayoutGrid, 
   ShoppingCart, 
   Package, 
   Users, 
-  DollarSign, 
   FileText, 
   QrCode, 
   MessageSquare, 
@@ -18,20 +17,15 @@ import {
   Mail, 
   ChevronRight, 
   Lock, 
-  Folder, 
   MoreVertical, 
   LogOut, 
-  KeyRound, 
   ShieldCheck, 
-  Boxes, 
-  Calendar,
   X,
-  CreditCard,
-  Building2,
-  Store,
-  UserCheck,
   Bus,
-  Compass
+  Compass,
+  Wallet,
+  FileSpreadsheet,
+  Sparkles
 } from 'lucide-react';
 import { SystemSettings } from '../../types';
 
@@ -60,13 +54,13 @@ export function Sidebar({
   setIsMobileOpen,
   onOpenQuickSale
 }: SidebarProps) {
-  const { user, role, isAdmin, isCashier, isStudent, isGuardian, logout } = useAuth();
+  const { user, role, isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian, logout } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [authExpanded, setAuthExpanded] = useState(false);
 
   const storeName = settings?.storeName || 'Lojinha do Campus';
   const canAccessPdvPasseios =
-    isAdmin ||
+    canManage ||
     (isCashier &&
       Boolean(
         settings?.pdvPasseiosPermissions?.cashierCanViewPasseios ||
@@ -197,8 +191,8 @@ export function Sidebar({
             </nav>
           </div>
 
-          {/* Section: Operações (Vendas e cupons unificada com PDV conforme solicitação) */}
-          {(isAdmin || isCashier) && (
+          {/* Section: Operações */}
+          {(canManage || isCashier || isStockist || isViewer) && (
             <div>
               {!isCollapsed && (
                 <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
@@ -207,26 +201,28 @@ export function Sidebar({
               )}
               <nav className="space-y-1">
                 {/* Unified PDV & Cupons */}
-                <button
-                  onClick={() => handleSelectTab('pdv')}
-                  className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'pdv' || activeTab === 'sales_history'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {(activeTab === 'pdv' || activeTab === 'sales_history') && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <div className="flex items-center gap-3 z-10">
-                    <ShoppingCart className="w-4 h-4 shrink-0" />
-                    {!isCollapsed && <span>PDV & Cupons</span>}
-                  </div>
-                </button>
+                {(canManage || isCashier) && (
+                  <button
+                    onClick={() => handleSelectTab('pdv')}
+                    className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                      activeTab === 'pdv' || activeTab === 'sales_history'
+                        ? 'text-white'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    {(activeTab === 'pdv' || activeTab === 'sales_history') && (
+                      <motion.div
+                        layoutId="activeTabBadge"
+                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
+                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                      />
+                    )}
+                    <div className="flex items-center gap-3 z-10">
+                      <ShoppingCart className="w-4 h-4 shrink-0" />
+                      {!isCollapsed && <span>PDV & Cupons</span>}
+                    </div>
+                  </button>
+                )}
 
                 {/* PDV DE PASSEIOS */}
                 {canAccessPdvPasseios && (
@@ -279,8 +275,8 @@ export function Sidebar({
                   )}
                 </button>
 
-                {/* Passeios (Exclusivo para Administradores autorizados) */}
-                {isAdmin && (
+                {/* Passeios (Gestão) */}
+                {canManage && (
                   <button
                     onClick={() => handleSelectTab('passeios')}
                     className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
@@ -307,7 +303,7 @@ export function Sidebar({
           )}
 
           {/* Section: Financeiro */}
-          {isAdmin && (
+          {(canManage || isCashier || isViewer) && (
             <div>
               {!isCollapsed && (
                 <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
@@ -316,52 +312,125 @@ export function Sidebar({
               )}
               <nav className="space-y-1">
                 <button
-                  onClick={() => handleSelectTab('closing')}
+                  onClick={() => handleSelectTab('cash_register')}
                   className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'closing'
+                    activeTab === 'cash_register'
                       ? 'text-white'
                       : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
                   }`}
                 >
-                  {activeTab === 'closing' && (
+                  {activeTab === 'cash_register' && (
                     <motion.div
                       layoutId="activeTabBadge"
                       className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
-                  <FileText className="w-4 h-4 shrink-0 z-10" />
-                  {!isCollapsed && <span className="z-10">Faturas & Fechamento</span>}
+                  <Wallet className="w-4 h-4 shrink-0 z-10" />
+                  {!isCollapsed && <span className="z-10">Caixa & Financeiro</span>}
                 </button>
 
-                <button
-                  onClick={() => handleSelectTab('pix')}
-                  className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'pix'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {activeTab === 'pix' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <div className="flex items-center gap-3 z-10">
-                    <QrCode className="w-4 h-4 shrink-0" />
-                    {!isCollapsed && <span>Conferência Pix</span>}
-                  </div>
-                  {!isCollapsed && pendingPixCount > 0 && (
-                    <span className="z-10 text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      {pendingPixCount}
-                    </span>
-                  )}
-                </button>
+                {canManage && (
+                  <button
+                    onClick={() => handleSelectTab('closing')}
+                    className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                      activeTab === 'closing'
+                        ? 'text-white'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    {activeTab === 'closing' && (
+                      <motion.div
+                        layoutId="activeTabBadge"
+                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
+                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                      />
+                    )}
+                    <FileText className="w-4 h-4 shrink-0 z-10" />
+                    {!isCollapsed && <span className="z-10">Faturas & Fechamento</span>}
+                  </button>
+                )}
+
+                {canManage && (
+                  <button
+                    onClick={() => handleSelectTab('pix')}
+                    className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                      activeTab === 'pix'
+                        ? 'text-white'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    {activeTab === 'pix' && (
+                      <motion.div
+                        layoutId="activeTabBadge"
+                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
+                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                      />
+                    )}
+                    <div className="flex items-center gap-3 z-10">
+                      <QrCode className="w-4 h-4 shrink-0" />
+                      {!isCollapsed && <span>Conferência Pix</span>}
+                    </div>
+                    {!isCollapsed && pendingPixCount > 0 && (
+                      <span className="z-10 text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        {pendingPixCount}
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                {(canManage || isViewer) && (
+                  <button
+                    onClick={() => handleSelectTab('reports')}
+                    className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                      activeTab === 'reports'
+                        ? 'text-white'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    {activeTab === 'reports' && (
+                      <motion.div
+                        layoutId="activeTabBadge"
+                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
+                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                      />
+                    )}
+                    <FileSpreadsheet className="w-4 h-4 shrink-0 z-10" />
+                    {!isCollapsed && <span className="z-10">Relatórios & Exportação</span>}
+                  </button>
+                )}
               </nav>
             </div>
           )}
+
+          {/* Section: Inteligência Artificial */}
+          <div>
+            {!isCollapsed && (
+              <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
+                Inteligência
+              </div>
+            )}
+            <nav className="space-y-1">
+              <button
+                onClick={() => handleSelectTab('ai_assistant')}
+                className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                  activeTab === 'ai_assistant'
+                    ? 'text-white'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                }`}
+              >
+                {activeTab === 'ai_assistant' && (
+                  <motion.div
+                    layoutId="activeTabBadge"
+                    className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                  />
+                )}
+                <Sparkles className="w-4 h-4 shrink-0 z-10 text-emerald-400" />
+                {!isCollapsed && <span className="z-10">ICEVES Inteligência</span>}
+              </button>
+            </nav>
+          </div>
 
           {/* Section: Pessoas & Portais */}
           <div>
@@ -371,7 +440,7 @@ export function Sidebar({
               </div>
             )}
             <nav className="space-y-1">
-              {isAdmin && (
+              {canManage && (
                 <button
                   onClick={() => handleSelectTab('students')}
                   className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
@@ -550,9 +619,10 @@ export function Sidebar({
 
         </div>
 
-        {/* Footer Card & Profile (Reference Style) */}
+        {/* Footer Card & Profile */}
         {!isCollapsed && (
           <div className="p-3 border-t border-white/[0.08] space-y-3 shrink-0 bg-[#111111]">
+            <PWAInstallButton variant="sidebar" />
             <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-950/30 to-white/[0.02] border border-emerald-500/20 text-xs space-y-1.5">
               <div className="flex items-center gap-2">
                 <img

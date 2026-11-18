@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { 
   Search, 
   Settings, 
@@ -16,12 +18,13 @@ import {
   QrCode, 
   MessageSquare, 
   ShieldAlert, 
-  Download, 
   X,
   Bell,
-  CheckCircle2,
   AlertTriangle,
-  LogOut
+  LogOut,
+  Wallet,
+  FileSpreadsheet,
+  Sparkles
 } from 'lucide-react';
 import { SystemSettings, Product, PixPayment } from '../../types';
 
@@ -44,13 +47,14 @@ export function TopBar({
   onOpenMobileMenu,
   onNavigate
 }: TopBarProps) {
-  const { user, isAdmin, isCashier, isStudent, isGuardian, logout } = useAuth();
+  const { user, isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian, logout } = useAuth();
+  const { isLight, toggleTheme } = useTheme();
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
 
-  const pendingPix = isAdmin ? pixPayments.filter(p => p.status === 'AGUARDANDO_CONFERENCIA') : [];
-  const lowStock = (isAdmin || isCashier) ? products.filter(p => p.currentStock <= p.minStock) : [];
+  const pendingPix = canManage ? pixPayments.filter(p => p.status === 'AGUARDANDO_CONFERENCIA') : [];
+  const lowStock = (canManage || isCashier || isStockist) ? products.filter(p => p.status === 'ACTIVE' && !p.archived && p.currentStock <= p.minStock) : [];
   const totalNotifications = pendingPix.length + lowStock.length;
 
   // Keyboard shortcut ⌘K / Ctrl+K
@@ -71,11 +75,14 @@ export function TopBar({
   // Role-filtered Command palette navigation items
   const allCommandItems = [
     { name: isStudent ? 'Meu Dashboard' : 'Visão Geral (Dashboard)', icon: LayoutGrid, section: 'Navegação', tab: 'dashboard', allowed: true },
-    { name: 'Ponto de Venda & Cupons (PDV)', icon: ShoppingCart, section: 'Operações', tab: 'pdv', allowed: isAdmin || isCashier },
-    { name: 'Produtos & Estoque', icon: Package, section: 'Operações', tab: 'products', allowed: isAdmin || isCashier },
-    { name: 'Faturas & Fechamento Mensal', icon: FileText, section: 'Financeiro', tab: 'closing', allowed: isAdmin },
-    { name: 'Conferência Pix', icon: QrCode, section: 'Financeiro', tab: 'pix', allowed: isAdmin },
-    { name: 'Alunos & Responsáveis', icon: Users, section: 'Pessoas', tab: 'students', allowed: isAdmin },
+    { name: 'Ponto de Venda & Cupons (PDV)', icon: ShoppingCart, section: 'Operações', tab: 'pdv', allowed: canManage || isCashier },
+    { name: 'Produtos & Estoque', icon: Package, section: 'Operações', tab: 'products', allowed: canManage || isCashier || isStockist || isViewer },
+    { name: 'Caixa & Financeiro', icon: Wallet, section: 'Financeiro', tab: 'cash_register', allowed: canManage || isCashier || isViewer },
+    { name: 'Faturas & Fechamento Mensal', icon: FileText, section: 'Financeiro', tab: 'closing', allowed: canManage },
+    { name: 'Conferência Pix', icon: QrCode, section: 'Financeiro', tab: 'pix', allowed: canManage },
+    { name: 'Central de Relatórios (CSV / Excel / PDF)', icon: FileSpreadsheet, section: 'Financeiro', tab: 'reports', allowed: canManage || isViewer },
+    { name: 'ICEVES Inteligência (Assistente IA)', icon: Sparkles, section: 'Inteligência', tab: 'ai_assistant', allowed: true },
+    { name: 'Alunos & Responsáveis', icon: Users, section: 'Pessoas', tab: 'students', allowed: canManage },
     { name: 'Portal do Aluno', icon: LayoutGrid, section: 'Portais', tab: 'student_portal', allowed: isAdmin || isStudent },
     { name: 'Portal do Responsável', icon: Users, section: 'Portais', tab: 'guardian_portal', allowed: isAdmin || isGuardian },
     { name: 'WhatsApp & Comunicação', icon: MessageSquare, section: 'Administração', tab: 'whatsapp', allowed: isAdmin },
@@ -120,8 +127,20 @@ export function TopBar({
           </button>
         </div>
 
-        {/* Right: Institutional Badge, Notifications, Settings (Admin only), Profile */}
+        {/* Right: PWA Install, Theme Toggle, Institutional Badge, Notifications, Settings, Profile */}
         <div className="flex items-center gap-2 relative">
+          <PWAInstallButton variant="topbar" />
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="p-2 rounded-lg border border-white/[0.08] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+            title={isLight ? 'Alternar para Tema Escuro' : 'Alternar para Tema Claro'}
+            aria-label={isLight ? 'Alternar para Tema Escuro' : 'Alternar para Tema Claro'}
+          >
+            {isLight ? <Moon className="w-4 h-4 text-amber-400" /> : <Sun className="w-4 h-4 text-amber-300" />}
+          </button>
+
           {/* ICEVES Institutional Pill */}
           <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 mr-1">
             <img
@@ -134,8 +153,8 @@ export function TopBar({
             </span>
           </div>
           
-          {/* Notifications Button (Admin / Cashier operational alerts) */}
-          {(isAdmin || isCashier) && (
+          {/* Notifications Button */}
+          {(canManage || isCashier || isStockist) && (
             <div className="relative">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}

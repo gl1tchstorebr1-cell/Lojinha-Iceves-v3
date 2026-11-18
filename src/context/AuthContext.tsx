@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { User, UserRole } from '../types';
 import { api, setApiUserId } from '../services/api';
 import { supabase } from '../services/supabaseClient';
@@ -7,7 +7,11 @@ interface AuthContextType {
   user: User | null;
   role: UserRole | null;
   isAdmin: boolean;
+  isManager: boolean;
+  canManage: boolean;
   isCashier: boolean;
+  isStockist: boolean;
+  isViewer: boolean;
   isStudent: boolean;
   isGuardian: boolean;
   login: (email: string, password?: string) => Promise<void>;
@@ -17,6 +21,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const DEFAULT_ADMIN_USER: User = {
+  id: 'user-admin',
+  name: 'Coordenação ICEVES',
+  email: 'admin.lojinha@gmail.com',
+  role: 'ADMIN',
+  phone: '(11) 98765-4321',
+  createdAt: '2026-01-15T08:00:00Z'
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('campus_user');
@@ -25,9 +38,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const parsed = JSON.parse(saved);
         setApiUserId(parsed.id);
         return parsed;
-      } catch (e) {
+      } catch {
         localStorage.removeItem('campus_user');
       }
+    }
+    const explicitlyLoggedOut = sessionStorage.getItem('campus_logged_out') === '1';
+    if (!explicitlyLoggedOut) {
+      setApiUserId(DEFAULT_ADMIN_USER.id);
+      return DEFAULT_ADMIN_USER;
     }
     return null;
   });
@@ -35,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user) {
       localStorage.setItem('campus_user', JSON.stringify(user));
+      sessionStorage.removeItem('campus_logged_out');
       setApiUserId(user.id);
     } else {
       localStorage.removeItem('campus_user');
@@ -42,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
-  const login = async (email: string, password?: string) => {
+  const login = useCallback(async (email: string, password?: string) => {
     const cleanEmail = email.trim();
     const cleanPass = password?.trim() || '';
 
@@ -66,9 +85,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await api.login(cleanEmail, cleanPass);
     setUser(res.user);
     setApiUserId(res.user.id);
-  };
+  }, []);
 
-  const register = async (userData: { email: string; password: string; name: string; role?: UserRole; phone?: string }) => {
+  const register = useCallback(async (userData: { email: string; password: string; name: string; role?: UserRole; phone?: string }) => {
     const cleanEmail = userData.email.trim();
     const cleanPass = userData.password.trim();
 
@@ -95,39 +114,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await api.register(userData);
     setUser(res.user);
     setApiUserId(res.user.id);
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     try {
       supabase.auth.signOut().catch(() => {});
-    } catch (e) {
+    } catch {
       // ignore
     }
+    sessionStorage.setItem('campus_logged_out', '1');
     setUser(null);
     localStorage.removeItem('campus_user');
     setApiUserId('');
-  };
+  }, []);
 
-  const role = user?.role || null;
-  const isAdmin = role === 'ADMIN';
-  const isCashier = role === 'CASHIER' || role === 'ADMIN';
-  const isStudent = role === 'STUDENT';
-  const isGuardian = role === 'GUARDIAN';
+  const value = useMemo<AuthContextType>(() => {
+    const role = user?.role || null;
+    const isAdmin = role === 'ADMIN';
+    const isManager = role === 'MANAGER';
+    const canManage = role === 'ADMIN' || role === 'MANAGER';
+    const isCashier = role === 'CASHIER' || role === 'MANAGER' || role === 'ADMIN';
+    const isStockist = role === 'STOCKIST' || role === 'MANAGER' || role === 'ADMIN';
+    const isViewer = role === 'VIEWER';
+    const isStudent = role === 'STUDENT';
+    const isGuardian = role === 'GUARDIAN';
+
+    return {
+      user,
+      role,
+      isAdmin,
+      isManager,
+      canManage,
+      isCashier,
+      isStockist,
+      isViewer,
+      isStudent,
+      isGuardian,
+      login,
+      register,
+      logout
+    };
+  }, [user, login, register, logout]);
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        role,
-        isAdmin,
-        isCashier,
-        isStudent,
-        isGuardian,
-        login,
-        register,
-        logout
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

@@ -21,21 +21,19 @@ import {
   BookOpen,
   Droplets,
   Package,
-  Filter
+  Filter,
+  HeartPulse,
+  PenTool
 } from 'lucide-react';
 import { Student, Sale, Invoice, PixPayment, Passeio, Product, ProductCategory } from '../../types';
 import { formatCurrency, formatDate, formatDateTime, formatPeriod } from '../../utils/formatters';
+import { OFFICIAL_PRODUCT_CATEGORIES, normalizeProductCategory } from '../../utils/productImages';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { MercadoPagoCheckoutModal } from '../payment/MercadoPagoCheckoutModal';
 import { QrCodeDisplay } from '../common/QrCodeDisplay';
 
-const STUDENT_CATEGORIES: ProductCategory[] = [
-  'Alimentícios',
-  'Papelaria',
-  'Produtos de Limpeza',
-  'Cosméticos'
-];
+const STUDENT_CATEGORIES: ProductCategory[] = OFFICIAL_PRODUCT_CATEGORIES;
 
 interface StudentPortalProps {
   student: Student;
@@ -91,18 +89,24 @@ export function StudentPortal({
   // Resolve product category from catalog or item name
   const resolveItemCategory = (productId: string, itemName: string): ProductCategory => {
     const found = products.find(p => p.id === productId);
-    if (found) return found.category;
-    const lower = itemName.toLowerCase();
-    if (lower.includes('caderno') || lower.includes('caneta') || lower.includes('marca-texto') || lower.includes('papel')) {
+    if (found) return normalizeProductCategory(found.category);
+    const lower = (itemName || '').toLowerCase();
+    if (lower.includes('livro') || lower.includes('bíblia') || lower.includes('biblia') || lower.includes('crist') || lower.includes('sair') || lower.includes('espírito')) {
+      return 'Livros e Literatura Cristã';
+    }
+    if (lower.includes('própolis') || lower.includes('propolis') || lower.includes('levedura') || lower.includes('carvão') || lower.includes('chlorella') || lower.includes('argila')) {
+      return 'Produtos Naturais e Saúde';
+    }
+    if (lower.includes('caderno') || lower.includes('caneta') || lower.includes('marca-texto') || lower.includes('papel') || lower.includes('post-it')) {
       return 'Papelaria';
     }
-    if (lower.includes('detergente') || lower.includes('álcool') || lower.includes('alcool') || lower.includes('pano') || lower.includes('limpeza')) {
-      return 'Produtos de Limpeza';
+    if (lower.includes('detergente') || lower.includes('álcool') || lower.includes('alcool') || lower.includes('pano') || lower.includes('limpeza') || lower.includes('desinfet')) {
+      return 'Limpeza';
     }
-    if (lower.includes('sabonete') || lower.includes('hidratante') || lower.includes('creme') || lower.includes('labial')) {
-      return 'Cosméticos';
+    if (lower.includes('sabonete') || lower.includes('hidratante') || lower.includes('creme') || lower.includes('labial') || lower.includes('shampoo') || lower.includes('desodorante') || lower.includes('absorvente')) {
+      return 'Higiene e Cuidados Pessoais';
     }
-    return 'Alimentícios';
+    return 'Alimentos e Snacks';
   };
 
   // Real category breakdown strictly from THIS student's own completed purchases
@@ -260,9 +264,39 @@ export function StudentPortal({
           </div>
         </div>
 
+        {/* Seção Pais e Responsáveis Vinculados ao Estudante */}
+        {student.guardians && student.guardians.some(g => g.guardianName) && (
+          <div className="mt-4 pt-3.5 border-t border-[#262626] flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-[#A1A1AA]">
+              <UserCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span className="font-bold text-[#F5F5F5]">Pais e Responsáveis:</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {student.guardians
+                .filter(g => g.guardianName)
+                .map(g => (
+                  <div
+                    key={g.guardianId}
+                    className="px-3 py-1.5 rounded-xl bg-[#151515] border border-[#2C2C2C] flex flex-wrap items-center gap-2"
+                  >
+                    <span className="font-bold text-[#F5F5F5]">{g.guardianName}</span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                      {g.relationship || 'Responsável'}
+                    </span>
+                    {g.guardianPhone && (
+                      <span className="font-mono text-emerald-400 text-[11px]">
+                        • Tel: {g.guardianPhone}
+                      </span>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
         {/* Admin Student Selector to inspect any student's individual portal */}
         {isAdmin && allStudents.length > 1 && onSelectStudent && (
-          <div className="mt-5 pt-4 border-t border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="mt-4 pt-4 border-t border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs text-[#A1A1AA]">
               <Users className="w-4 h-4 text-emerald-400" />
               <span>Visualizar área individual de outro aluno (10ª Turma):</span>
@@ -418,7 +452,7 @@ export function StudentPortal({
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {STUDENT_CATEGORIES.map((cat) => {
                 const stat = categoryBreakdown[cat];
                 const pct =
@@ -427,13 +461,17 @@ export function StudentPortal({
                     : 0;
                 const isSelected = selectedCategory === cat;
                 const Icon =
-                  cat === 'Alimentícios'
-                    ? Utensils
-                    : cat === 'Papelaria'
+                  cat === 'Livros e Literatura Cristã'
                     ? BookOpen
-                    : cat === 'Produtos de Limpeza'
-                    ? Droplets
-                    : Sparkles;
+                    : cat === 'Alimentos e Snacks'
+                    ? Utensils
+                    : cat === 'Produtos Naturais e Saúde'
+                    ? HeartPulse
+                    : cat === 'Papelaria'
+                    ? PenTool
+                    : cat === 'Higiene e Cuidados Pessoais'
+                    ? Sparkles
+                    : Droplets;
 
                 return (
                   <button

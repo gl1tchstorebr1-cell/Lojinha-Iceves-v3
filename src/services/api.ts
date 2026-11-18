@@ -17,7 +17,10 @@ import {
   TripOperation,
   TripExpenseItem,
   TripParticipantAllocation,
-  TripDistributionMethod
+  TripDistributionMethod,
+  PaymentMethod,
+  CashRegisterSession,
+  CashMovement
 } from '../types';
 
 let currentUserId: string = 'user-admin';
@@ -104,7 +107,12 @@ export const api = {
     });
   },
 
-  async adjustStock(params: { productId: string; type: 'ENTRADA' | 'AJUSTE_MANUAL'; quantity: number; reason: string }) {
+  async adjustStock(params: {
+    productId: string;
+    type: 'ENTRADA' | 'AJUSTE_MANUAL' | 'PERDA_AVARIA';
+    quantity: number;
+    reason: string;
+  }) {
     return request<Product>('/api/stock/adjust', {
       method: 'POST',
       body: JSON.stringify(params)
@@ -120,7 +128,14 @@ export const api = {
     return request<Sale[]>('/api/sales');
   },
 
-  async createSale(params: { studentId: string; items: { productId: string; quantity: number }[]; idempotencyKey?: string }) {
+  async createSale(params: {
+    studentId: string;
+    items: { productId: string; quantity: number }[];
+    paymentMethod?: PaymentMethod;
+    discountAmount?: number;
+    notes?: string;
+    idempotencyKey?: string;
+  }) {
     return request<{ sale: Sale; student: Student }>('/api/sales', {
       method: 'POST',
       body: JSON.stringify(params)
@@ -131,6 +146,41 @@ export const api = {
     return request<{ sale: Sale; student: Student }>(`/api/sales/${saleId}/reverse`, {
       method: 'POST',
       body: JSON.stringify({ reason })
+    });
+  },
+
+  // Cash Register
+  async getCashState() {
+    return request<{
+      activeSession: CashRegisterSession | null;
+      sessions: CashRegisterSession[];
+      movements: CashMovement[];
+    }>('/api/cash');
+  },
+
+  async openCashSession(params: { openingBalance: number; notes?: string }) {
+    return request<CashRegisterSession>('/api/cash/open', {
+      method: 'POST',
+      body: JSON.stringify(params)
+    });
+  },
+
+  async addCashMovement(params: {
+    type: 'SUPRIMENTO' | 'SANGRIA' | 'DESPESA' | 'RECEITA';
+    amount: number;
+    description: string;
+    paymentMethod?: PaymentMethod;
+  }) {
+    return request<CashMovement>('/api/cash/movement', {
+      method: 'POST',
+      body: JSON.stringify(params)
+    });
+  },
+
+  async closeCashSession(params: { countedBalance: number; notes?: string }) {
+    return request<CashRegisterSession>('/api/cash/close', {
+      method: 'POST',
+      body: JSON.stringify(params)
     });
   },
 
@@ -150,6 +200,16 @@ export const api = {
     return request<Student>(`/api/students/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates)
+    });
+  },
+
+  async adjustStudentBalance(
+    studentId: string,
+    params: { operation: 'CREDITO' | 'DEBITO'; amount: number; reason: string }
+  ) {
+    return request<Student>(`/api/students/${studentId}/balance`, {
+      method: 'POST',
+      body: JSON.stringify(params)
     });
   },
 
@@ -310,6 +370,13 @@ export const api = {
   async clearAllInvoices() {
     return request<{ success: boolean; totalDeleted: number }>('/api/invoices/clear-all', {
       method: 'POST'
+    });
+  },
+
+  async logFinancialCsvExport(params: { exportType: string; invoicesCount: number; salesCount: number }) {
+    return request<{ success: boolean }>('/api/invoices/export-log', {
+      method: 'POST',
+      body: JSON.stringify(params)
     });
   },
 
@@ -540,6 +607,17 @@ export const api = {
       message: string;
     }>('/api/supabase/sync-pull', {
       method: 'POST'
+    });
+  },
+
+  // ICEVES Inteligência (Gemini AI)
+  async askIcevesAi(params: {
+    question: string;
+    history?: Array<{ role: 'user' | 'model'; text: string }>;
+  }) {
+    return request<{ answer: string; model: string; generatedAt: string }>('/api/ai/assistant', {
+      method: 'POST',
+      body: JSON.stringify(params)
     });
   }
 };
