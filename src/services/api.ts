@@ -20,7 +20,18 @@ import {
   TripDistributionMethod,
   PaymentMethod,
   CashRegisterSession,
-  CashMovement
+  CashMovement,
+  BillingBatch,
+  BillingBatchPreview,
+  BillingPreviewSale,
+  IndividualInvoicePayload,
+  PeriodBillingPayload,
+  UnbilledConsumptionOverview,
+  InvoiceConsumptionSummaryItem,
+  InvoiceSaleItemLink,
+  StudentGuardianLink,
+  SalesReceipt,
+  SalePaymentEntry
 } from '../types';
 
 let currentUserId: string = 'user-admin';
@@ -33,6 +44,8 @@ export function getApiUserId() {
   return currentUserId;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -40,17 +53,51 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     ...(options.headers as Record<string, string> || {})
   };
 
-  const res = await fetch(endpoint, {
-    ...options,
-    headers
-  });
+  const method = (options.method || 'GET').toUpperCase();
+  const maxAttempts = method === 'GET' ? 3 : 1;
+  let lastError: unknown;
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || `Erro na requisição (${res.status})`);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await fetch(endpoint, {
+        ...options,
+        headers
+      });
+
+      const rawText = await res.text();
+      let data: any = {};
+      if (rawText) {
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = { error: rawText };
+        }
+      }
+
+      if (!res.ok) {
+        if (method === 'GET' && res.status >= 502 && res.status <= 504 && attempt < maxAttempts - 1) {
+          await sleep(350 * (attempt + 1));
+          continue;
+        }
+        throw new Error(data.error || `Erro na requisição (${res.status})`);
+      }
+
+      return data as T;
+    } catch (err: any) {
+      lastError = err;
+      const isNetworkFailure =
+        err instanceof TypeError ||
+        (typeof err?.message === 'string' && /failed to fetch|networkerror|load failed/i.test(err.message));
+
+      if (method === 'GET' && isNetworkFailure && attempt < maxAttempts - 1) {
+        await sleep(350 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
   }
 
-  return data as T;
+  throw lastError instanceof Error ? lastError : new Error('Falha de comunicação com o servidor');
 }
 
 export const api = {
@@ -130,22 +177,76 @@ export const api = {
 
   async createSale(params: {
     studentId: string;
-    items: { productId: string; quantity: number }[];
+    items: { productId: string; quantity: number; discountAmount?: number }[];
     paymentMethod?: PaymentMethod;
+    payments?: SalePaymentEntry[];
+    amountPaid?: number;
+    creditUsed?: number;
+    terminalId?: string;
     discountAmount?: number;
     notes?: string;
     idempotencyKey?: string;
   }) {
-    return request<{ sale: Sale; student: Student }>('/api/sales', {
+    return request<{ sale: Sale; student: Student; receipt: SalesReceipt }>('/api/sales', {
       method: 'POST',
       body: JSON.stringify(params)
     });
   },
 
   async reverseSale(saleId: string, reason: string) {
-    return request<{ sale: Sale; student: Student }>(`/api/sales/${saleId}/reverse`, {
+    return request<{ sale: Sale; student: Student; receipt?: SalesReceipt }>(`/api/sales/${saleId}/reverse`, {
       method: 'POST',
       body: JSON.stringify({ reason })
+    });
+  },
+
+  async partialReverseSale(
+    saleId: string,
+    params: { items: Array<{ productId: string; quantity: number }>; reason: string }
+  ) {
+    return request<{ sale: Sale; student: Student; receipt?: SalesReceipt; reversedAmount: number }>(
+      `/api/sales/${saleId}/partial-reverse`,
+      {
+        method: 'POST',
+        body: JSON.stringify(params)
+      }
+    );
+  },
+
+  // Sales Receipts & Vouchers
+  async getReceipts(filters?: {
+    search?: string;
+    studentId?: string;
+    classGroup?: string;
+    operator?: string;
+    paymentMethod?: string;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+    saleCode?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([k, v]) => {
+        if (v) params.set(k, v);
+      });
+    }
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<SalesReceipt[]>(`/api/receipts${qs}`);
+  },
+
+  async getReceiptById(receiptId: string) {
+    return request<SalesReceipt>(`/api/receipts/${receiptId}`);
+  },
+
+  async getReceiptBySaleId(saleId: string) {
+    return request<SalesReceipt>(`/api/receipts/by-sale/${saleId}`);
+  },
+
+  async recordReceiptAction(receiptId: string, actionType: 'PRINT' | 'PDF' | 'REPRINT') {
+    return request<SalesReceipt>(`/api/receipts/${receiptId}/reprint`, {
+      method: 'POST',
+      body: JSON.stringify({ actionType })
     });
   },
 
@@ -335,9 +436,85 @@ export const api = {
     });
   },
 
-  // Invoices & Closing
+  // Invoices, Individual/Period Billing & Monthly Closing
   async getInvoices() {
     return request<Invoice[]>('/api/invoices');
+  },
+
+  async getInvoicesOverview() {
+    return request<{
+      unbilledOverview: UnbilledConsumptionOverview;
+      batches: BillingBatch[];
+    }>('/api/invoices/overview');
+  },
+
+  async getBillingBatches() {
+    return request<BillingBatch[]>('/api/invoices/batches');
+  },
+
+  async getStudentIndividualBillingContext(studentId: string, periodStart?: string, periodEnd?: string) {
+    const params = new URLSearchParams();
+    if (periodStart) params.set('periodStart', periodStart);
+    if (periodEnd) params.set('periodEnd', periodEnd);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<{
+      student: Student;
+      guardians: Array<StudentGuardianLink & { guardianEmail?: string }>;
+      sales: BillingPreviewSale[];
+      eligibleSalesTotal: number;
+      studentInvoices: Invoice[];
+    }>(`/api/invoices/student-context/${studentId}${qs}`);
+  },
+
+  async previewIndividualInvoice(payload: IndividualInvoicePayload) {
+    return request<{
+      student: Student;
+      hasGuardian: boolean;
+      warnings: string[];
+      billingPeriod: string;
+      periodStart: string;
+      periodEnd: string;
+      dueDate: string;
+      tuitionAmount: number;
+      canteenConsumptionTotal: number;
+      discountAmount: number;
+      creditAmount: number;
+      totalAdjustments: number;
+      grossTotal: number;
+      salesCount: number;
+      consumptionItems: InvoiceConsumptionSummaryItem[];
+      allocatedLinks: InvoiceSaleItemLink[];
+    }>('/api/invoices/individual-preview', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async createIndividualInvoice(payload: IndividualInvoicePayload) {
+    return request<{ batch: BillingBatch; invoice: Invoice; deduplicated?: boolean }>('/api/invoices/individual', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async previewPeriodBilling(payload: PeriodBillingPayload) {
+    return request<BillingBatchPreview>('/api/invoices/period-preview', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async executePeriodBilling(payload: PeriodBillingPayload) {
+    return request<{
+      batch: BillingBatch;
+      invoicesCreated: number;
+      invoices: Invoice[];
+      period: string;
+      deduplicated?: boolean;
+    }>('/api/invoices/period-execute', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
 
   async getClosingPreview(period?: string) {
@@ -347,17 +524,36 @@ export const api = {
     });
   },
 
-  async executeMonthlyClosing(period?: string) {
-    return request<{ period: string; invoicesCreated: number; invoices: Invoice[] }>('/api/invoices/execute-closing', {
-      method: 'POST',
-      body: JSON.stringify({ period })
-    });
+  async executeMonthlyClosing(period?: string, options?: Partial<PeriodBillingPayload>) {
+    return request<{ period: string; batch?: BillingBatch; invoicesCreated: number; invoices: Invoice[]; deduplicated?: boolean }>(
+      '/api/invoices/execute-closing',
+      {
+        method: 'POST',
+        body: JSON.stringify({ period, ...(options || {}) })
+      }
+    );
   },
 
-  async updateInvoice(id: string, updates: { tuitionAmount?: number; adjustmentsTotal?: number; notes?: string }) {
+  async updateInvoice(
+    id: string,
+    updates: { tuitionAmount?: number; adjustmentsTotal?: number; dueDate?: string; discountReason?: string; notes?: string }
+  ) {
     return request<Invoice>(`/api/invoices/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(updates)
+    });
+  },
+
+  async cancelInvoice(id: string, reason: string) {
+    return request<Invoice>(`/api/invoices/${id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    });
+  },
+
+  async retryInvoiceNotification(id: string) {
+    return request<{ invoiceId: string; notifications: WhatsAppNotification[] }>(`/api/invoices/${id}/retry-notification`, {
+      method: 'POST'
     });
   },
 

@@ -43,6 +43,18 @@ export const initialSettings: SystemSettings = {
   supabaseActive: true,
   supabaseUrl: 'https://brjsoaxvqrtxyofwxgkk.supabase.co',
   supabaseAnonKey: 'sb_publishable_mEQzWNPKvTxqWvzZ8u6XQA_2wlGfyLR',
+  receiptSettings: {
+    autoPrintOnSale: false,
+    defaultPrintFormat: '80mm',
+    customHeader: 'LOJINHA ICEVES • ESCOLA DE CRISTO',
+    customFooter: 'Comprovante oficial de consumo • 10ª Turma ICEVES',
+    showOperator: true,
+    showClassGroup: true,
+    showGuardian: true,
+    showUnitCodeSku: true,
+    showTerminalInfo: true,
+    secondCopyAllowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'VIEWER', 'STUDENT', 'GUARDIAN'],
+  },
   catalogVersion: CATALOG_VERSION,
   updatedAt: new Date().toISOString(),
   updatedByUserName: 'Coordenação ICEVES'

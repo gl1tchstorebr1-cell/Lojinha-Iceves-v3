@@ -147,15 +147,50 @@ export type TripExpenseItemType = 'PRODUTO_FISICO' | 'SERVICO' | 'DESPESA_OPERAC
 
 export interface SaleItem {
   productId: string;
+  internalCode?: string;
+  barcode?: string;
   name: string;
   category: ProductCategory;
+  unit?: string;
   unitPrice: number; // Historical price preserved
   quantity: number;
+  discountAmount?: number;
   subtotal: number;
   tripItemType?: TripExpenseItemType;
   tripCategory?: string;
   description?: string;
   notes?: string;
+}
+
+export interface SalePaymentEntry {
+  method: PaymentMethod;
+  amount: number;
+  transactionId?: string;
+  confirmedAt?: string;
+}
+
+export type SaleBillingStatus =
+  | 'AGUARDANDO_FATURAMENTO'
+  | 'PARCIALMENTE_FATURADA'
+  | 'TOTALMENTE_FATURADA'
+  | 'CANCELADA'
+  | 'ESTORNADA';
+
+export interface SaleAllocatedItem {
+  itemIndex: number;
+  productId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface SaleInvoiceAllocation {
+  invoiceId: string;
+  batchId?: string;
+  amount: number;
+  items: SaleAllocatedItem[];
+  allocatedAt: string;
 }
 
 export interface Sale {
@@ -171,11 +206,22 @@ export interface Sale {
   reversedReason?: string;
   reversedByUserName?: string;
   reversedAt?: string;
+  reversedAmount?: number; // Para estorno parcial ou rastreio
   billingPeriod: string; // '2026-10'
-  invoiceId?: string; // Populated once consolidated into an invoice
+  invoiceId?: string; // Populated once 100% consolidated into an invoice
+  invoiceAllocations?: SaleInvoiceAllocation[]; // Rastreamento granular por item/fatura
+  billedAmount?: number;
+  billingStatus?: SaleBillingStatus;
   idempotencyKey?: string;
   origin?: 'LOJINHA' | 'PDV_PASSEIOS';
   paymentMethod?: PaymentMethod;
+  payments?: SalePaymentEntry[];
+  amountPaid?: number;
+  changeAmount?: number;
+  creditUsed?: number;
+  terminalId?: string;
+  receiptId?: string;
+  receiptCode?: string;
   subtotalBeforeDiscount?: number;
   discountAmount?: number;
   cashSessionId?: string;
@@ -185,6 +231,121 @@ export interface Sale {
   tripDate?: string;
   tripDestination?: string;
   createdAt: string;
+}
+
+export type ReceiptPrintFormat = '58mm' | '80mm' | 'A4';
+
+export type ReceiptStatus = 'ATIVO' | 'PARCIALMENTE_ESTORNADO' | 'ESTORNADO' | 'CANCELADO';
+
+export interface ReceiptItemSnapshot {
+  itemIndex: number;
+  productId: string;
+  internalCode?: string;
+  barcode?: string;
+  name: string;
+  category: ProductCategory;
+  unit: string;
+  unitPrice: number;
+  quantity: number;
+  individualDiscount: number;
+  subtotal: number;
+  total: number;
+}
+
+export interface ReceiptPaymentLine {
+  method: PaymentMethod;
+  label: string;
+  amount: number;
+  status: 'CONFIRMADO' | 'LANCADO_EM_CONTA' | 'ESTORNADO';
+  transactionId?: string;
+  confirmedAt?: string;
+}
+
+export interface ReceiptReversalRecord {
+  id: string;
+  originalSaleId: string;
+  type: 'CANCELAMENTO' | 'ESTORNO_PARCIAL' | 'ESTORNO_TOTAL';
+  reason: string;
+  operatorUserId: string;
+  operatorUserName: string;
+  timestamp: string;
+  reversedAmount: number;
+  transactionId?: string;
+  items?: Array<{ productId: string; name: string; quantity: number; amount: number }>;
+}
+
+export interface SalesReceipt {
+  id: string;
+  receiptCode: string; // e.g. ICE-000001
+  saleId: string;
+  version: number;
+  status: ReceiptStatus;
+  institution: {
+    storeName: string;
+    institutionName: string;
+    cnpj?: string;
+    unitName?: string;
+    logoUrl: string;
+  };
+  saleSnapshot: {
+    saleId: string;
+    createdAt: string;
+    saoPauloDate: string; // YYYY-MM-DD
+    saoPauloTime: string; // HH:mm:ss
+    timezone: 'America/Sao_Paulo';
+    origin: 'LOJINHA' | 'PDV_PASSEIOS';
+    saleStatus: 'COMPLETED' | 'REVERSED' | 'PARTIALLY_REVERSED';
+    transactionId?: string;
+    billingPeriod: string;
+    notes?: string;
+  };
+  studentSnapshot: {
+    studentId: string;
+    name: string;
+    registrationNumber: string;
+    classGroup?: string;
+    guardianName?: string;
+    guardianRelationship?: string;
+  };
+  items: ReceiptItemSnapshot[];
+  financialSummary: {
+    productsSubtotal: number;
+    discountTotal: number;
+    creditUsed: number;
+    saleTotal: number;
+    amountPaid: number;
+    changeAmount: number;
+  };
+  payments: ReceiptPaymentLine[];
+  operational: {
+    operatorUserId: string;
+    operatorUserName: string;
+    cashSessionId?: string;
+    cashRegisterLabel?: string;
+    terminalId?: string;
+    operationTimestamp: string;
+  };
+  reversals: ReceiptReversalRecord[];
+  reprintCount: number;
+  lastReprintedAt?: string;
+  lastReprintedByUserName?: string;
+  customHeaderSnapshot?: string;
+  customFooterSnapshot?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReceiptSettings {
+  autoPrintOnSale: boolean;
+  defaultPrintFormat: ReceiptPrintFormat;
+  customHeader: string;
+  customFooter: string;
+  showOperator: boolean;
+  showClassGroup: boolean;
+  showGuardian: boolean;
+  showUnitCodeSku: boolean;
+  showTerminalInfo: boolean;
+  secondCopyAllowedRoles: UserRole[];
 }
 
 export type FinancialTransactionType = 'DEBITO' | 'CREDITO';
@@ -219,6 +380,29 @@ export type InvoiceStatus =
   | 'VENCIDA' 
   | 'CANCELADA';
 
+export type BillingBatchType = 'INDIVIDUAL' | 'PERIODO_PERSONALIZADO' | 'FECHAMENTO_MENSAL';
+
+export interface InvoiceHistoryEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  action: string;
+  details: string;
+}
+
+export interface InvoiceSaleItemLink {
+  saleId: string;
+  saleDate: string;
+  itemIndex: number;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
 export interface InvoiceConsumptionSummaryItem {
   productId: string;
   productName: string;
@@ -233,13 +417,21 @@ export interface Invoice {
   studentId: string;
   studentName: string;
   registrationNumber: string;
-  billingPeriod: string; // '2026-10' (Outubro/2026)
+  classGroup?: string;
+  billingPeriod: string; // '2026-10' (Outubro/2026) ou competência de referência
+  billingType?: BillingBatchType;
+  batchId?: string;
+  periodStart?: string; // YYYY-MM-DD
+  periodEnd?: string; // YYYY-MM-DD
+  billingLabel?: string;
   
   // Financeiro consolidado
   tuitionAmount: number; // Mensalidade fixa
   canteenConsumptionTotal: number; // Total consumo cantina
   previousBalance: number; // Saldo anterior não quitado
   adjustmentsTotal: number; // Ajustes / Descontos / Créditos
+  creditApplied?: number;
+  discountReason?: string;
   grossTotal: number; // Total faturado
   paidTotal: number; // Pagamentos confirmados
   remainingBalance: number; // Saldo devedor pendente
@@ -250,6 +442,7 @@ export interface Invoice {
   
   // Itens detalhados de consumo para prestação de contas
   salesIds: string[];
+  saleItemLinks?: InvoiceSaleItemLink[];
   consumptionItems: InvoiceConsumptionSummaryItem[];
   
   // Pagamentos alocados
@@ -268,6 +461,34 @@ export interface Invoice {
   approvedByUserName?: string;
   approvedAt?: string;
   publishedAt?: string;
+  canceledAt?: string;
+  canceledByUserName?: string;
+  canceledReason?: string;
+  notes?: string;
+  history?: InvoiceHistoryEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BillingBatch {
+  id: string; // e.g. LOT-20261118-001
+  type: BillingBatchType;
+  billingPeriod: string;
+  periodStart?: string;
+  periodEnd?: string;
+  billingLabel?: string;
+  dueDate: string;
+  scope?: 'ALL_STUDENTS' | 'CLASS_GROUP' | 'MANUAL_SELECTION' | 'EXCLUDE_STUDENTS' | 'SINGLE_STUDENT';
+  classGroupFilter?: string;
+  studentsCount: number;
+  invoicesCount: number;
+  salesCount: number;
+  totalAmount: number;
+  invoiceIds: string[];
+  createdByUserId: string;
+  createdByUserName: string;
+  status: 'CONCLUIDO' | 'PARCIALMENTE_CANCELADO' | 'CANCELADO';
+  idempotencyKey?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -337,7 +558,7 @@ export interface AuditLog {
   userName: string;
   userRole: UserRole;
   action: string;
-  module: 'VENDAS' | 'ESTOQUE' | 'FATURAS' | 'PAGAMENTOS' | 'FECHAMENTO' | 'CONFIGURACOES' | 'AUTH' | 'NOTIFICACOES' | 'PASSEIOS' | 'PDV_PASSEIOS' | 'CAIXA' | 'IA_GEMINI' | 'RELATORIOS';
+  module: 'VENDAS' | 'ESTOQUE' | 'FATURAS' | 'PAGAMENTOS' | 'FECHAMENTO' | 'CONFIGURACOES' | 'AUTH' | 'NOTIFICACOES' | 'PASSEIOS' | 'PDV_PASSEIOS' | 'CAIXA' | 'IA_GEMINI' | 'RELATORIOS' | 'RECIBOS';
   details: string;
   ipAddress?: string;
   status: 'SUCESSO' | 'FALHA';
@@ -530,9 +751,164 @@ export interface SystemSettings {
   supabaseServiceRoleKey?: string;
   stripePublishableKey?: string;
   pdvPasseiosPermissions?: PdvPasseiosPermissions;
+  receiptSettings?: ReceiptSettings;
   catalogVersion?: string;
   updatedAt: string;
   updatedByUserName: string;
+}
+
+export interface BillingPreviewSaleItem {
+  itemIndex: number;
+  productId: string;
+  name: string;
+  category: ProductCategory;
+  unitPrice: number;
+  originalQuantity: number;
+  alreadyBilledQuantity: number;
+  remainingQuantity: number;
+  originalSubtotal: number;
+  remainingAmount: number;
+}
+
+export interface BillingPreviewSale {
+  saleId: string;
+  createdAt: string;
+  saoPauloDate: string; // YYYY-MM-DD in America/Sao_Paulo
+  billingPeriod: string;
+  origin: 'LOJINHA' | 'PDV_PASSEIOS';
+  paymentMethod: PaymentMethod;
+  billingStatus: SaleBillingStatus;
+  originalTotal: number;
+  reversedAmount: number;
+  alreadyBilledAmount: number;
+  remainingBillableAmount: number;
+  isEligible: boolean;
+  ineligibleReason?: string;
+  items: BillingPreviewSaleItem[];
+}
+
+export interface BillingStudentPreviewItem {
+  studentId: string;
+  studentName: string;
+  registrationNumber: string;
+  classGroup: string;
+  guardiansSummary: string;
+  hasGuardian: boolean;
+  payerRule: PayerOption;
+  tuitionAmount: number;
+  grossPurchasesTotal: number;
+  reversalsTotal: number;
+  alreadyBilledTotal: number;
+  netConsumptionToBill: number;
+  grossTotalToBill: number;
+  eligibleSalesCount: number;
+  alreadyBilledSalesCount: number;
+  ineligibleSalesCount: number;
+  sales: BillingPreviewSale[];
+  willGenerateInvoice: boolean;
+  existingInvoiceId?: string;
+  warnings: string[];
+  blockers: string[];
+}
+
+export interface BillingBatchPreview {
+  mode: BillingBatchType;
+  billingPeriod: string;
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  billingLabel?: string;
+  scope: 'ALL_STUDENTS' | 'CLASS_GROUP' | 'MANUAL_SELECTION' | 'EXCLUDE_STUDENTS' | 'SINGLE_STUDENT';
+  studentsCount: number;
+  studentsWithBillableConsumptionCount: number;
+  invoicesToCreateCount: number;
+  validSalesCount: number;
+  alreadyBilledSalesCount: number;
+  ineligibleSalesCount: number;
+  grossPurchasesTotal: number;
+  reversalsTotal: number;
+  alreadyBilledTotal: number;
+  netBillableTotal: number;
+  totalTuitions: number;
+  totalConsumptions: number;
+  totalGrossToBill: number;
+  existingInvoicesCount: number;
+  closedPeriodAlreadyProcessed: boolean;
+  retroactiveSalesInClosedPeriodCount: number;
+  studentsMissingGuardianCount: number;
+  students: BillingStudentPreviewItem[];
+  inconsistencies: {
+    studentId: string;
+    studentName: string;
+    severity: 'WARNING' | 'BLOCKER';
+    message: string;
+  }[];
+  canProceed: boolean;
+}
+
+export interface IndividualSaleSelection {
+  saleId: string;
+  items?: {
+    itemIndex: number;
+    quantity: number;
+  }[];
+}
+
+export interface IndividualInvoicePayload {
+  studentId: string;
+  periodStart?: string;
+  periodEnd?: string;
+  dueDate: string;
+  billingLabel?: string;
+  tuitionAmount?: number;
+  discountAmount?: number;
+  creditAmount?: number;
+  discountReason?: string;
+  notes?: string;
+  selections: IndividualSaleSelection[];
+  idempotencyKey?: string;
+}
+
+export interface PeriodBillingPayload {
+  mode: 'PERIODO_PERSONALIZADO' | 'FECHAMENTO_MENSAL';
+  billingPeriod?: string; // e.g. '2026-11'
+  periodStart?: string; // YYYY-MM-DD
+  periodEnd?: string; // YYYY-MM-DD
+  dueDate?: string; // YYYY-MM-DD
+  billingLabel?: string;
+  scope?: 'ALL_STUDENTS' | 'CLASS_GROUP' | 'MANUAL_SELECTION' | 'EXCLUDE_STUDENTS';
+  classGroup?: string;
+  studentIds?: string[];
+  excludedStudentIds?: string[];
+  onlyUnbilled?: boolean;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface UnbilledConsumptionOverview {
+  totalUnbilledAmount: number;
+  totalPartiallyBilledAmount: number;
+  unbilledSalesCount: number;
+  partiallyBilledSalesCount: number;
+  billedSalesCount: number;
+  reversedOrCanceledSalesCount: number;
+  studentsWithUnbilledCount: number;
+  retroactiveClosedPeriodSalesCount: number;
+  retroactiveClosedPeriodAmount: number;
+  closedPeriods: string[];
+  byStudent: {
+    studentId: string;
+    studentName: string;
+    registrationNumber: string;
+    classGroup: string;
+    hasGuardian: boolean;
+    unbilledSalesCount: number;
+    unbilledAmount: number;
+    oldestSaleDate: string;
+    newestSaleDate: string;
+    hasRetroactiveClosedPeriodSale: boolean;
+  }[];
+  unbilledSales: BillingPreviewSale[];
 }
 
 export interface MonthlyClosingPreview {
@@ -551,4 +927,5 @@ export interface MonthlyClosingPreview {
     message: string;
   }[];
   canProceed: boolean;
+  batchPreview?: BillingBatchPreview;
 }

@@ -4,6 +4,7 @@ import {
   PixPayment,
   Product,
   Sale,
+  SalesReceipt,
   Student,
   SystemSettings,
   WhatsAppNotification
@@ -17,6 +18,7 @@ export interface OfflineDataSnapshot {
   products: Product[];
   students: Student[];
   sales: Sale[];
+  receipts?: SalesReceipt[];
   invoices: Invoice[];
   pixPayments: PixPayment[];
   whatsappNotifications: WhatsAppNotification[];

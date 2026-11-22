@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Sidebar } from './components/layout/Sidebar';
@@ -18,7 +18,8 @@ import {
   WhatsAppNotification, 
   AuditLog, 
   SystemSettings,
-  Passeio
+  Passeio,
+  SalesReceipt
 } from './types';
 import { api } from './services/api';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
@@ -27,6 +28,7 @@ import { CheckCircle2, ShieldCheck } from 'lucide-react';
 const LoginPage = lazy(() => import('./components/auth/LoginPage').then(m => ({ default: m.LoginPage })));
 const Dashboard = lazy(() => import('./components/dashboard/Dashboard').then(m => ({ default: m.Dashboard })));
 const PointOfSale = lazy(() => import('./components/pdv/PointOfSale').then(m => ({ default: m.PointOfSale })));
+const SalesReceiptsManagement = lazy(() => import('./components/receipts/SalesReceiptsManagement').then(m => ({ default: m.SalesReceiptsManagement })));
 const ProductsAndStock = lazy(() => import('./components/products/ProductsAndStock').then(m => ({ default: m.ProductsAndStock })));
 const StudentsAndGuardians = lazy(() => import('./components/students/StudentsAndGuardians').then(m => ({ default: m.StudentsAndGuardians })));
 const InvoicesAndClosing = lazy(() => import('./components/invoices/InvoicesAndClosing').then(m => ({ default: m.InvoicesAndClosing })));
@@ -59,6 +61,7 @@ function AppContent() {
   const [students, setStudents] = useState<Student[]>([]);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
+  const [receipts, setReceipts] = useState<SalesReceipt[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [pixPayments, setPixPayments] = useState<PixPayment[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
@@ -72,7 +75,7 @@ function AppContent() {
 
   // Layout & Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [showTestChecklist, setShowTestChecklist] = useState(false);
 
@@ -102,6 +105,7 @@ function AppContent() {
         productsData,
         studentsData,
         salesData,
+        receiptsData,
         invoicesData,
         pixData,
         notificationsData,
@@ -111,6 +115,7 @@ function AppContent() {
         api.getProducts(),
         api.getStudents(),
         api.getSales(),
+        api.getReceipts().catch(() => []),
         api.getInvoices(),
         api.getPixPayments(),
         api.getWhatsAppNotifications(),
@@ -121,6 +126,7 @@ function AppContent() {
       setProducts(productsData);
       setStudents(studentsData);
       setSales(salesData);
+      setReceipts(receiptsData);
       setInvoices(invoicesData);
       setPixPayments(pixData);
       setWhatsappNotifications(notificationsData);
@@ -134,6 +140,7 @@ function AppContent() {
         products: productsData,
         students: studentsData,
         sales: salesData,
+        receipts: receiptsData,
         invoices: invoicesData,
         pixPayments: pixData,
         whatsappNotifications: notificationsData,
@@ -158,13 +165,14 @@ function AppContent() {
         }
       }
     } catch (err) {
-      console.error('Falha ao sincronizar dados com o servidor:', err);
+      console.warn('Sincronização com servidor pendente; tentando recuperação automática:', err);
       const cached = loadOfflineSnapshot();
       if (cached) {
         setSettings(cached.settings);
         setProducts(cached.products || []);
         setStudents(cached.students || []);
         setSales(cached.sales || []);
+        setReceipts(cached.receipts || []);
         setInvoices(cached.invoices || []);
         setPixPayments(cached.pixPayments || []);
         setWhatsappNotifications(cached.whatsappNotifications || []);
@@ -176,15 +184,22 @@ function AppContent() {
     }
   }, [canManage, isStockist, isViewer, user]);
 
+  const wasOfflineRef = useRef(false);
+
   useEffect(() => {
     if (user) {
       loadData(false);
     }
   }, [user, loadData]);
 
-  // Auto-sync when connectivity returns
+  // Auto-sync only when transitioning back online after being offline
   useEffect(() => {
-    if (isOnline && user) {
+    if (!isOnline) {
+      wasOfflineRef.current = true;
+      return;
+    }
+    if (wasOfflineRef.current && user) {
+      wasOfflineRef.current = false;
       loadData(true);
     }
   }, [isOnline, user, loadData]);
@@ -199,7 +214,7 @@ function AppContent() {
       const adminOnlyTabs = ['whatsapp', 'audit', 'settings'];
       const managerOrAdminTabs = ['passeios', 'students', 'closing', 'pix', 'reports'];
       const cashTabs = ['cash_register'];
-      const pdvTabs = ['pdv', 'sales_history'];
+      const pdvTabs = ['pdv', 'sales_history', 'receipts'];
       const stockTabs = ['products'];
 
       const fallbackHome = () => {
@@ -258,17 +273,27 @@ function AppContent() {
   );
 
   // Handlers for POS and Sales
-  const handleSaleCompleted = useCallback((newSale: Sale, updatedStudent: Student) => {
+  const handleSaleCompleted = useCallback((newSale: Sale, updatedStudent: Student, newReceipt?: SalesReceipt) => {
     setSales(prev => [newSale, ...prev]);
+    if (newReceipt) {
+      setReceipts(prev => [newReceipt, ...prev.filter(r => r.id !== newReceipt.id)]);
+    }
     setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
     refreshSilent();
   }, [refreshSilent]);
 
-  const handleSaleReversed = useCallback((reversedSale: Sale, updatedStudent: Student) => {
-    setSales(prev => [reversedSale, ...prev]);
+  const handleSaleReversed = useCallback((reversedSale: Sale, updatedStudent: Student, updatedReceipt?: SalesReceipt) => {
+    setSales(prev => prev.map(s => s.id === reversedSale.id ? reversedSale : s));
+    if (updatedReceipt) {
+      setReceipts(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
+    }
     setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
     refreshSilent();
   }, [refreshSilent]);
+
+  const handleReceiptUpdated = useCallback((updatedReceipt: SalesReceipt) => {
+    setReceipts(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
+  }, []);
 
   // Handlers for Products and Stock
   const handleProductSaved = useCallback((savedProduct: Product) => {
@@ -382,7 +407,7 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-[#fafafa] flex font-sans antialiased selection:bg-white selection:text-black">
       
-      {/* Vertical Fixed Sidebar matching Attached Reference */}
+      {/* Vertical Sticky Collapsible Sidebar */}
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={handleSafeNavigate}
@@ -397,7 +422,7 @@ function AppContent() {
       />
 
       {/* Main Content Column */}
-      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ${isCollapsed ? 'lg:pl-[68px]' : 'lg:pl-[240px]'}`}>
+      <div className="flex-1 flex flex-col min-h-screen min-w-0">
         
         {/* TopBar with Search (⌘K), Notifications & Profile */}
         <TopBar 
@@ -420,7 +445,8 @@ function AppContent() {
               <p className="text-xs font-medium text-zinc-400">Sincronizando dados com o servidor...</p>
             </div>
           ) : (
-            <Suspense fallback={<ViewFallback />}>
+            <div key={activeTab} className="blur-fade-stage">
+              <Suspense fallback={<ViewFallback />}>
               {/* DASHBOARD */}
               {activeTab === 'dashboard' && (
                 <Dashboard 
@@ -440,8 +466,19 @@ function AppContent() {
                   products={products}
                   students={students}
                   sales={sales}
+                  receipts={receipts}
+                  settings={settings}
                   onSaleCompleted={handleSaleCompleted}
                   onSaleReversed={handleSaleReversed}
+                  onReceiptUpdated={handleReceiptUpdated}
+                />
+              )}
+
+              {(canManage || isCashier) && activeTab === 'receipts' && (
+                <SalesReceiptsManagement
+                  receipts={receipts}
+                  settings={settings}
+                  onReceiptUpdated={handleReceiptUpdated}
                 />
               )}
 
@@ -517,6 +554,8 @@ function AppContent() {
                   invoices={invoices}
                   students={students}
                   sales={sales}
+                  settings={settings}
+                  whatsappNotifications={whatsappNotifications}
                   onInvoicesUpdated={refreshSilent}
                 />
               )}
@@ -568,10 +607,13 @@ function AppContent() {
                   onSelectStudent={setSelectedPortalStudentId}
                   products={products}
                   sales={sales}
+                  receipts={receipts}
+                  settings={settings}
                   invoices={invoices}
                   pixPayments={pixPayments}
                   passeios={passeios}
                   onPaymentSubmitted={handlePaymentSubmitted}
+                  onReceiptUpdated={handleReceiptUpdated}
                 />
               )}
 
@@ -582,17 +624,21 @@ function AppContent() {
                   students={students}
                   invoices={invoices}
                   sales={sales}
+                  receipts={receipts}
+                  settings={settings}
                   pixPayments={pixPayments}
                   passeios={passeios}
                   onPaymentSubmitted={handlePaymentSubmitted}
+                  onReceiptUpdated={handleReceiptUpdated}
                 />
               )}
-            </Suspense>
+              </Suspense>
+            </div>
           )}
         </main>
 
         {/* Minimal Dark Footer */}
-        <footer className="border-t border-white/[0.08] bg-[#0a0a0a] py-4 px-4 sm:px-6 lg:px-8 mt-auto text-xs text-zinc-500">
+        <footer className="border-t border-white/[0.08] bg-[#0a0a0a] py-4 px-4 sm:px-6 lg:px-8 mt-auto text-xs text-zinc-500 animate-blur-in">
           <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <img
@@ -629,7 +675,7 @@ function AppContent() {
       {/* Checklist Modal for Required Acceptance Tests */}
       {showTestChecklist && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-[#141414] rounded-2xl shadow-2xl border border-white/[0.12] max-w-2xl w-full p-6 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+          <div className="bg-[#141414] rounded-2xl shadow-2xl border border-white/[0.12] max-w-2xl w-full p-6 animate-modal-blur-in max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 mb-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-white" />

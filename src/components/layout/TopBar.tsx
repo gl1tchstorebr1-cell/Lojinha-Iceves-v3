@@ -96,7 +96,7 @@ export function TopBar({
 
   return (
     <>
-      <header className="h-14 border-b border-white/[0.08] flex items-center justify-between px-4 shrink-0 bg-[#0a0a0a] sticky top-0 z-30">
+      <header className="h-14 border-b border-white/[0.08] flex items-center justify-between px-4 shrink-0 bg-[#0a0a0a] sticky top-0 z-30 animate-blur-in">
         
         {/* Left: Collapse toggle and Command search bar */}
         <div className="flex items-center gap-3">
@@ -171,9 +171,10 @@ export function TopBar({
               <AnimatePresence>
                 {showNotifications && (
                   <motion.div
-                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                    initial={{ opacity: 0, y: 8, scale: 0.96, filter: 'blur(6px)' }}
+                    animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, y: 8, scale: 0.96, filter: 'blur(6px)' }}
+                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
                     className="absolute right-0 top-full mt-2 w-72 rounded-xl bg-[#141414] border border-white/[0.12] shadow-2xl p-3 z-50 text-xs space-y-2"
                   >
                     <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
@@ -278,10 +279,10 @@ export function TopBar({
             />
 
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: -10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -10 }}
-              transition={{ duration: 0.15 }}
+              initial={{ opacity: 0, scale: 0.96, y: -10, filter: 'blur(8px)' }}
+              animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, scale: 0.96, y: -10, filter: 'blur(8px)' }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
               className="relative w-full max-w-xl rounded-xl bg-[#141414] border border-white/[0.12] shadow-2xl overflow-hidden z-10"
             >
               <div className="flex items-center border-b border-white/[0.08] px-4 py-3">

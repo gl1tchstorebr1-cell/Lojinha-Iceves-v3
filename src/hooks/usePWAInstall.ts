@@ -65,15 +65,27 @@ export function usePWAInstall() {
     if (!swInitialized) {
       swInitialized = true;
       try {
-        swUpdateFn = registerSW({
-          immediate: true,
-          onNeedRefresh() {
-            setUpdateAvailable(true);
-          },
-          onOfflineReady() {
-            // App essential shell cached cleanly for offline opening
+        if (import.meta.env.DEV) {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((regs) => {
+              regs.forEach((reg) => {
+                if (reg.active?.scriptURL.includes('dev-sw') || reg.installing?.scriptURL.includes('dev-sw')) {
+                  reg.unregister().catch(() => {});
+                }
+              });
+            }).catch(() => {});
           }
-        });
+        } else {
+          swUpdateFn = registerSW({
+            immediate: true,
+            onNeedRefresh() {
+              setUpdateAvailable(true);
+            },
+            onOfflineReady() {
+              // App essential shell cached cleanly for offline opening
+            }
+          });
+        }
       } catch {
         // Ignore registration errors in restricted preview contexts
       }

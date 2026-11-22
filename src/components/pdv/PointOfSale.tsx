@@ -18,21 +18,31 @@ import {
   CreditCard,
   Building2,
   X,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Download,
+  Eye,
+  FileCheck2
 } from 'lucide-react';
-import { Product, Student, Sale, ProductCategory, PaymentMethod } from '../../types';
+import { Product, Student, Sale, ProductCategory, PaymentMethod, SalesReceipt, SystemSettings } from '../../types';
 import { formatCurrency, formatDateTime, formatProductPrice, isProductPricePending } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { getProductImages, getCategoryBadgeColor, OFFICIAL_PRODUCT_CATEGORIES } from '../../utils/productImages';
+import { ReceiptPreviewModal, triggerScopedReceiptPrint } from '../receipts/ReceiptPreviewModal';
+import { ReceiptDocumentView } from '../receipts/ReceiptDocumentView';
+import { downloadReceiptPdf, resolveEffectiveReceiptSettings } from '../../utils/receiptPdf';
+import { createPortal } from 'react-dom';
 
 interface PointOfSaleProps {
   products: Product[];
   students: Student[];
   sales: Sale[];
-  onSaleCompleted: (sale: Sale, student: Student) => void;
-  onSaleReversed: (sale: Sale, student: Student) => void;
+  receipts?: SalesReceipt[];
+  settings?: SystemSettings | null;
+  onSaleCompleted: (sale: Sale, student: Student, receipt?: SalesReceipt) => void;
+  onSaleReversed: (sale: Sale, student: Student, receipt?: SalesReceipt) => void;
+  onReceiptUpdated?: (receipt: SalesReceipt) => void;
 }
 
 interface CartItem {
@@ -40,12 +50,24 @@ interface CartItem {
   quantity: number;
 }
 
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  CONTA_ALUNO: 'Conta do Aluno (Faturamento Posterior)',
+  DINHEIRO: 'Dinheiro',
+  PIX: 'PIX',
+  CARTAO_CREDITO: 'Cartão de Crédito',
+  CARTAO_DEBITO: 'Cartão de Débito',
+  MERCADO_PAGO: 'Mercado Pago',
+};
+
 export function PointOfSale({ 
   products, 
   students, 
   sales, 
+  receipts = [],
+  settings = null,
   onSaleCompleted, 
-  onSaleReversed 
+  onSaleReversed,
+  onReceiptUpdated
 }: PointOfSaleProps) {
   const { user, canManage } = useAuth();
   const { isOnline } = useOnlineStatus();
@@ -59,12 +81,22 @@ export function PointOfSale({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
+  const [completedReceipt, setCompletedReceipt] = useState<SalesReceipt | null>(null);
+  const [isExportingCompletedPdf, setIsExportingCompletedPdf] = useState(false);
+  const [previewModalState, setPreviewModalState] = useState<{
+    receipt: SalesReceipt;
+    isSecondCopy: boolean;
+    mode: 'SALE' | 'REVERSAL';
+  } | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CONTA_ALUNO');
+  const [amountPaidInput, setAmountPaidInput] = useState<string>('');
   const [discountAmount, setDiscountAmount] = useState<string>('0');
   const [saleNotes, setSaleNotes] = useState('');
   
   // Reversal modal state
   const [reversalSale, setReversalSale] = useState<Sale | null>(null);
+  const [reversalMode, setReversalMode] = useState<'FULL' | 'PARTIAL'>('FULL');
+  const [partialQuantities, setPartialQuantities] = useState<Record<string, number>>({});
   const [reversalReason, setReversalReason] = useState('');
   const [isReversing, setIsReversing] = useState(false);
   const [reversalError, setReversalError] = useState<string | null>(null);
@@ -211,6 +243,10 @@ export function PointOfSale({
     const idempotencyKey = `IDEMP-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
     try {
+      const parsedPaid = paymentMethod === 'DINHEIRO' && amountPaidInput.trim()
+        ? Math.max(cartTotal, Number(amountPaidInput) || cartTotal)
+        : undefined;
+
       const payload = {
         studentId: selectedStudent.id,
         items: cart.map(item => ({
@@ -218,19 +254,29 @@ export function PointOfSale({
           quantity: item.quantity
         })),
         paymentMethod,
+        amountPaid: parsedPaid,
         discountAmount: parsedDiscount > 0 ? parsedDiscount : undefined,
         notes: saleNotes.trim() || undefined,
         idempotencyKey
       };
 
       const res = await api.createSale(payload);
-      onSaleCompleted(res.sale, res.student);
+      onSaleCompleted(res.sale, res.student, res.receipt);
       setCompletedSale(res.sale);
+      setCompletedReceipt(res.receipt || null);
       setCart([]);
       setSelectedStudent(null);
       setStudentSearch('');
       setDiscountAmount('0');
+      setAmountPaidInput('');
       setSaleNotes('');
+
+      const eff = resolveEffectiveReceiptSettings(settings);
+      if (eff.autoPrintOnSale && res.receipt) {
+        setTimeout(() => {
+          triggerScopedReceiptPrint(eff.defaultPrintFormat || '80mm');
+        }, 180);
+      }
     } catch (err: any) {
       setSaleError(err.message || 'Erro ao registrar venda.');
     } finally {
@@ -238,7 +284,22 @@ export function PointOfSale({
     }
   };
 
-  // Handle Reversal of a Sale
+  const openReceiptForSale = async (sale: Sale, isSecondCopy = false, mode: 'SALE' | 'REVERSAL' = 'SALE') => {
+    const localMatch = receipts.find(r => r.saleId === sale.id || r.id === sale.receiptId);
+    if (localMatch) {
+      setPreviewModalState({ receipt: localMatch, isSecondCopy, mode });
+      return;
+    }
+    try {
+      const fetched = await api.getReceiptBySaleId(sale.id);
+      if (onReceiptUpdated) onReceiptUpdated(fetched);
+      setPreviewModalState({ receipt: fetched, isSecondCopy, mode });
+    } catch (err: any) {
+      setSaleError(err?.message || 'Não foi possível localizar o recibo desta venda.');
+    }
+  };
+
+  // Handle Reversal of a Sale (Full or Partial)
   const handleConfirmReversal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reversalSale) return;
@@ -251,10 +312,38 @@ export function PointOfSale({
     setReversalError(null);
 
     try {
-      const res = await api.reverseSale(reversalSale.id, reversalReason);
-      onSaleReversed(res.sale, res.student);
-      setReversalSale(null);
-      setReversalReason('');
+      if (reversalMode === 'PARTIAL') {
+        const itemsToReverse = Object.entries(partialQuantities)
+          .filter(([, qty]) => Number(qty) > 0)
+          .map(([productId, quantity]) => ({ productId, quantity: Number(quantity) }));
+
+        if (itemsToReverse.length === 0) {
+          setReversalError('Selecione ao menos 1 item e quantidade para estorno parcial.');
+          setIsReversing(false);
+          return;
+        }
+
+        const res = await api.partialReverseSale(reversalSale.id, {
+          items: itemsToReverse,
+          reason: reversalReason,
+        });
+        onSaleReversed(res.sale, res.student, res.receipt);
+        setReversalSale(null);
+        setReversalReason('');
+        setPartialQuantities({});
+        if (res.receipt) {
+          setPreviewModalState({ receipt: res.receipt, isSecondCopy: false, mode: 'REVERSAL' });
+        }
+      } else {
+        const res = await api.reverseSale(reversalSale.id, reversalReason);
+        onSaleReversed(res.sale, res.student, res.receipt);
+        setReversalSale(null);
+        setReversalReason('');
+        setPartialQuantities({});
+        if (res.receipt) {
+          setPreviewModalState({ receipt: res.receipt, isSecondCopy: false, mode: 'REVERSAL' });
+        }
+      }
     } catch (err: any) {
       setReversalError(err.message || 'Erro ao estornar venda.');
     } finally {
@@ -625,6 +714,23 @@ export function PointOfSale({
                     </button>
                   ))}
                 </div>
+
+                {paymentMethod === 'DINHEIRO' && cart.length > 0 && (
+                  <div className="pt-1.5 flex items-center justify-between gap-2">
+                    <label className="text-[10px] font-bold text-[#A1A1AA] uppercase">
+                      Valor Recebido (R$):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={cartTotal}
+                      value={amountPaidInput}
+                      onChange={(e) => setAmountPaidInput(e.target.value)}
+                      placeholder={cartTotal.toFixed(2)}
+                      className="w-28 px-2.5 py-1 bg-[#151515] border border-[#282828] rounded-lg text-[#F5F5F5] font-mono text-xs focus:border-emerald-500 focus:outline-none text-right"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Items List */}
@@ -809,7 +915,14 @@ export function PointOfSale({
                 {sales.map(sale => (
                   <tr key={sale.id} className="hover:bg-[#202020] transition">
                     <td className="py-3 px-4">
-                      <span className="font-mono font-bold text-[#F5F5F5] block">{sale.id}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold text-[#F5F5F5]">{sale.id}</span>
+                        {sale.receiptCode && (
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-mono text-[10px] font-semibold">
+                            {sale.receiptCode}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[11px] text-[#71717A]">{formatDateTime(sale.createdAt)}</span>
                     </td>
                     <td className="py-3 px-4">
@@ -825,13 +938,29 @@ export function PointOfSale({
                       <span className={`font-mono font-extrabold ${sale.status === 'REVERSED' ? 'line-through text-[#71717A]' : 'text-[#F5F5F5]'}`}>
                         {formatCurrency(sale.total)}
                       </span>
+                      {(sale.reversedAmount || 0) > 0 && sale.status !== 'REVERSED' && (
+                        <span className="block text-[10px] text-amber-400 font-mono">
+                          Estornado: -{formatCurrency(sale.reversedAmount || 0)}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-[#A1A1AA]">{sale.operatorUserName}</td>
                     <td className="py-3 px-4">
-                      {sale.status === 'COMPLETED' ? (
+                      {sale.status === 'COMPLETED' && !(sale.reversedAmount && sale.reversedAmount > 0) ? (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                           Concluída
                         </span>
+                      ) : sale.status === 'COMPLETED' && (sale.reversedAmount || 0) > 0 ? (
+                        <div>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/25">
+                            Estorno Parcial
+                          </span>
+                          {sale.reversedReason && (
+                            <span className="block text-[10px] text-[#71717A] mt-0.5 truncate max-w-xs" title={sale.reversedReason}>
+                              {sale.reversedReason}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <div>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
@@ -846,21 +975,52 @@ export function PointOfSale({
                       )}
                     </td>
                     <td className="py-3 px-4 text-right">
-                      {sale.status === 'COMPLETED' ? (
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
-                          onClick={() => {
-                            setReversalSale(sale);
-                            setReversalReason('');
-                            setReversalError(null);
-                          }}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg transition cursor-pointer flex items-center gap-1 ml-auto"
+                          type="button"
+                          onClick={() => openReceiptForSale(sale, false, 'SALE')}
+                          title="Visualizar Recibo"
+                          className="p-1.5 rounded-lg bg-[#242424] hover:bg-[#2E2E2E] text-zinc-200 cursor-pointer"
                         >
-                          <RotateCcw className="w-3 h-3" />
-                          Estornar
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
-                      ) : (
-                        <span className="text-[11px] text-[#71717A]">Estornado</span>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => openReceiptForSale(sale, true, 'SALE')}
+                          title="Reimprimir 2ª Via"
+                          className="p-1.5 rounded-lg bg-[#242424] hover:bg-emerald-500/20 text-emerald-400 cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                        {((sale.reversedAmount || 0) > 0 || sale.status === 'REVERSED') && (
+                          <button
+                            type="button"
+                            onClick={() => openReceiptForSale(sale, false, 'REVERSAL')}
+                            title="Comprovante de Estorno"
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 cursor-pointer"
+                          >
+                            <FileCheck2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {sale.status === 'COMPLETED' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReversalSale(sale);
+                              setReversalMode('FULL');
+                              setPartialQuantities({});
+                              setReversalReason('');
+                              setReversalError(null);
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg transition cursor-pointer flex items-center gap-1"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            Estornar
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-[#71717A] px-1">Estornado</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -870,82 +1030,159 @@ export function PointOfSale({
         </div>
       )}
 
-      {/* Sale Voucher / Receipt Modal */}
+      {/* Post-Sale Automatic Receipt Confirmation Modal */}
       {completedSale && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-[#1A1A1A] rounded-2xl shadow-2xl border border-[#303030] max-w-sm w-full p-6 animate-in fade-in zoom-in-95">
-            <div className="text-center space-y-1 mb-4">
-              <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mx-auto mb-2">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 no-print">
+          <div className="bg-[#161618] rounded-2xl shadow-2xl border border-white/[0.12] max-w-lg w-full p-6 animate-modal-blur-in space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto mb-2">
                 <Check className="w-6 h-6" />
               </div>
-              <h3 className="font-extrabold text-[#F5F5F5] text-lg">Venda Confirmada!</h3>
-              <p className="text-xs text-[#A1A1AA]">Lançada na conta mensal do aluno</p>
+              <h3 className="font-extrabold text-white text-lg">Venda Concluída!</h3>
+              <p className="text-xs text-zinc-400">
+                Recibo oficial emitido e vinculado à operação do PDV
+              </p>
             </div>
 
-            {/* Receipt Box */}
-            <div className="bg-[#141414] p-4 rounded-xl border border-[#262626] font-mono text-xs space-y-2 text-[#D4D4D8]">
-              <div className="text-center border-b border-dashed border-[#333333] pb-2.5">
-                <img
-                  src="/assets/aistudio/image_e4461e45.png"
-                  alt="Logo ICEVES"
-                  className="w-11 h-11 rounded-full object-cover bg-white p-0.5 ring-1 ring-emerald-500/40 mx-auto mb-1.5"
+            {/* Summary KPI Cards required by spec */}
+            <div className="grid grid-cols-2 gap-2.5 text-xs bg-[#111113] p-3.5 rounded-xl border border-white/[0.08]">
+              <div>
+                <span className="text-[10px] text-zinc-500 uppercase font-semibold block">Código Único da Venda</span>
+                <span className="font-mono font-bold text-white">{completedSale.id}</span>
+                {completedReceipt && (
+                  <span className="block text-[10px] font-mono text-emerald-400">
+                    Recibo: {completedReceipt.receiptCode}
+                  </span>
+                )}
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-zinc-500 uppercase font-semibold block">Valor Total</span>
+                <span className="font-mono font-extrabold text-base text-emerald-400">
+                  {formatCurrency(completedSale.total)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 uppercase font-semibold block">Aluno</span>
+                <span className="font-semibold text-white truncate block">{completedSale.studentName}</span>
+                <span className="text-[10px] font-mono text-zinc-400">{completedSale.registrationNumber}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-zinc-500 uppercase font-semibold block">Forma de Pagamento</span>
+                <span className="font-semibold text-zinc-200">
+                  {PAYMENT_METHOD_LABELS[completedSale.paymentMethod || 'CONTA_ALUNO']}
+                </span>
+              </div>
+            </div>
+
+            {/* Live Compact Thermal Preview */}
+            {completedReceipt && (
+              <div className="max-h-72 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#0B0B0D] p-3">
+                <ReceiptDocumentView
+                  receipt={completedReceipt}
+                  settings={settings}
+                  format={resolveEffectiveReceiptSettings(settings).defaultPrintFormat || '80mm'}
+                  isSecondCopy={false}
+                  mode="SALE"
                 />
-                <p className="font-bold text-[#F5F5F5]">LOJINHA ICEVES — ESCOLA DE CRISTO</p>
-                <p className="text-[10px] text-[#71717A]">COMPROVANTE DE CONSUMO • 10ª TURMA</p>
               </div>
+            )}
 
-              <div className="space-y-0.5 text-[11px]">
-                <p>Cupom: <strong className="text-white">{completedSale.id}</strong></p>
-                <p>Data: {formatDateTime(completedSale.createdAt)}</p>
-                <p>Aluno: <strong className="text-white">{completedSale.studentName}</strong></p>
-                <p>Matrícula: {completedSale.registrationNumber}</p>
-                <p>Operador: {completedSale.operatorUserName}</p>
-              </div>
-
-              <div className="border-t border-b border-dashed border-[#333333] py-2 space-y-1">
-                {completedSale.items.map((i, idx) => (
-                  <div key={idx} className="flex justify-between text-[11px]">
-                    <span>{i.quantity}x {i.name}</span>
-                    <span>{formatCurrency(i.subtotal)}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex justify-between text-sm font-bold text-[#F5F5F5] pt-1">
-                <span>TOTAL A FATURAR:</span>
-                <span className="text-emerald-400">{formatCurrency(completedSale.total)}</span>
-              </div>
-            </div>
-
-            <div className="mt-5 flex gap-2">
+            {/* Required 3 Action Buttons: IMPRIMIR RECIBO, BAIXAR PDF, NOVA VENDA */}
+            <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="flex-1 py-2 px-3 border border-[#303030] hover:bg-[#242424] rounded-xl text-xs font-semibold text-[#F5F5F5] flex items-center justify-center gap-1.5 cursor-pointer"
+                onClick={async () => {
+                  if (completedReceipt) {
+                    try {
+                      const updated = await api.recordReceiptAction(completedReceipt.id, 'PRINT');
+                      setCompletedReceipt(updated);
+                      if (onReceiptUpdated) onReceiptUpdated(updated);
+                    } catch {
+                      // non-blocking
+                    }
+                  }
+                  const fmt = resolveEffectiveReceiptSettings(settings).defaultPrintFormat || '80mm';
+                  triggerScopedReceiptPrint(fmt);
+                }}
+                className="py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition"
               >
                 <Printer className="w-3.5 h-3.5" />
-                Imprimir
+                IMPRIMIR RECIBO
               </button>
+
               <button
                 type="button"
-                onClick={() => setCompletedSale(null)}
-                className="flex-1 py-2 px-3 bg-[#F5F5F5] hover:bg-white text-[#101010] rounded-xl text-xs font-bold transition cursor-pointer"
+                disabled={isExportingCompletedPdf || !completedReceipt}
+                onClick={async () => {
+                  if (!completedReceipt) return;
+                  setIsExportingCompletedPdf(true);
+                  try {
+                    try {
+                      const updated = await api.recordReceiptAction(completedReceipt.id, 'PDF');
+                      setCompletedReceipt(updated);
+                      if (onReceiptUpdated) onReceiptUpdated(updated);
+                    } catch {
+                      // non-blocking
+                    }
+                    await downloadReceiptPdf(completedReceipt, settings, {
+                      isSecondCopy: false,
+                      mode: 'SALE',
+                    });
+                  } finally {
+                    setIsExportingCompletedPdf(false);
+                  }
+                }}
+                className="py-2.5 px-3 bg-[#222227] hover:bg-[#2C2C33] border border-white/[0.12] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition disabled:opacity-50"
               >
-                Próxima Venda
+                <Download className="w-3.5 h-3.5 text-emerald-400" />
+                {isExportingCompletedPdf ? 'GERANDO...' : 'BAIXAR PDF'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCompletedSale(null);
+                  setCompletedReceipt(null);
+                }}
+                className="py-2.5 px-3 bg-white hover:bg-zinc-200 text-black rounded-xl text-xs font-extrabold transition cursor-pointer"
+              >
+                NOVA VENDA
               </button>
             </div>
           </div>
+
+          {/* Print Portal for Immediate Post-Sale Print */}
+          {completedReceipt &&
+            typeof document !== 'undefined' &&
+            (() => {
+              let root = document.getElementById('iceves-print-root');
+              if (!root) {
+                root = document.createElement('div');
+                root.id = 'iceves-print-root';
+                document.body.appendChild(root);
+              }
+              return createPortal(
+                <ReceiptDocumentView
+                  receipt={completedReceipt}
+                  settings={settings}
+                  format={resolveEffectiveReceiptSettings(settings).defaultPrintFormat || '80mm'}
+                  isSecondCopy={false}
+                  mode="SALE"
+                />,
+                root
+              );
+            })()}
         </div>
       )}
 
-      {/* Sale Reversal Modal */}
+      {/* Sale Reversal Modal (Supports Full and Partial Item Reversal) */}
       {reversalSale && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-[#1A1A1A] rounded-2xl shadow-2xl border border-[#303030] max-w-md w-full p-6 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <RotateCcw className="w-5 h-5 text-rose-400" />
-                <h3 className="font-bold text-[#F5F5F5] text-base">Estorno de Venda no PDV</h3>
+                <h3 className="font-bold text-[#F5F5F5] text-base">Estorno de Venda ({reversalSale.id})</h3>
               </div>
               <button 
                 onClick={() => setReversalSale(null)}
@@ -955,8 +1192,29 @@ export function PointOfSale({
               </button>
             </div>
 
+            <div className="flex bg-[#121214] p-1 rounded-xl border border-[#282828] text-xs mb-3">
+              <button
+                type="button"
+                onClick={() => setReversalMode('FULL')}
+                className={`flex-1 py-1.5 rounded-lg font-semibold cursor-pointer ${
+                  reversalMode === 'FULL' ? 'bg-rose-600 text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Estorno Total ({formatCurrency(reversalSale.total - (reversalSale.reversedAmount || 0))})
+              </button>
+              <button
+                type="button"
+                onClick={() => setReversalMode('PARTIAL')}
+                className={`flex-1 py-1.5 rounded-lg font-semibold cursor-pointer ${
+                  reversalMode === 'PARTIAL' ? 'bg-amber-500 text-black' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Estorno Parcial (Por Item)
+              </button>
+            </div>
+
             <p className="text-xs text-[#A1A1AA] mb-3">
-              O estorno irá reverter o consumo de <strong>{reversalSale.studentName}</strong> ({formatCurrency(reversalSale.total)}) e devolver os itens ao estoque físico da lojinha com registro de auditoria.
+              O estorno irá atualizar o saldo de <strong>{reversalSale.studentName}</strong>, devolver os itens selecionados ao estoque físico e emitir o <strong>Comprovante de Estorno</strong> mantendo o recibo original no histórico.
             </p>
 
             {reversalError && (
@@ -966,6 +1224,42 @@ export function PointOfSale({
             )}
 
             <form onSubmit={handleConfirmReversal} className="space-y-4">
+              {reversalMode === 'PARTIAL' && (
+                <div className="space-y-2 max-h-44 overflow-y-auto p-2.5 bg-[#141414] rounded-xl border border-[#282828]">
+                  <span className="text-[10px] font-bold uppercase text-zinc-400 block">
+                    Selecione a quantidade a estornar de cada item:
+                  </span>
+                  {reversalSale.items.map((item) => {
+                    const currentQty = partialQuantities[item.productId] || 0;
+                    return (
+                      <div key={item.productId} className="flex items-center justify-between gap-2 text-xs py-1 border-b border-[#222] last:border-0">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-white block truncate">{item.name}</span>
+                          <span className="text-[10px] text-zinc-400 font-mono">
+                            Comprado: {item.quantity}x ({formatCurrency(item.unitPrice)})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min={0}
+                            max={item.quantity}
+                            value={currentQty}
+                            onChange={(e) =>
+                              setPartialQuantities((prev) => ({
+                                ...prev,
+                                [item.productId]: Math.max(0, Math.min(item.quantity, parseInt(e.target.value) || 0)),
+                              }))
+                            }
+                            className="w-16 px-2 py-1 bg-[#1C1C1F] border border-[#333] rounded-lg text-white font-mono text-xs text-center"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-[#F5F5F5] mb-1">
                   Motivo Obrigatório do Estorno:
@@ -993,12 +1287,24 @@ export function PointOfSale({
                   disabled={isReversing}
                   className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 cursor-pointer"
                 >
-                  {isReversing ? 'Estornando...' : 'Confirmar Estorno'}
+                  {isReversing ? 'Estornando...' : 'Confirmar & Gerar Comprovante'}
                 </button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {/* Full Receipt / 2nd Copy / Reversal Preview Modal */}
+      {previewModalState && (
+        <ReceiptPreviewModal
+          receipt={previewModalState.receipt}
+          settings={settings}
+          isSecondCopy={previewModalState.isSecondCopy}
+          initialMode={previewModalState.mode}
+          onReceiptUpdated={onReceiptUpdated}
+          onClose={() => setPreviewModalState(null)}
+        />
       )}
 
     </div>

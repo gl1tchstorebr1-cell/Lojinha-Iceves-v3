@@ -2,30 +2,36 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
-import { 
-  LayoutGrid, 
-  ShoppingCart, 
-  Package, 
-  Users, 
-  FileText, 
-  QrCode, 
-  MessageSquare, 
-  ShieldAlert, 
-  Settings, 
-  Receipt, 
-  Plus, 
-  Mail, 
-  ChevronRight, 
-  Lock, 
-  MoreVertical, 
-  LogOut, 
-  ShieldCheck, 
-  X,
+import {
+  Sidebar as UiSidebar,
+  SidebarBody,
+  SidebarLink,
+  SidebarLinkItem,
+} from '../ui/sidebar';
+import { getInitialsAvatar } from '../../utils/avatar';
+import {
+  LayoutGrid,
+  ShoppingCart,
+  Package,
+  Users,
+  FileText,
+  QrCode,
+  MessageSquare,
+  ShieldAlert,
+  Settings,
+  Receipt,
+  Plus,
+  Mail,
+  ChevronRight,
+  Lock,
+  MoreVertical,
+  LogOut,
+  ShieldCheck,
   Bus,
   Compass,
   Wallet,
   FileSpreadsheet,
-  Sparkles
+  Sparkles,
 } from 'lucide-react';
 import { SystemSettings } from '../../types';
 
@@ -52,13 +58,39 @@ export function Sidebar({
   setIsCollapsed,
   isMobileOpen,
   setIsMobileOpen,
-  onOpenQuickSale
+  onOpenQuickSale,
 }: SidebarProps) {
-  const { user, role, isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian, logout } = useAuth();
+  const {
+    user,
+    role,
+    isAdmin,
+    canManage,
+    isCashier,
+    isStockist,
+    isViewer,
+    isStudent,
+    isGuardian,
+    logout,
+  } = useAuth();
+
+  const [isHoverOpen, setIsHoverOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [authExpanded, setAuthExpanded] = useState(false);
 
+  // Expanded when pinned open (!isCollapsed), hovered on desktop, or mobile drawer is open
+  const isOpen = !isCollapsed || isHoverOpen || isMobileOpen;
+
+  const handleSidebarOpenChange: React.Dispatch<React.SetStateAction<boolean>> = (next) => {
+    const resolved = typeof next === 'function' ? next(isHoverOpen) : next;
+    setIsHoverOpen(resolved);
+    if (!resolved) {
+      setShowUserMenu(false);
+    }
+  };
+
   const storeName = settings?.storeName || 'Lojinha do Campus';
+  const displayStoreName = storeName === 'Lojinha do Campus' ? 'Lojinha Iceves' : storeName;
+
   const canAccessPdvPasseios =
     canManage ||
     (isCashier &&
@@ -76,32 +108,183 @@ export function Sidebar({
     }
   };
 
-  return (
-    <>
-      {/* Mobile Backdrop */}
-      <AnimatePresence>
-        {isMobileOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsMobileOpen(false)}
-            className="fixed inset-0 bg-black/70 backdrop-blur-xs z-40 lg:hidden"
-          />
-        )}
-      </AnimatePresence>
+  const dashboardLinks: SidebarLinkItem[] = [
+    {
+      label: isStudent ? 'Meu Dashboard' : 'Visão Geral',
+      icon: <LayoutGrid className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('dashboard'),
+      isActive: activeTab === 'dashboard',
+    },
+  ];
 
-      {/* Main Sidebar */}
-      <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 bg-[#111111] border-r border-white/[0.08] flex flex-col transition-all duration-300 ease-in-out ${
-          isCollapsed ? 'w-[68px]' : 'w-[240px]'
-        } ${
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        }`}
+  const operationsLinks: SidebarLinkItem[] = [];
+  if (canManage || isCashier) {
+    operationsLinks.push({
+      label: 'PDV & Cupons',
+      icon: <ShoppingCart className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('pdv'),
+      isActive: activeTab === 'pdv' || activeTab === 'sales_history',
+    });
+    operationsLinks.push({
+      label: 'Recibos & Comprovantes',
+      icon: <Receipt className="w-4 h-4 shrink-0 text-emerald-400" />,
+      onClick: () => handleSelectTab('receipts'),
+      isActive: activeTab === 'receipts',
+    });
+  }
+  if (canAccessPdvPasseios) {
+    operationsLinks.push({
+      label: 'PDV de Passeios',
+      icon: <Compass className="w-4 h-4 shrink-0 text-emerald-400" />,
+      onClick: () => handleSelectTab('pdv_passeios'),
+      isActive: activeTab === 'pdv_passeios',
+    });
+  }
+  if (canManage || isCashier || isStockist || isViewer) {
+    operationsLinks.push({
+      label: 'Produtos & Estoque',
+      icon: <Package className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('products'),
+      isActive: activeTab === 'products',
+      badge: lowStockCount,
+      badgeTone: 'amber',
+    });
+  }
+  if (canManage) {
+    operationsLinks.push({
+      label: 'Passeios',
+      icon: <Bus className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('passeios'),
+      isActive: activeTab === 'passeios',
+    });
+  }
+
+  const financeLinks: SidebarLinkItem[] = [];
+  if (canManage || isCashier || isViewer) {
+    financeLinks.push({
+      label: 'Caixa & Financeiro',
+      icon: <Wallet className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('cash_register'),
+      isActive: activeTab === 'cash_register',
+    });
+  }
+  if (canManage) {
+    financeLinks.push({
+      label: 'Faturas & Fechamento',
+      icon: <FileText className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('closing'),
+      isActive: activeTab === 'closing',
+    });
+    financeLinks.push({
+      label: 'Conferência Pix',
+      icon: <QrCode className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('pix'),
+      isActive: activeTab === 'pix',
+      badge: pendingPixCount,
+      badgeTone: 'blue',
+    });
+  }
+  if (canManage || isViewer) {
+    financeLinks.push({
+      label: 'Relatórios & Exportação',
+      icon: <FileSpreadsheet className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('reports'),
+      isActive: activeTab === 'reports',
+    });
+  }
+
+  const aiLinks: SidebarLinkItem[] = [
+    {
+      label: 'ICEVES Inteligência',
+      icon: <Sparkles className="w-4 h-4 shrink-0 text-emerald-400" />,
+      onClick: () => handleSelectTab('ai_assistant'),
+      isActive: activeTab === 'ai_assistant',
+    },
+  ];
+
+  const peopleLinks: SidebarLinkItem[] = [];
+  if (canManage) {
+    peopleLinks.push({
+      label: 'Alunos & Famílias',
+      icon: <Users className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('students'),
+      isActive: activeTab === 'students',
+    });
+  }
+  if (isAdmin || isStudent) {
+    peopleLinks.push({
+      label: 'Portal do Aluno',
+      icon: <Receipt className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('student_portal'),
+      isActive: activeTab === 'student_portal',
+    });
+  }
+  if (isAdmin || isGuardian) {
+    peopleLinks.push({
+      label: 'Portal do Responsável',
+      icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
+      onClick: () => handleSelectTab('guardian_portal'),
+      isActive: activeTab === 'guardian_portal',
+    });
+  }
+
+  const adminLinks: SidebarLinkItem[] = isAdmin
+    ? [
+        {
+          label: 'WhatsApp & Avisos',
+          icon: <MessageSquare className="w-4 h-4 shrink-0" />,
+          onClick: () => handleSelectTab('whatsapp'),
+          isActive: activeTab === 'whatsapp',
+        },
+        {
+          label: 'Auditoria (LGPD)',
+          icon: <ShieldAlert className="w-4 h-4 shrink-0" />,
+          onClick: () => handleSelectTab('audit'),
+          isActive: activeTab === 'audit',
+        },
+        {
+          label: 'Configurações',
+          icon: <Settings className="w-4 h-4 shrink-0" />,
+          onClick: () => handleSelectTab('settings'),
+          isActive: activeTab === 'settings',
+        },
+      ]
+    : [];
+
+  const renderSection = (title: string, items: SidebarLinkItem[]) => {
+    if (items.length === 0) return null;
+    return (
+      <div>
+        {isOpen && (
+          <div className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-2.5 mb-1.5">
+            {title}
+          </div>
+        )}
+        <nav className="space-y-0.5">
+          {items.map((item) => (
+            <SidebarLink key={item.label} link={item} />
+          ))}
+        </nav>
+      </div>
+    );
+  };
+
+  return (
+    <UiSidebar open={isOpen} setOpen={handleSidebarOpenChange} animate>
+      <SidebarBody
+        hideMobileTrigger
+        mobileOpen={isMobileOpen}
+        setMobileOpen={setIsMobileOpen}
+        className="justify-between gap-4 bg-[#121215]"
       >
-        {/* Header */}
-        <div className="p-3.5 flex items-center justify-between border-b border-white/[0.08] shrink-0">
-          <div className="flex items-center gap-2.5 overflow-hidden">
+        {/* Top Area: Brand Logo + Quick Actions + Navigation */}
+        <div className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden no-scrollbar animate-blur-in">
+          {/* Logo Header */}
+          <button
+            type="button"
+            onClick={() => handleSelectTab('dashboard')}
+            className="flex items-center gap-2.5 px-1 pb-3 border-b border-white/[0.08] shrink-0 text-left cursor-pointer"
+          >
             <div className="flex items-center justify-center w-9 h-9 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shrink-0 shadow-md shadow-emerald-950/60 overflow-hidden">
               <img
                 src="/assets/aistudio/image_e4461e45.png"
@@ -109,591 +292,176 @@ export function Sidebar({
                 className="w-full h-full rounded-full object-cover"
               />
             </div>
-            {!isCollapsed && (
-              <div className="min-w-0">
+            {isOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="min-w-0"
+              >
                 <span className="font-bold text-sm tracking-tight text-white block truncate leading-tight">
-                  {storeName === 'Lojinha do Campus' ? 'Lojinha Iceves' : storeName}
+                  {displayStoreName}
                 </span>
                 <span className="text-[10px] text-emerald-400 font-semibold block truncate">
                   Escola de Cristo • ICEVES
                 </span>
-              </div>
+              </motion.div>
             )}
-          </div>
-          {isMobileOpen && (
-            <button
-              onClick={() => setIsMobileOpen(false)}
-              className="lg:hidden text-zinc-400 hover:text-white p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+          </button>
 
-        {/* Action Buttons (ICEVES Green Gradient) - Only for Admin / Cashier */}
-        {(isAdmin || isCashier) && (
-          <div className="px-3 py-2.5 flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => {
-                onOpenQuickSale();
-                if (isMobileOpen) setIsMobileOpen(false);
-              }}
-              title="Abrir PDV e Registrar Venda"
-              className={`flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs py-2 px-3 rounded-lg transition-all shadow-sm shadow-emerald-950/50 cursor-pointer ${
-                isCollapsed ? 'p-2' : ''
-              }`}
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              {!isCollapsed && <span>Nova Venda</span>}
-            </button>
-
-            {isAdmin && (
+          {/* Quick Sale Action */}
+          {(isAdmin || isCashier) && (
+            <div className="pt-3 pb-2 flex items-center gap-2 shrink-0">
               <button
-                onClick={() => handleSelectTab('whatsapp')}
-                title="Automações e Comunicação"
-                className="flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/15 transition-colors shrink-0 cursor-pointer"
-              >
-                <Mail className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Navigation Links */}
-        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-5 scrollbar-thin">
-          
-          {/* Section: Dashboards */}
-          <div>
-            {!isCollapsed && (
-              <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
-                Dashboards
-              </div>
-            )}
-            <nav className="space-y-1">
-              <button
-                onClick={() => handleSelectTab('dashboard')}
-                className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                  activeTab === 'dashboard'
-                    ? 'text-white'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                type="button"
+                onClick={() => {
+                  onOpenQuickSale();
+                  if (isMobileOpen) setIsMobileOpen(false);
+                }}
+                title="Abrir PDV e Registrar Venda"
+                className={`flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold text-xs py-2 rounded-xl transition-all shadow-sm shadow-emerald-950/50 cursor-pointer ${
+                  isOpen ? 'px-3' : 'px-0'
                 }`}
               >
-                {activeTab === 'dashboard' && (
-                  <motion.div
-                    layoutId="activeTabBadge"
-                    className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                  />
-                )}
-                <LayoutGrid className="w-4 h-4 shrink-0 z-10" />
-                {!isCollapsed && <span className="z-10">{isStudent ? 'Meu Dashboard' : 'Visão Geral'}</span>}
+                <Plus className="w-4 h-4 shrink-0" />
+                {isOpen && <span className="whitespace-nowrap">Nova Venda</span>}
               </button>
-            </nav>
-          </div>
 
-          {/* Section: Operações */}
-          {(canManage || isCashier || isStockist || isViewer) && (
-            <div>
-              {!isCollapsed && (
-                <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
-                  Operações
-                </div>
-              )}
-              <nav className="space-y-1">
-                {/* Unified PDV & Cupons */}
-                {(canManage || isCashier) && (
-                  <button
-                    onClick={() => handleSelectTab('pdv')}
-                    className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                      activeTab === 'pdv' || activeTab === 'sales_history'
-                        ? 'text-white'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    {(activeTab === 'pdv' || activeTab === 'sales_history') && (
-                      <motion.div
-                        layoutId="activeTabBadge"
-                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                      />
-                    )}
-                    <div className="flex items-center gap-3 z-10">
-                      <ShoppingCart className="w-4 h-4 shrink-0" />
-                      {!isCollapsed && <span>PDV & Cupons</span>}
-                    </div>
-                  </button>
-                )}
-
-                {/* PDV DE PASSEIOS */}
-                {canAccessPdvPasseios && (
-                  <button
-                    onClick={() => handleSelectTab('pdv_passeios')}
-                    className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                      activeTab === 'pdv_passeios'
-                        ? 'text-white'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    {activeTab === 'pdv_passeios' && (
-                      <motion.div
-                        layoutId="activeTabBadge"
-                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                      />
-                    )}
-                    <div className="flex items-center gap-3 z-10">
-                      <Compass className="w-4 h-4 shrink-0 text-emerald-400" />
-                      {!isCollapsed && <span className="font-semibold">PDV de Passeios</span>}
-                    </div>
-                  </button>
-                )}
-
-                {/* Produtos & Estoque */}
+              {isAdmin && isOpen && (
                 <button
-                  onClick={() => handleSelectTab('products')}
-                  className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'products'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {activeTab === 'products' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <div className="flex items-center gap-3 z-10">
-                    <Package className="w-4 h-4 shrink-0" />
-                    {!isCollapsed && <span>Produtos & Estoque</span>}
-                  </div>
-                  {!isCollapsed && lowStockCount > 0 && (
-                    <span className="z-10 text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      {lowStockCount}
-                    </span>
-                  )}
-                </button>
-
-                {/* Passeios (Gestão) */}
-                {canManage && (
-                  <button
-                    onClick={() => handleSelectTab('passeios')}
-                    className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                      activeTab === 'passeios'
-                        ? 'text-white'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    {activeTab === 'passeios' && (
-                      <motion.div
-                        layoutId="activeTabBadge"
-                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                      />
-                    )}
-                    <div className="flex items-center gap-3 z-10">
-                      <Bus className="w-4 h-4 shrink-0" />
-                      {!isCollapsed && <span>Passeios</span>}
-                    </div>
-                  </button>
-                )}
-              </nav>
-            </div>
-          )}
-
-          {/* Section: Financeiro */}
-          {(canManage || isCashier || isViewer) && (
-            <div>
-              {!isCollapsed && (
-                <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
-                  Financeiro
-                </div>
-              )}
-              <nav className="space-y-1">
-                <button
-                  onClick={() => handleSelectTab('cash_register')}
-                  className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'cash_register'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {activeTab === 'cash_register' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <Wallet className="w-4 h-4 shrink-0 z-10" />
-                  {!isCollapsed && <span className="z-10">Caixa & Financeiro</span>}
-                </button>
-
-                {canManage && (
-                  <button
-                    onClick={() => handleSelectTab('closing')}
-                    className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                      activeTab === 'closing'
-                        ? 'text-white'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    {activeTab === 'closing' && (
-                      <motion.div
-                        layoutId="activeTabBadge"
-                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                      />
-                    )}
-                    <FileText className="w-4 h-4 shrink-0 z-10" />
-                    {!isCollapsed && <span className="z-10">Faturas & Fechamento</span>}
-                  </button>
-                )}
-
-                {canManage && (
-                  <button
-                    onClick={() => handleSelectTab('pix')}
-                    className={`relative w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                      activeTab === 'pix'
-                        ? 'text-white'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    {activeTab === 'pix' && (
-                      <motion.div
-                        layoutId="activeTabBadge"
-                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                      />
-                    )}
-                    <div className="flex items-center gap-3 z-10">
-                      <QrCode className="w-4 h-4 shrink-0" />
-                      {!isCollapsed && <span>Conferência Pix</span>}
-                    </div>
-                    {!isCollapsed && pendingPixCount > 0 && (
-                      <span className="z-10 text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                        {pendingPixCount}
-                      </span>
-                    )}
-                  </button>
-                )}
-
-                {(canManage || isViewer) && (
-                  <button
-                    onClick={() => handleSelectTab('reports')}
-                    className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                      activeTab === 'reports'
-                        ? 'text-white'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    {activeTab === 'reports' && (
-                      <motion.div
-                        layoutId="activeTabBadge"
-                        className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                        transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                      />
-                    )}
-                    <FileSpreadsheet className="w-4 h-4 shrink-0 z-10" />
-                    {!isCollapsed && <span className="z-10">Relatórios & Exportação</span>}
-                  </button>
-                )}
-              </nav>
-            </div>
-          )}
-
-          {/* Section: Inteligência Artificial */}
-          <div>
-            {!isCollapsed && (
-              <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
-                Inteligência
-              </div>
-            )}
-            <nav className="space-y-1">
-              <button
-                onClick={() => handleSelectTab('ai_assistant')}
-                className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                  activeTab === 'ai_assistant'
-                    ? 'text-white'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                }`}
-              >
-                {activeTab === 'ai_assistant' && (
-                  <motion.div
-                    layoutId="activeTabBadge"
-                    className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                  />
-                )}
-                <Sparkles className="w-4 h-4 shrink-0 z-10 text-emerald-400" />
-                {!isCollapsed && <span className="z-10">ICEVES Inteligência</span>}
-              </button>
-            </nav>
-          </div>
-
-          {/* Section: Pessoas & Portais */}
-          <div>
-            {!isCollapsed && (
-              <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
-                Pessoas & Portais
-              </div>
-            )}
-            <nav className="space-y-1">
-              {canManage && (
-                <button
-                  onClick={() => handleSelectTab('students')}
-                  className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'students'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {activeTab === 'students' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <Users className="w-4 h-4 shrink-0 z-10" />
-                  {!isCollapsed && <span className="z-10">Alunos & Famílias</span>}
-                </button>
-              )}
-
-              {(isAdmin || isStudent) && (
-                <button
-                  onClick={() => handleSelectTab('student_portal')}
-                  className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'student_portal'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {activeTab === 'student_portal' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <Receipt className="w-4 h-4 shrink-0 z-10" />
-                  {!isCollapsed && <span className="z-10">Portal do Aluno</span>}
-                </button>
-              )}
-
-              {(isAdmin || isGuardian) && (
-                <button
-                  onClick={() => handleSelectTab('guardian_portal')}
-                  className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'guardian_portal'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {activeTab === 'guardian_portal' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <ShieldCheck className="w-4 h-4 shrink-0 z-10" />
-                  {!isCollapsed && <span className="z-10">Portal do Responsável</span>}
-                </button>
-              )}
-            </nav>
-          </div>
-
-          {/* Section: Sistema & Auditoria */}
-          {isAdmin && (
-            <div>
-              {!isCollapsed && (
-                <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
-                  Administração
-                </div>
-              )}
-              <nav className="space-y-1">
-                <button
+                  type="button"
                   onClick={() => handleSelectTab('whatsapp')}
-                  className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'whatsapp'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
+                  title="Automações e Comunicação"
+                  className="flex items-center justify-center w-8 h-8 rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 transition-colors shrink-0 cursor-pointer"
                 >
-                  {activeTab === 'whatsapp' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <MessageSquare className="w-4 h-4 shrink-0 z-10" />
-                  {!isCollapsed && <span className="z-10">WhatsApp & Avisos</span>}
+                  <Mail className="w-4 h-4" />
                 </button>
-
-                <button
-                  onClick={() => handleSelectTab('audit')}
-                  className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'audit'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {activeTab === 'audit' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <ShieldAlert className="w-4 h-4 shrink-0 z-10" />
-                  {!isCollapsed && <span className="z-10">Auditoria (LGPD)</span>}
-                </button>
-
-                <button
-                  onClick={() => handleSelectTab('settings')}
-                  className={`relative w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                    activeTab === 'settings'
-                      ? 'text-white'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  {activeTab === 'settings' && (
-                    <motion.div
-                      layoutId="activeTabBadge"
-                      className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 rounded-lg"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <Settings className="w-4 h-4 shrink-0 z-10" />
-                  {!isCollapsed && <span className="z-10">Configurações</span>}
-                </button>
-              </nav>
+              )}
             </div>
           )}
 
-          {/* Collapsible Authentication Navigation matching Reference */}
-          <div>
-            {!isCollapsed && (
-              <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider px-2 mb-1.5">
-                Segurança
-              </div>
-            )}
-            <div className="space-y-1">
-              <button
-                onClick={() => setAuthExpanded(!authExpanded)}
-                className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <Lock className="w-4 h-4 shrink-0" />
-                  {!isCollapsed && <span>Autenticação</span>}
-                </div>
-                {!isCollapsed && (
-                  <motion.div animate={{ rotate: authExpanded ? 90 : 0 }}>
-                    <ChevronRight className="w-3.5 h-3.5 text-zinc-500" />
-                  </motion.div>
-                )}
-              </button>
+          {/* Sections */}
+          <div className="mt-3 space-y-4">
+            {renderSection('Dashboards', dashboardLinks)}
+            {renderSection('Operações', operationsLinks)}
+            {renderSection('Financeiro', financeLinks)}
+            {renderSection('Inteligência', aiLinks)}
+            {renderSection('Pessoas & Portais', peopleLinks)}
+            {renderSection('Administração', adminLinks)}
 
-              <AnimatePresence>
-                {authExpanded && !isCollapsed && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="pl-9 space-y-1 overflow-hidden text-xs text-zinc-500"
-                  >
-                    <button
-                      onClick={() => logout()}
-                      className="block w-full text-left py-1.5 hover:text-zinc-300 cursor-pointer"
+            {/* Segurança / Autenticação */}
+            <div>
+              {isOpen && (
+                <div className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-2.5 mb-1.5">
+                  Segurança
+                </div>
+              )}
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isOpen) setIsCollapsed(false);
+                    setAuthExpanded((prev) => !prev);
+                  }}
+                  title={!isOpen ? 'Autenticação' : undefined}
+                  className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-medium text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <Lock className="w-4 h-4 shrink-0" />
+                    {isOpen && <span>Autenticação</span>}
+                  </div>
+                  {isOpen && (
+                    <motion.div animate={{ rotate: authExpanded ? 90 : 0 }}>
+                      <ChevronRight className="w-3.5 h-3.5 text-zinc-500" />
+                    </motion.div>
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {authExpanded && isOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="pl-9 space-y-1 overflow-hidden text-xs text-zinc-400"
                     >
-                      Sair / Trocar Conta
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                      <button
+                        type="button"
+                        onClick={() => logout()}
+                        className="block w-full text-left py-1.5 hover:text-white cursor-pointer"
+                      >
+                        Sair / Trocar Conta
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           </div>
-
         </div>
 
-        {/* Footer Card & Profile */}
-        {!isCollapsed && (
-          <div className="p-3 border-t border-white/[0.08] space-y-3 shrink-0 bg-[#111111]">
-            <PWAInstallButton variant="sidebar" />
-            <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-950/30 to-white/[0.02] border border-emerald-500/20 text-xs space-y-1.5">
-              <div className="flex items-center gap-2">
-                <img
-                  src="/assets/aistudio/image_e4461e45.png"
-                  alt="ICEVES"
-                  className="w-5 h-5 rounded-full object-cover bg-white ring-1 ring-emerald-500/40 shrink-0"
-                />
-                <div className="font-bold text-emerald-300 text-xs truncate">Escola de Cristo • ICEVES</div>
-              </div>
-              <div className="text-zinc-400 leading-relaxed text-[11px]">
-                10ª Turma (Formatura: 27 a 30) • Gestão integrada e persistência ativa.
-              </div>
-            </div>
+        {/* Bottom Area: PWA Install + Profile */}
+        <div className="pt-3 border-t border-white/[0.08] space-y-3 shrink-0 animate-blur-in">
+          {isOpen && <PWAInstallButton variant="sidebar" />}
 
-            <div className="flex items-center justify-between pt-1 relative">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <img
-                  src={user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                  alt={user?.name || 'Usuário'}
-                  className="w-8 h-8 rounded-full object-cover border border-white/20 shrink-0"
-                />
+          <div className="flex items-center justify-between relative">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <img
+                src={user?.avatar || getInitialsAvatar(user?.name || 'Usuário ICEVES')}
+                alt={user?.name || 'Usuário'}
+                className="w-8 h-8 rounded-full object-cover border border-white/20 shrink-0"
+              />
+              {isOpen && (
                 <div className="text-left min-w-0">
-                  <div className="text-xs font-semibold text-zinc-200 truncate">
+                  <div className="text-xs font-semibold text-zinc-100 truncate">
                     {user?.name || 'Usuário'}
                   </div>
-                  <div className="text-[10px] text-zinc-500 truncate">
-                    {user?.email || ''}
-                  </div>
+                  <div className="text-[10px] text-zinc-500 truncate">{user?.email || role}</div>
                 </div>
-              </div>
+              )}
+            </div>
 
+            {isOpen && (
               <button
+                type="button"
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="text-zinc-500 hover:text-zinc-300 p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer shrink-0"
+                className="text-zinc-500 hover:text-zinc-200 p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer shrink-0"
                 title="Opções da Conta"
               >
                 <MoreVertical className="w-4 h-4" />
               </button>
+            )}
 
-              {/* User Account & Logout Popover */}
-              <AnimatePresence>
-                {showUserMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-full left-0 right-0 mb-2 p-2 bg-[#18181b] border border-white/[0.12] rounded-xl shadow-2xl z-50 text-xs space-y-1"
-                  >
-                    <div className="px-2 py-1.5 border-b border-white/[0.06]">
-                      <div className="text-xs font-semibold text-white truncate">{user?.name}</div>
-                      <div className="text-[10px] text-emerald-400 font-medium">{role}</div>
-                    </div>
-                    <div className="pt-1">
-                      <button
-                        onClick={() => {
-                          logout();
-                          setShowUserMenu(false);
-                        }}
-                        className="w-full text-left px-2 py-1.5 text-xs text-red-400 hover:bg-red-500/10 rounded-lg flex items-center gap-2 cursor-pointer font-medium"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        <span>Sair do Sistema</span>
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            <AnimatePresence>
+              {showUserMenu && isOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                  className="absolute bottom-full left-0 right-0 mb-2 p-2 bg-[#1B1B20] border border-white/[0.12] rounded-xl shadow-2xl z-50 text-xs space-y-1"
+                >
+                  <div className="px-2 py-1.5 border-b border-white/[0.08]">
+                    <div className="text-xs font-semibold text-white truncate">{user?.name}</div>
+                    <div className="text-[10px] text-emerald-400 font-medium">{role}</div>
+                  </div>
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logout();
+                        setShowUserMenu(false);
+                      }}
+                      className="w-full text-left px-2 py-1.5 text-xs text-red-400 hover:bg-red-500/10 rounded-lg flex items-center gap-2 cursor-pointer font-medium"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sair do Sistema</span>
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        )}
-      </aside>
-    </>
+        </div>
+      </SidebarBody>
+    </UiSidebar>
   );
 }

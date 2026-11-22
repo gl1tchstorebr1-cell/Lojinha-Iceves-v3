@@ -261,6 +261,10 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
           studentId: req.body.studentId,
           items: req.body.items,
           paymentMethod: req.body.paymentMethod,
+          payments: Array.isArray(req.body.payments) ? req.body.payments : undefined,
+          amountPaid: req.body.amountPaid !== undefined ? Number(req.body.amountPaid) : undefined,
+          creditUsed: req.body.creditUsed !== undefined ? Number(req.body.creditUsed) : undefined,
+          terminalId: req.body.terminalId,
           discountAmount: req.body.discountAmount,
           notes: req.body.notes,
           operatorUser: currentUser,
@@ -277,6 +281,150 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       const saleId = pathname.replace('/api/sales/', '').replace('/reverse', '');
       const result = db.reverseSale(saleId, req.body.reason || 'Estorno solicitado no caixa', currentUser);
       return { status: 200, data: result };
+    }
+
+    if (pathname.startsWith('/api/sales/') && pathname.endsWith('/partial-reverse') && method === 'POST') {
+      if (!canOperateCashier) {
+        return { status: 403, data: { error: 'Sem permissão para estornar itens de vendas.' } };
+      }
+      const saleId = pathname.replace('/api/sales/', '').replace('/partial-reverse', '');
+      const result = db.partialReverseSale(
+        saleId,
+        {
+          items: Array.isArray(req.body?.items) ? req.body.items : [],
+          reason: req.body?.reason || ''
+        },
+        currentUser
+      );
+      return { status: 200, data: result };
+    }
+
+    // 5.0. Sales Receipts & Vouchers (Recibos de Vendas)
+    const canAccessReceiptForStudent = (studentId: string): boolean => {
+      if (currentUser.role === 'STOCKIST') return false;
+      if (isAdminOrManager || currentUser.role === 'CASHIER' || currentUser.role === 'VIEWER') {
+        return true;
+      }
+      if (currentUser.role === 'STUDENT') {
+        return studentId === resolvedStudentId;
+      }
+      if (currentUser.role === 'GUARDIAN' && currentUser.guardianId) {
+        const guardian = db.getGuardians().find(g => g.id === currentUser.guardianId);
+        return Boolean(guardian?.studentIds.includes(studentId));
+      }
+      return false;
+    };
+
+    if (pathname === '/api/receipts' && method === 'GET') {
+      if (currentUser.role === 'STOCKIST') {
+        return { status: 403, data: { error: 'Perfil Estoquista não possui acesso aos recibos financeiros.' } };
+      }
+      let receipts = db.getReceipts();
+
+      if (currentUser.role === 'STUDENT') {
+        receipts = receipts.filter(r => r.studentSnapshot.studentId === resolvedStudentId);
+      } else if (currentUser.role === 'GUARDIAN' && currentUser.guardianId) {
+        const guardian = db.getGuardians().find(g => g.id === currentUser.guardianId);
+        const allowedIds = guardian?.studentIds || [];
+        receipts = receipts.filter(r => allowedIds.includes(r.studentSnapshot.studentId));
+      }
+
+      const qSearch = (url.searchParams.get('search') || '').trim().toLowerCase();
+      const qStudentId = url.searchParams.get('studentId') || '';
+      const qClassGroup = (url.searchParams.get('classGroup') || '').trim().toLowerCase();
+      const qOperator = (url.searchParams.get('operator') || '').trim().toLowerCase();
+      const qPaymentMethod = url.searchParams.get('paymentMethod') || '';
+      const qStatus = url.searchParams.get('status') || '';
+      const qStartDate = url.searchParams.get('startDate') || '';
+      const qEndDate = url.searchParams.get('endDate') || '';
+      const qSaleCode = (url.searchParams.get('saleCode') || '').trim().toLowerCase();
+
+      if (qStudentId) {
+        receipts = receipts.filter(r => r.studentSnapshot.studentId === qStudentId);
+      }
+      if (qClassGroup) {
+        receipts = receipts.filter(r => (r.studentSnapshot.classGroup || '').toLowerCase().includes(qClassGroup));
+      }
+      if (qOperator) {
+        receipts = receipts.filter(r => r.operational.operatorUserName.toLowerCase().includes(qOperator));
+      }
+      if (qPaymentMethod) {
+        receipts = receipts.filter(r => r.payments.some(p => p.method === qPaymentMethod));
+      }
+      if (qStatus) {
+        receipts = receipts.filter(r => r.status === qStatus);
+      }
+      if (qStartDate) {
+        receipts = receipts.filter(r => r.saleSnapshot.saoPauloDate >= qStartDate);
+      }
+      if (qEndDate) {
+        receipts = receipts.filter(r => r.saleSnapshot.saoPauloDate <= qEndDate);
+      }
+      if (qSaleCode) {
+        receipts = receipts.filter(
+          r => r.saleId.toLowerCase().includes(qSaleCode) || r.receiptCode.toLowerCase().includes(qSaleCode)
+        );
+      }
+      if (qSearch) {
+        receipts = receipts.filter(
+          r =>
+            r.receiptCode.toLowerCase().includes(qSearch) ||
+            r.saleId.toLowerCase().includes(qSearch) ||
+            r.studentSnapshot.name.toLowerCase().includes(qSearch) ||
+            r.studentSnapshot.registrationNumber.toLowerCase().includes(qSearch) ||
+            r.operational.operatorUserName.toLowerCase().includes(qSearch)
+        );
+      }
+
+      return { status: 200, data: receipts };
+    }
+
+    if (pathname.startsWith('/api/receipts/by-sale/') && method === 'GET') {
+      if (currentUser.role === 'STOCKIST') {
+        return { status: 403, data: { error: 'Acesso negado aos recibos de vendas.' } };
+      }
+      const saleId = pathname.replace('/api/receipts/by-sale/', '');
+      const receipt = db.getReceiptBySaleId(saleId);
+      if (!receipt) {
+        return { status: 404, data: { error: `Recibo não encontrado para a venda ${saleId}.` } };
+      }
+      if (!canAccessReceiptForStudent(receipt.studentSnapshot.studentId)) {
+        return { status: 403, data: { error: 'Acesso negado: este recibo pertence a outro aluno.' } };
+      }
+      return { status: 200, data: receipt };
+    }
+
+    if (pathname.startsWith('/api/receipts/') && pathname.endsWith('/reprint') && method === 'POST') {
+      if (currentUser.role === 'STOCKIST') {
+        return { status: 403, data: { error: 'Acesso negado aos recibos de vendas.' } };
+      }
+      const receiptId = pathname.replace('/api/receipts/', '').replace('/reprint', '');
+      const actionType = (req.body?.actionType || 'REPRINT') as 'PRINT' | 'PDF' | 'REPRINT';
+      try {
+        const updatedReceipt = db.recordReceiptAction(receiptId, actionType, {
+          ...currentUser,
+          studentId: resolvedStudentId || currentUser.studentId,
+        });
+        return { status: 200, data: updatedReceipt };
+      } catch (err: any) {
+        const statusCode = /permissão|negado/i.test(err.message || '') ? 403 : 400;
+        return { status: statusCode, data: { error: err.message } };
+      }
+    }
+
+    if (pathname.startsWith('/api/receipts/') && method === 'GET') {
+      if (currentUser.role === 'STOCKIST') {
+        return { status: 403, data: { error: 'Acesso negado aos recibos de vendas.' } };
+      }
+      const receiptId = pathname.replace('/api/receipts/', '');
+      const receipt = db.getReceiptById(receiptId);
+      if (!receipt) {
+        return { status: 404, data: { error: 'Recibo não encontrado.' } };
+      }
+      if (!canAccessReceiptForStudent(receipt.studentSnapshot.studentId)) {
+        return { status: 403, data: { error: 'Acesso negado: este recibo pertence a outro aluno.' } };
+      }
+      return { status: 200, data: receipt };
     }
 
     // 5.1. Cash Register & Financeiro
@@ -516,7 +664,14 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       }
     }
 
-    // 7. Invoices & Closing
+    // 7. Invoices, Individual/Period Billing & Monthly Closing
+    const canViewInvoicesOverview = isAdminOrManager || currentUser.role === 'CASHIER' || currentUser.role === 'VIEWER';
+    const isBlockedFromAllInvoices = currentUser.role === 'STOCKIST';
+
+    if (pathname.startsWith('/api/invoices') && isBlockedFromAllInvoices) {
+      return { status: 403, data: { error: 'Perfil Estoquista não possui acesso ao módulo financeiro de faturas de alunos.' } };
+    }
+
     if (pathname === '/api/invoices') {
       if (method === 'GET') {
         let invoices = db.getInvoices();
@@ -531,21 +686,89 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       }
     }
 
-    if (pathname === '/api/invoices/closing-preview' && method === 'POST') {
-      if (currentUser.role !== 'ADMIN') {
-        return { status: 403, data: { error: 'Apenas Administradores podem gerar a prévia de fechamento.' } };
+    if (pathname === '/api/invoices/overview' && method === 'GET') {
+      if (!canViewInvoicesOverview) {
+        return { status: 403, data: { error: 'Sem permissão para consultar visão geral de faturamento.' } };
       }
-      const period = req.body.period || new Date().toISOString().substring(0, 7);
+      const unbilledOverview = db.getUnbilledConsumptionOverview();
+      const batches = db.getBillingBatches();
+      return { status: 200, data: { unbilledOverview, batches } };
+    }
+
+    if (pathname === '/api/invoices/batches' && method === 'GET') {
+      if (!canViewInvoicesOverview) {
+        return { status: 403, data: { error: 'Sem permissão para consultar histórico de lotes de faturamento.' } };
+      }
+      return { status: 200, data: db.getBillingBatches() };
+    }
+
+    if (pathname.startsWith('/api/invoices/student-context/') && method === 'GET') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem lançar faturas individuais.' } };
+      }
+      const studentId = pathname.replace('/api/invoices/student-context/', '');
+      const periodStart = url.searchParams.get('periodStart') || undefined;
+      const periodEnd = url.searchParams.get('periodEnd') || undefined;
+      const context = db.getStudentIndividualBillingContext(studentId, periodStart, periodEnd);
+      return { status: 200, data: context };
+    }
+
+    if (pathname === '/api/invoices/individual-preview' && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem pré-visualizar faturas individuais.' } };
+      }
+      const preview = db.previewIndividualInvoice(req.body || {});
+      return { status: 200, data: preview };
+    }
+
+    if (pathname === '/api/invoices/individual' && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem emitir faturas individuais.' } };
+      }
+      const result = db.createIndividualInvoice(req.body || {}, currentUser);
+      return { status: 201, data: result };
+    }
+
+    if (pathname === '/api/invoices/period-preview' && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem gerar prévias de faturamento por período.' } };
+      }
+      const preview = db.previewPeriodBilling({
+        ...(req.body || {}),
+        mode: req.body?.mode || 'PERIODO_PERSONALIZADO'
+      });
+      return { status: 200, data: preview };
+    }
+
+    if (pathname === '/api/invoices/period-execute' && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem emitir faturas em lote.' } };
+      }
+      const result = db.executePeriodBilling(
+        {
+          ...(req.body || {}),
+          mode: req.body?.mode || 'PERIODO_PERSONALIZADO'
+        },
+        currentUser
+      );
+      return { status: 201, data: result };
+    }
+
+    if (pathname === '/api/invoices/closing-preview' && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem gerar a prévia de fechamento.' } };
+      }
+      const period = req.body?.period || new Date().toISOString().substring(0, 7);
       const preview = db.getMonthlyClosingPreview(period);
       return { status: 200, data: preview };
     }
 
     if (pathname === '/api/invoices/execute-closing' && method === 'POST') {
-      if (currentUser.role !== 'ADMIN') {
-        return { status: 403, data: { error: 'Apenas Administradores podem aprovar e publicar o fechamento mensal.' } };
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem aprovar e publicar o fechamento mensal.' } };
       }
-      const period = req.body.period || new Date().toISOString().substring(0, 7);
-      const result = db.executeMonthlyClosing(period, currentUser);
+      const period = req.body?.period || new Date().toISOString().substring(0, 7);
+      const result = db.executeMonthlyClosing(period, currentUser, req.body || {});
       return { status: 200, data: result };
     }
 
@@ -575,6 +798,24 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       return { status: 200, data: { success: true } };
     }
 
+    if (pathname.startsWith('/api/invoices/') && pathname.endsWith('/cancel') && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem cancelar faturas controladamente.' } };
+      }
+      const invoiceId = pathname.replace('/api/invoices/', '').replace('/cancel', '');
+      const canceled = db.cancelInvoice(invoiceId, req.body?.reason || '', currentUser);
+      return { status: 200, data: canceled };
+    }
+
+    if (pathname.startsWith('/api/invoices/') && pathname.endsWith('/retry-notification') && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem reenviar notificações de fatura.' } };
+      }
+      const invoiceId = pathname.replace('/api/invoices/', '').replace('/retry-notification', '');
+      const retried = db.retryInvoiceNotification(invoiceId, currentUser);
+      return { status: 200, data: retried };
+    }
+
     if (pathname.startsWith('/api/invoices/') && method === 'DELETE') {
       if (currentUser.role !== 'ADMIN') {
         return { status: 403, data: { error: 'Apenas Administradores podem excluir faturas.' } };
@@ -585,8 +826,8 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     }
 
     if (pathname.startsWith('/api/invoices/') && (method === 'PATCH' || method === 'PUT')) {
-      if (currentUser.role !== 'ADMIN') {
-        return { status: 403, data: { error: 'Apenas Administradores podem alterar faturas e valores de mensalidade.' } };
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem alterar faturas e ajustes.' } };
       }
       const invoiceId = pathname.replace('/api/invoices/', '');
       const updated = db.updateInvoice(invoiceId, req.body, currentUser);

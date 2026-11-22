@@ -1,4 +1,73 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --background: #141414;
+  --foreground: #f5f5f5;
+  --card: #1f1f23;
+  --card-foreground: #f5f5f5;
+  --popover: #1b1b1f;
+  --popover-foreground: #f5f5f5;
+  --primary: #f5f5f5;
+  --primary-foreground: #141414;
+  --secondary: #26262b;
+  --secondary-foreground: #f5f5f5;
+  --muted: #26262a;
+  --muted-foreground: #a1a1aa;
+  --accent: #2e2e34;
+  --accent-foreground: #f5f5f5;
+  --destructive: #e11d48;
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: #323238;
+  --input: #2c2c32;
+  --ring: #10b981;
+}
+
+.dark {
+  --background: #141414;
+  --foreground: #f5f5f5;
+  --card: #1f1f23;
+  --card-foreground: #f5f5f5;
+  --popover: #1b1b1f;
+  --popover-foreground: #f5f5f5;
+  --primary: #f5f5f5;
+  --primary-foreground: #141414;
+  --secondary: #26262b;
+  --secondary-foreground: #f5f5f5;
+  --muted: #26262a;
+  --muted-foreground: #a1a1aa;
+  --accent: #2e2e34;
+  --accent-foreground: #f5f5f5;
+  --destructive: #e11d48;
+  --destructive-foreground: hsl(0 0% 0%);
+  --border: #323238;
+  --input: #2c2c32;
+  --ring: #10b981;
+}
 
 @layer base {
   body {
@@ -27,6 +96,15 @@
   background: #3a3a3a;
 }
 
+/* Hide scrollbar visually while keeping scroll active */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Light Theme Clean Mode (toggled via TopBar or Settings) */
 html.theme-light {
   filter: invert(0.93) hue-rotate(180deg);
@@ -40,6 +118,10 @@ html.theme-light svg.recharts-surface {
 }
 
 /* Clean print formatting for PDF / Comprovante exports */
+#iceves-print-root {
+  display: none;
+}
+
 @media print {
   aside,
   header,
@@ -49,6 +131,110 @@ html.theme-light svg.recharts-surface {
   }
   body {
     background: #ffffff !important;
-    color: #111827 !important;
+    color: #000000 !important;
+  }
+  body.printing-receipt > #root {
+    display: none !important;
+  }
+  body.printing-receipt > #iceves-print-root {
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body.printing-receipt #iceves-print-root * {
+    color: #000000 !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+/* ============================================================
+   Global Smooth Fade-In + Gentle Motion Blur System
+   - Uses animation-fill-mode: backwards so hover transforms,
+     tilt3D, and position: fixed overlays are never blocked.
+   ============================================================ */
+@keyframes icevesBlurFadeIn {
+  0% {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+
+@keyframes icevesModalBlurIn {
+  0% {
+    opacity: 0;
+    filter: blur(7px);
+    transform: scale(0.985) translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+
+.animate-blur-in {
+  animation: icevesBlurFadeIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.animate-modal-blur-in {
+  animation: icevesModalBlurIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+/* Cascade all sections, panels, grid cards, and table rows inside active view without double-blurring */
+.blur-fade-stage > * > *:not(.grid):not(.fixed):not([role="dialog"]):not(:has(> .grid)),
+.blur-fade-stage .grid > *:not(.fixed):not([role="dialog"]):not(:has(> .grid)),
+.blur-fade-stage table tbody tr {
+  animation: icevesBlurFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+/* Organic staggered timing across sections and grid items */
+.blur-fade-stage > * > *:nth-child(1),
+.blur-fade-stage .grid > *:nth-child(1) { animation-delay: 0ms; }
+.blur-fade-stage > * > *:nth-child(2),
+.blur-fade-stage .grid > *:nth-child(2) { animation-delay: 40ms; }
+.blur-fade-stage > * > *:nth-child(3),
+.blur-fade-stage .grid > *:nth-child(3) { animation-delay: 80ms; }
+.blur-fade-stage > * > *:nth-child(4),
+.blur-fade-stage .grid > *:nth-child(4) { animation-delay: 120ms; }
+.blur-fade-stage > * > *:nth-child(5),
+.blur-fade-stage .grid > *:nth-child(5) { animation-delay: 160ms; }
+.blur-fade-stage > * > *:nth-child(6),
+.blur-fade-stage .grid > *:nth-child(6) { animation-delay: 200ms; }
+.blur-fade-stage > * > *:nth-child(7),
+.blur-fade-stage .grid > *:nth-child(7) { animation-delay: 240ms; }
+.blur-fade-stage > * > *:nth-child(n+8),
+.blur-fade-stage .grid > *:nth-child(n+8) { animation-delay: 270ms; }
+
+/* Subtle table row cascade capped for long tables */
+.blur-fade-stage table tbody tr {
+  animation-duration: 0.42s;
+}
+.blur-fade-stage table tbody tr:nth-child(1) { animation-delay: 20ms; }
+.blur-fade-stage table tbody tr:nth-child(2) { animation-delay: 45ms; }
+.blur-fade-stage table tbody tr:nth-child(3) { animation-delay: 70ms; }
+.blur-fade-stage table tbody tr:nth-child(4) { animation-delay: 95ms; }
+.blur-fade-stage table tbody tr:nth-child(5) { animation-delay: 120ms; }
+.blur-fade-stage table tbody tr:nth-child(6) { animation-delay: 145ms; }
+.blur-fade-stage table tbody tr:nth-child(n+7) { animation-delay: 170ms; }
+
+/* Respect user reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .animate-blur-in,
+  .animate-modal-blur-in,
+  .blur-fade-stage > * > *,
+  .blur-fade-stage .grid > *,
+  .blur-fade-stage table tbody tr {
+    animation: none !important;
   }
 }

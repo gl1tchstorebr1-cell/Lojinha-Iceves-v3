@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import type { 
   User, 
+  UserRole,
   Student, 
   Guardian, 
   Product, 
@@ -27,7 +28,29 @@ import type {
   PaymentMethod,
   CashRegisterSession,
   CashMovement,
-  CashMovementType
+  CashMovementType,
+  BillingBatch,
+  BillingBatchType,
+  BillingBatchPreview,
+  BillingPreviewSale,
+  BillingPreviewSaleItem,
+  BillingStudentPreviewItem,
+  IndividualInvoicePayload,
+  IndividualSaleSelection,
+  InvoiceHistoryEntry,
+  InvoiceSaleItemLink,
+  PeriodBillingPayload,
+  ReceiptItemSnapshot,
+  ReceiptPaymentLine,
+  ReceiptReversalRecord,
+  ReceiptSettings,
+  ReceiptStatus,
+  SaleAllocatedItem,
+  SaleBillingStatus,
+  SaleInvoiceAllocation,
+  SalePaymentEntry,
+  SalesReceipt,
+  UnbilledConsumptionOverview
 } from '../types/index.ts';
 import { generateBacenPixPayload } from '../utils/pix.ts';
 import { getInitialsAvatar } from '../utils/avatar.ts';
@@ -59,6 +82,8 @@ export interface DatabaseSchema {
   sales: Sale[];
   financialLedger: FinancialTransaction[];
   invoices: Invoice[];
+  billingBatches?: BillingBatch[];
+  receipts?: SalesReceipt[];
   pixPayments: PixPayment[];
   whatsappNotifications: WhatsAppNotification[];
   auditLogs: AuditLog[];
@@ -78,6 +103,7 @@ class DatabaseService {
 
   constructor() {
     this.data = this.loadDatabase();
+    this.ensureReceiptsForExistingSales();
   }
 
   private normalizeCategory(cat?: string | null): ProductCategory {
@@ -192,6 +218,10 @@ class DatabaseService {
           storeName: parsed.settings?.storeName || 'Lojinha Iceves',
           tuitionBillingActive: false,
           defaultTuitionAmount: 0,
+          receiptSettings: {
+            ...initialSettings.receiptSettings!,
+            ...(parsed.settings?.receiptSettings || {}),
+          },
         };
 
         // Atualização Controlada do Catálogo Oficial (6 categorias e 70 produtos)
@@ -516,6 +546,8 @@ class DatabaseService {
           sales: finalSales,
           financialLedger: finalLedger,
           invoices: finalInvoices,
+          billingBatches: Array.isArray(parsed.billingBatches) ? parsed.billingBatches : [],
+          receipts: Array.isArray(parsed.receipts) ? parsed.receipts : [],
           pixPayments: parsed.pixPayments || initialPixPayments,
           whatsappNotifications: parsed.whatsappNotifications || initialWhatsAppNotifications,
           auditLogs: finalAuditLogs,
@@ -545,6 +577,8 @@ class DatabaseService {
       sales: initialSales,
       financialLedger: initialFinancialLedger,
       invoices: initialInvoices,
+      billingBatches: [],
+      receipts: [],
       pixPayments: initialPixPayments,
       whatsappNotifications: initialWhatsAppNotifications,
       auditLogs: initialAuditLogs,
@@ -702,6 +736,28 @@ class DatabaseService {
     return this.data.invoices;
   }
 
+  public getBillingBatches(): BillingBatch[] {
+    if (!Array.isArray(this.data.billingBatches)) {
+      this.data.billingBatches = [];
+    }
+    return this.data.billingBatches;
+  }
+
+  public getReceipts(): SalesReceipt[] {
+    if (!Array.isArray(this.data.receipts)) {
+      this.data.receipts = [];
+    }
+    return this.data.receipts;
+  }
+
+  public getReceiptById(receiptId: string): SalesReceipt | undefined {
+    return this.getReceipts().find(r => r.id === receiptId || r.receiptCode === receiptId);
+  }
+
+  public getReceiptBySaleId(saleId: string): SalesReceipt | undefined {
+    return this.getReceipts().find(r => r.saleId === saleId);
+  }
+
   public getPixPayments(): PixPayment[] {
     return this.data.pixPayments;
   }
@@ -747,9 +803,19 @@ class DatabaseService {
 
   // 1. Atualizar configurações
   public updateSettings(newSettings: Partial<SystemSettings>, user: { id: string; name: string; role: any }) {
+    const mergedReceiptSettings: ReceiptSettings | undefined =
+      newSettings.receiptSettings || this.data.settings.receiptSettings
+        ? {
+            ...(initialSettings.receiptSettings as ReceiptSettings),
+            ...(this.data.settings.receiptSettings || {}),
+            ...(newSettings.receiptSettings || {}),
+          }
+        : undefined;
+
     this.data.settings = {
       ...this.data.settings,
       ...newSettings,
+      receiptSettings: mergedReceiptSettings,
       updatedAt: new Date().toISOString(),
       updatedByUserName: user.name
     };
@@ -762,19 +828,27 @@ class DatabaseService {
   // 2. Operação de Venda no PDV (Caixa Rápido)
   public registerSale(params: {
     studentId: string;
-    items: { productId: string; quantity: number }[];
+    items: { productId: string; quantity: number; discountAmount?: number }[];
     operatorUser: { id: string; name: string; role: any };
     idempotencyKey?: string;
     paymentMethod?: PaymentMethod;
+    payments?: SalePaymentEntry[];
+    amountPaid?: number;
+    creditUsed?: number;
+    terminalId?: string;
     discountAmount?: number;
     notes?: string;
-  }): { sale: Sale; student: Student } {
+  }): { sale: Sale; student: Student; receipt: SalesReceipt } {
     const {
       studentId,
       items,
       operatorUser,
       idempotencyKey,
       paymentMethod = 'CONTA_ALUNO',
+      payments,
+      amountPaid,
+      creditUsed = 0,
+      terminalId,
       discountAmount = 0,
       notes
     } = params;
@@ -784,7 +858,8 @@ class DatabaseService {
       const existingSale = this.data.sales.find(s => s.idempotencyKey === idempotencyKey);
       if (existingSale) {
         const student = this.data.students.find(s => s.id === studentId)!;
-        return { sale: existingSale, student };
+        const receipt = this.createReceiptForSale(existingSale, student, operatorUser, { terminalId });
+        return { sale: existingSale, student, receipt };
       }
     }
 
@@ -797,7 +872,21 @@ class DatabaseService {
       throw new Error(`O aluno ${student.name} está inativo e não pode realizar compras.`);
     }
 
-    if (paymentMethod === 'CONTA_ALUNO' && student.consumptionBlocked) {
+    const hasExplicitPayments = Array.isArray(payments) && payments.length > 0;
+    const effectiveMethods: SalePaymentEntry[] = hasExplicitPayments
+      ? payments.map(p => ({
+          method: p.method,
+          amount: Math.round((Number(p.amount) || 0) * 100) / 100,
+          transactionId: p.transactionId,
+          confirmedAt: p.confirmedAt,
+        }))
+      : [];
+
+    const usesAccountPayment = hasExplicitPayments
+      ? effectiveMethods.some(p => p.method === 'CONTA_ALUNO')
+      : paymentMethod === 'CONTA_ALUNO';
+
+    if (usesAccountPayment && student.consumptionBlocked) {
       throw new Error(
         `Consumo temporariamente bloqueado para ${student.name}${student.consumptionBlockedReason ? `: ${student.consumptionBlockedReason}` : '.'}`
       );
@@ -808,18 +897,24 @@ class DatabaseService {
     }
 
     // Conferência rigorosa de preço, status e bloqueio de estoque
-    const aggregatedQuantities = new Map<string, number>();
+    const aggregatedQuantities = new Map<string, { quantity: number; discountAmount: number }>();
     for (const item of items) {
       if (!item.productId || !Number.isFinite(item.quantity) || item.quantity <= 0) {
         throw new Error('Quantidade inválida no carrinho. Todos os itens devem ter quantidade maior que zero.');
       }
-      aggregatedQuantities.set(item.productId, (aggregatedQuantities.get(item.productId) || 0) + item.quantity);
+      const prev = aggregatedQuantities.get(item.productId) || { quantity: 0, discountAmount: 0 };
+      aggregatedQuantities.set(item.productId, {
+        quantity: prev.quantity + item.quantity,
+        discountAmount: Math.round((prev.discountAmount + Math.max(0, Number(item.discountAmount) || 0)) * 100) / 100,
+      });
     }
 
     const saleItems: Sale['items'] = [];
     let subtotalBeforeDiscount = 0;
+    let itemLevelDiscountTotal = 0;
 
-    for (const [productId, totalQty] of aggregatedQuantities.entries()) {
+    for (const [productId, agg] of aggregatedQuantities.entries()) {
+      const totalQty = agg.quantity;
       const product = this.data.products.find(p => p.id === productId);
       if (!product) {
         throw new Error(`Produto ID ${productId} não encontrado.`);
@@ -838,21 +933,32 @@ class DatabaseService {
       }
 
       const unitPrice = Number(product.price);
-      const subtotal = Math.round((unitPrice * totalQty) * 100) / 100;
-      subtotalBeforeDiscount += subtotal;
+      const rawSubtotal = Math.round((unitPrice * totalQty) * 100) / 100;
+      const itemDisc = Math.min(rawSubtotal, agg.discountAmount);
+      if (itemDisc > 0 && operatorUser.role !== 'ADMIN' && operatorUser.role !== 'MANAGER') {
+        throw new Error('Descontos exigem autorização de Administrador ou Gerente.');
+      }
+      const subtotal = Math.max(0, Math.round((rawSubtotal - itemDisc) * 100) / 100);
+      subtotalBeforeDiscount += rawSubtotal;
+      itemLevelDiscountTotal = Math.round((itemLevelDiscountTotal + itemDisc) * 100) / 100;
 
       saleItems.push({
         productId: product.id,
+        internalCode: product.internalCode,
+        barcode: product.barcode,
         name: product.name,
         category: product.category,
+        unit: product.unit || 'un',
         unitPrice, // PRESERVA PREÇO HISTÓRICO
         quantity: totalQty,
+        discountAmount: itemDisc > 0 ? itemDisc : undefined,
         subtotal
       });
     }
 
     subtotalBeforeDiscount = Math.round(subtotalBeforeDiscount * 100) / 100;
-    const cleanDiscount = Math.max(0, Math.round((Number(discountAmount) || 0) * 100) / 100);
+    const orderDiscount = Math.max(0, Math.round((Number(discountAmount) || 0) * 100) / 100);
+    const cleanDiscount = Math.round((itemLevelDiscountTotal + orderDiscount) * 100) / 100;
     if (cleanDiscount > 0) {
       if (operatorUser.role !== 'ADMIN' && operatorUser.role !== 'MANAGER') {
         throw new Error('Descontos exigem autorização de Administrador ou Gerente.');
@@ -862,15 +968,95 @@ class DatabaseService {
       }
     }
 
-    const saleTotal = Math.max(0, Math.round((subtotalBeforeDiscount - cleanDiscount) * 100) / 100);
+    const totalAfterDiscount = Math.max(0, Math.round((subtotalBeforeDiscount - cleanDiscount) * 100) / 100);
+
+    // Créditos do aluno (se solicitados)
+    const cleanCreditUsed = Math.max(0, Math.round((Number(creditUsed) || 0) * 100) / 100);
+    if (cleanCreditUsed > 0) {
+      const availableCredit = Math.round((Number(student.creditBalance) || 0) * 100) / 100;
+      if (cleanCreditUsed > availableCredit + 0.001) {
+        throw new Error(`Crédito insuficiente para ${student.name}. Disponível: R$ ${availableCredit.toFixed(2)}.`);
+      }
+      if (cleanCreditUsed > totalAfterDiscount + 0.001) {
+        throw new Error('O valor de crédito utilizado não pode exceder o total da venda.');
+      }
+    }
+
+    const saleTotal = Math.max(0, Math.round((totalAfterDiscount - cleanCreditUsed) * 100) / 100);
+
+    // Normalizar estrutura de pagamento (único ou múltiplas formas) + troco
+    const nowIso = new Date().toISOString();
+    let finalPayments: SalePaymentEntry[] = [];
+    let resolvedPrimaryMethod: PaymentMethod = paymentMethod;
+    let totalAccountCharge = 0;
+    let totalTenderedUpfront = 0;
+    let changeAmount = 0;
+    let effectiveAmountPaid = 0;
+
+    if (hasExplicitPayments) {
+      for (const entry of effectiveMethods) {
+        if (!Number.isFinite(entry.amount) || entry.amount <= 0) {
+          throw new Error('Cada forma de pagamento informada deve ter valor maior que zero.');
+        }
+      }
+      const sumEntries = Math.round(effectiveMethods.reduce((acc, p) => acc + p.amount, 0) * 100) / 100;
+      if (sumEntries + 0.009 < saleTotal) {
+        throw new Error(`Soma das formas de pagamento (R$ ${sumEntries.toFixed(2)}) é menor que o total líquido da venda (R$ ${saleTotal.toFixed(2)}).`);
+      }
+      const hasCash = effectiveMethods.some(p => p.method === 'DINHEIRO');
+      if (sumEntries > saleTotal + 0.01 && !hasCash) {
+        throw new Error('Pagamento excedente só é permitido quando há pagamento em Dinheiro para cálculo de troco.');
+      }
+      changeAmount = hasCash ? Math.max(0, Math.round((sumEntries - saleTotal) * 100) / 100) : 0;
+
+      finalPayments = effectiveMethods.map(p => ({
+        ...p,
+        confirmedAt: p.method === 'CONTA_ALUNO' ? undefined : (p.confirmedAt || nowIso),
+        transactionId: p.transactionId || (p.method !== 'CONTA_ALUNO' && p.method !== 'DINHEIRO' ? `TX-${Date.now()}-${Math.floor(100 + Math.random() * 900)}` : undefined),
+      }));
+
+      totalAccountCharge = Math.round(
+        finalPayments.filter(p => p.method === 'CONTA_ALUNO').reduce((acc, p) => acc + p.amount, 0) * 100
+      ) / 100;
+      totalTenderedUpfront = Math.round(
+        finalPayments.filter(p => p.method !== 'CONTA_ALUNO').reduce((acc, p) => acc + p.amount, 0) * 100
+      ) / 100;
+      effectiveAmountPaid = Math.max(0, Math.round((totalTenderedUpfront - changeAmount) * 100) / 100);
+      resolvedPrimaryMethod = finalPayments.find(p => p.method === 'CONTA_ALUNO')
+        ? (totalAccountCharge > 0 && totalTenderedUpfront === 0 ? 'CONTA_ALUNO' : finalPayments[0].method)
+        : finalPayments[0].method;
+    } else {
+      if (paymentMethod === 'CONTA_ALUNO') {
+        totalAccountCharge = saleTotal;
+        finalPayments = [{ method: 'CONTA_ALUNO', amount: saleTotal }];
+        effectiveAmountPaid = 0;
+        changeAmount = 0;
+      } else {
+        const tendered = amountPaid !== undefined && Number(amountPaid) > 0
+          ? Math.round(Number(amountPaid) * 100) / 100
+          : saleTotal;
+        if (paymentMethod === 'DINHEIRO' && tendered + 0.009 < saleTotal) {
+          throw new Error(`Valor recebido em dinheiro (R$ ${tendered.toFixed(2)}) é menor que o total da venda (R$ ${saleTotal.toFixed(2)}).`);
+        }
+        changeAmount = paymentMethod === 'DINHEIRO' ? Math.max(0, Math.round((tendered - saleTotal) * 100) / 100) : 0;
+        totalTenderedUpfront = paymentMethod === 'DINHEIRO' ? tendered : saleTotal;
+        effectiveAmountPaid = saleTotal;
+        finalPayments = [{
+          method: paymentMethod,
+          amount: totalTenderedUpfront,
+          confirmedAt: nowIso,
+          transactionId: paymentMethod !== 'DINHEIRO' ? `TX-${Date.now()}-${Math.floor(100 + Math.random() * 900)}` : undefined,
+        }];
+      }
+    }
 
     // Enforce individual consumption limit if charging to student account
     if (
-      paymentMethod === 'CONTA_ALUNO' &&
+      totalAccountCharge > 0 &&
       typeof student.consumptionLimit === 'number' &&
       student.consumptionLimit > 0
     ) {
-      const projectedBalance = Math.round((student.currentConsumptionBalance + saleTotal) * 100) / 100;
+      const projectedBalance = Math.round((student.currentConsumptionBalance + totalAccountCharge) * 100) / 100;
       if (projectedBalance > student.consumptionLimit) {
         throw new Error(
           `Compra excede o limite de consumo de ${student.name} (Limite: R$ ${student.consumptionLimit.toFixed(2)} • Saldo projetado: R$ ${projectedBalance.toFixed(2)}).`
@@ -878,8 +1064,12 @@ class DatabaseService {
       }
     }
 
-    const currentPeriod = new Date().toISOString().substring(0, 7); // e.g. '2026-10'
-    const saleId = `VEN-${Date.now().toString().slice(-6)}`;
+    const currentPeriod = this.toSaoPauloPeriod(nowIso); // e.g. '2026-10'
+    let saleId = `VEN-${Date.now().toString().slice(-6)}`;
+    const existingSaleIds = new Set(this.data.sales.map(s => s.id));
+    while (existingSaleIds.has(saleId)) {
+      saleId = `VEN-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+    }
     const activeSession = this.getActiveCashSession();
 
     // Criar registro de venda
@@ -892,7 +1082,12 @@ class DatabaseService {
       total: saleTotal,
       subtotalBeforeDiscount,
       discountAmount: cleanDiscount > 0 ? cleanDiscount : undefined,
-      paymentMethod,
+      creditUsed: cleanCreditUsed > 0 ? cleanCreditUsed : undefined,
+      paymentMethod: resolvedPrimaryMethod,
+      payments: finalPayments,
+      amountPaid: effectiveAmountPaid,
+      changeAmount: changeAmount > 0 ? changeAmount : undefined,
+      terminalId: terminalId || (activeSession ? `PDV-BALCAO-${activeSession.id.slice(-4)}` : 'PDV-BALCAO-01'),
       cashSessionId: activeSession?.id,
       notes: notes?.trim() || undefined,
       operatorUserId: operatorUser.id,
@@ -900,7 +1095,7 @@ class DatabaseService {
       status: 'COMPLETED',
       billingPeriod: currentPeriod,
       idempotencyKey,
-      createdAt: new Date().toISOString()
+      createdAt: nowIso
     };
 
     // Atualizar estoque e gerar movimentações
@@ -908,7 +1103,7 @@ class DatabaseService {
       const product = this.data.products.find(p => p.id === item.productId)!;
       const prevStock = product.currentStock;
       product.currentStock = Math.max(0, product.currentStock - item.quantity);
-      product.updatedAt = new Date().toISOString();
+      product.updatedAt = nowIso;
 
       const movement: StockMovement = {
         id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -918,11 +1113,11 @@ class DatabaseService {
         quantity: -item.quantity,
         previousStock: prevStock,
         newStock: product.currentStock,
-        reason: `Venda ${newSale.id} (${paymentMethod}) - Aluno: ${student.name}`,
+        reason: `Venda ${newSale.id} (${resolvedPrimaryMethod}) - Aluno: ${student.name}`,
         performedByUserId: operatorUser.id,
         performedByUserName: operatorUser.name,
         referenceId: newSale.id,
-        timestamp: new Date().toISOString()
+        timestamp: nowIso
       };
       this.data.stockMovements.unshift(movement);
 
@@ -937,40 +1132,60 @@ class DatabaseService {
           studentName: 'Estoque da Lojinha',
           messageText: `⚠️ Atenção: O item "${product.name}" atingiu ${product.currentStock} ${product.unit} (estoque mínimo: ${product.minStock}).`,
           status: 'ENTREGUE',
-          scheduledFor: new Date().toISOString(),
-          sentAt: new Date().toISOString(),
+          scheduledFor: nowIso,
+          sentAt: nowIso,
           attemptsCount: 1
         });
       }
     }
 
-    if (paymentMethod === 'CONTA_ALUNO') {
+    if (cleanCreditUsed > 0) {
+      student.creditBalance = Math.max(0, Math.round(((student.creditBalance || 0) - cleanCreditUsed) * 100) / 100);
+      this.data.financialLedger.unshift({
+        id: `LED-${Date.now()}-CRD-${Math.floor(Math.random() * 100)}`,
+        timestamp: nowIso,
+        studentId: student.id,
+        type: 'CREDITO',
+        category: 'AJUSTE_CREDITO',
+        amount: cleanCreditUsed,
+        description: `Uso de crédito em conta na venda ${newSale.id}`,
+        documentRef: newSale.id,
+        performedByUserName: operatorUser.name
+      });
+    }
+
+    if (totalAccountCharge > 0) {
       // Atualizar saldo do aluno (consumo na conta mensal)
-      student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance + saleTotal) * 100) / 100;
-      student.totalOpenDebt = Math.round((student.totalOpenDebt + saleTotal) * 100) / 100;
+      student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance + totalAccountCharge) * 100) / 100;
+      student.totalOpenDebt = Math.round((student.totalOpenDebt + totalAccountCharge) * 100) / 100;
 
       // Criar lançamento no livro financeiro
       this.data.financialLedger.unshift({
         id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-        timestamp: new Date().toISOString(),
+        timestamp: nowIso,
         studentId: student.id,
         type: 'DEBITO',
         category: 'CONSUMO_LOJINHA',
-        amount: saleTotal,
+        amount: totalAccountCharge,
         description: `Consumo Lojinha - Venda ${newSale.id} (${saleItems.length} itens)`,
         documentRef: newSale.id,
         performedByUserName: operatorUser.name
       });
-    } else {
-      // Venda paga no ato (Dinheiro, PIX, Cartão, Mercado Pago): registrar quitação no livro financeiro
+    }
+
+    if (effectiveAmountPaid > 0) {
+      const paidMethodsLabel = finalPayments
+        .filter(p => p.method !== 'CONTA_ALUNO')
+        .map(p => p.method)
+        .join(' + ');
       this.data.financialLedger.unshift({
-        id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-        timestamp: new Date().toISOString(),
+        id: `LED-${Date.now()}-PG-${Math.floor(Math.random() * 100)}`,
+        timestamp: nowIso,
         studentId: student.id,
         type: 'CREDITO',
         category: 'PAGAMENTO_PIX',
-        amount: saleTotal,
-        description: `Venda paga à vista (${paymentMethod}) - ${newSale.id} (${saleItems.length} itens)`,
+        amount: effectiveAmountPaid,
+        description: `Venda paga no ato (${paidMethodsLabel}) - ${newSale.id} (${saleItems.length} itens)`,
         documentRef: newSale.id,
         performedByUserName: operatorUser.name
       });
@@ -987,21 +1202,32 @@ class DatabaseService {
         MERCADO_PAGO: 'VENDA_MERCADO_PAGO',
         CONTA_ALUNO: 'VENDA_CONTA_ALUNO'
       };
-      this.data.cashMovements.unshift({
-        id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        sessionId: activeSession.id,
-        type: movTypeMap[paymentMethod] || 'VENDA_CONTA_ALUNO',
-        paymentMethod,
-        amount: saleTotal,
-        description: `Venda ${newSale.id} (${student.name}) — ${paymentMethod}`,
-        referenceId: newSale.id,
-        performedByUserId: operatorUser.id,
-        performedByUserName: operatorUser.name,
-        timestamp: new Date().toISOString()
-      });
+      for (const pLine of finalPayments) {
+        const netLineAmount = pLine.method === 'DINHEIRO' ? Math.max(0, Math.round((pLine.amount - changeAmount) * 100) / 100) : pLine.amount;
+        if (netLineAmount <= 0) continue;
+        this.data.cashMovements.unshift({
+          id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          sessionId: activeSession.id,
+          type: movTypeMap[pLine.method] || 'VENDA_CONTA_ALUNO',
+          paymentMethod: pLine.method,
+          amount: netLineAmount,
+          description: `Venda ${newSale.id} (${student.name}) — ${pLine.method}`,
+          referenceId: newSale.id,
+          performedByUserId: operatorUser.id,
+          performedByUserName: operatorUser.name,
+          timestamp: nowIso
+        });
+      }
     }
 
     this.data.sales.unshift(newSale);
+
+    // Gerar recibo imutável automaticamente após efetivação da venda
+    const receipt = this.createReceiptForSale(newSale, student, operatorUser, {
+      terminalId: newSale.terminalId,
+      activeSession,
+      skipSave: true
+    });
 
     this.logAudit(
       operatorUser.id,
@@ -1009,13 +1235,14 @@ class DatabaseService {
       operatorUser.role,
       'REGISTRO_VENDA_PDV',
       'VENDAS',
-      `Venda ${newSale.id} (R$ ${saleTotal.toFixed(2)}) para ${student.name} via ${paymentMethod}${cleanDiscount > 0 ? ` (desconto R$ ${cleanDiscount.toFixed(2)})` : ''}.`
+      `Venda ${newSale.id} (Recibo ${receipt.receiptCode} • R$ ${saleTotal.toFixed(2)}) para ${student.name} via ${finalPayments.map(p => p.method).join(' + ')}${cleanDiscount > 0 ? ` (desconto R$ ${cleanDiscount.toFixed(2)})` : ''}.`
     );
 
     this.saveDatabase();
     this.triggerSupabaseSync('sales', newSale, 'mapSaleToSupabase');
+    this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
-    return { sale: newSale, student };
+    return { sale: newSale, student, receipt };
   }
 
   // 3. Estorno de Venda no PDV
@@ -1060,10 +1287,22 @@ class DatabaseService {
     }
 
     const saleMethod = sale.paymentMethod || 'CONTA_ALUNO';
-    if (saleMethod === 'CONTA_ALUNO') {
+    const accountChargeAmount = Array.isArray(sale.payments) && sale.payments.length > 0
+      ? this.roundCurrency(
+          sale.payments
+            .filter(p => p.method === 'CONTA_ALUNO')
+            .reduce((acc, p) => acc + Number(p.amount || 0), 0)
+        )
+      : (saleMethod === 'CONTA_ALUNO' ? sale.total : 0);
+
+    if (accountChargeAmount > 0) {
       // Abater do consumo acumulado
-      student.currentConsumptionBalance = Math.max(0, Math.round((student.currentConsumptionBalance - sale.total) * 100) / 100);
-      student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - sale.total) * 100) / 100);
+      student.currentConsumptionBalance = Math.max(0, Math.round((student.currentConsumptionBalance - accountChargeAmount) * 100) / 100);
+      student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - accountChargeAmount) * 100) / 100);
+    }
+
+    if ((sale.creditUsed || 0) > 0) {
+      student.creditBalance = Math.round(((student.creditBalance || 0) + Number(sale.creditUsed || 0)) * 100) / 100;
     }
 
     // Registro no livro financeiro
@@ -1097,9 +1336,19 @@ class DatabaseService {
     }
 
     sale.status = 'REVERSED';
+    sale.reversedAmount = sale.total;
+    sale.billingStatus = 'ESTORNADA';
     sale.reversedReason = reason;
     sale.reversedByUserName = user.name;
     sale.reversedAt = new Date().toISOString();
+
+    const receipt = this.appendReceiptReversal(sale, {
+      type: 'ESTORNO_TOTAL',
+      reason,
+      user,
+      reversedAmount: sale.total,
+      transactionId: sale.payments?.find(p => p.transactionId)?.transactionId,
+    });
 
     this.logAudit(
       user.id,
@@ -1112,8 +1361,505 @@ class DatabaseService {
 
     this.saveDatabase();
     this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+    if (receipt) this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
-    return { sale, student };
+    return { sale, student, receipt };
+  }
+
+  public partialReverseSale(
+    saleId: string,
+    params: {
+      items: Array<{ productId: string; quantity: number }>;
+      reason: string;
+    },
+    user: { id: string; name: string; role: any }
+  ): { sale: Sale; student: Student; receipt?: SalesReceipt; reversedAmount: number } {
+    const cleanReason = (params.reason || '').trim();
+    if (!cleanReason) {
+      throw new Error('O motivo do estorno parcial é obrigatório.');
+    }
+
+    const sale = this.data.sales.find(s => s.id === saleId);
+    if (!sale) throw new Error(`Venda ${saleId} não encontrada.`);
+    if (sale.status === 'REVERSED') {
+      throw new Error(`A venda ${saleId} já foi estornada integralmente.`);
+    }
+
+    const student = this.data.students.find(s => s.id === sale.studentId);
+    if (!student) throw new Error('Aluno associado à venda não encontrado.');
+
+    if (!Array.isArray(params.items) || params.items.length === 0) {
+      throw new Error('Informe ao menos um item para estorno parcial.');
+    }
+
+    const existingReceipt = this.getReceiptBySaleId(sale.id);
+    const alreadyReversedQtyByProduct = new Map<string, number>();
+    for (const rev of existingReceipt?.reversals || []) {
+      for (const rItem of rev.items || []) {
+        alreadyReversedQtyByProduct.set(
+          rItem.productId,
+          (alreadyReversedQtyByProduct.get(rItem.productId) || 0) + rItem.quantity
+        );
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const factor = this.getItemNetFactor(sale);
+    let reversedAmount = 0;
+    const reversedItemsDetail: Array<{ productId: string; name: string; quantity: number; amount: number }> = [];
+
+    for (const reqItem of params.items) {
+      const saleItem = sale.items.find(i => i.productId === reqItem.productId);
+      if (!saleItem) {
+        throw new Error(`Produto ${reqItem.productId} não pertence à venda ${sale.id}.`);
+      }
+      const alreadyRevQty = alreadyReversedQtyByProduct.get(reqItem.productId) || 0;
+      const availableToReverse = saleItem.quantity - alreadyRevQty;
+      const qty = Number(reqItem.quantity);
+      if (!Number.isFinite(qty) || qty <= 0 || qty > availableToReverse) {
+        throw new Error(`Quantidade inválida para estorno de "${saleItem.name}". Disponível: ${availableToReverse}.`);
+      }
+
+      const itemAmount = this.roundCurrency(qty * saleItem.unitPrice * factor);
+      reversedAmount = this.roundCurrency(reversedAmount + itemAmount);
+      reversedItemsDetail.push({
+        productId: saleItem.productId,
+        name: saleItem.name,
+        quantity: qty,
+        amount: itemAmount,
+      });
+
+      const product = this.data.products.find(p => p.id === saleItem.productId);
+      if (product) {
+        const prevStock = product.currentStock;
+        product.currentStock += qty;
+        product.updatedAt = nowIso;
+        this.data.stockMovements.unshift({
+          id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          productId: product.id,
+          productName: product.name,
+          type: 'ESTORNO_VENDA',
+          quantity: qty,
+          previousStock: prevStock,
+          newStock: product.currentStock,
+          reason: `Estorno parcial venda ${sale.id}: ${cleanReason}`,
+          performedByUserId: user.id,
+          performedByUserName: user.name,
+          referenceId: sale.id,
+          timestamp: nowIso
+        });
+      }
+    }
+
+    const totalReversedAfter = Math.min(sale.total, this.roundCurrency((sale.reversedAmount || 0) + reversedAmount));
+    const isNowFullyReversed = totalReversedAfter >= sale.total - 0.01;
+    reversedAmount = isNowFullyReversed
+      ? this.roundCurrency(sale.total - (sale.reversedAmount || 0))
+      : reversedAmount;
+
+    const saleMethod = sale.paymentMethod || 'CONTA_ALUNO';
+    if (saleMethod === 'CONTA_ALUNO') {
+      student.currentConsumptionBalance = Math.max(0, this.roundCurrency(student.currentConsumptionBalance - reversedAmount));
+      student.totalOpenDebt = Math.max(0, this.roundCurrency(student.totalOpenDebt - reversedAmount));
+    }
+
+    this.data.financialLedger.unshift({
+      id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
+      timestamp: nowIso,
+      studentId: student.id,
+      type: 'CREDITO',
+      category: 'ESTORNO_VENDA',
+      amount: reversedAmount,
+      description: `Estorno parcial venda ${sale.id} (${saleMethod}) - Motivo: ${cleanReason}`,
+      documentRef: sale.id,
+      performedByUserName: user.name
+    });
+
+    const activeSession = this.getActiveCashSession();
+    if (activeSession) {
+      if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+      this.data.cashMovements.unshift({
+        id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        sessionId: activeSession.id,
+        type: 'ESTORNO',
+        paymentMethod: saleMethod,
+        amount: reversedAmount,
+        description: `Estorno parcial venda ${sale.id} (${student.name}): ${cleanReason}`,
+        referenceId: sale.id,
+        performedByUserId: user.id,
+        performedByUserName: user.name,
+        timestamp: nowIso
+      });
+    }
+
+    sale.reversedAmount = totalReversedAfter;
+    sale.reversedReason = cleanReason;
+    sale.reversedByUserName = user.name;
+    sale.reversedAt = nowIso;
+    if (isNowFullyReversed) {
+      sale.status = 'REVERSED';
+      sale.billingStatus = 'ESTORNADA';
+    }
+
+    const receipt = this.appendReceiptReversal(sale, {
+      type: isNowFullyReversed ? 'ESTORNO_TOTAL' : 'ESTORNO_PARCIAL',
+      reason: cleanReason,
+      user,
+      reversedAmount,
+      transactionId: sale.payments?.find(p => p.transactionId)?.transactionId,
+      items: reversedItemsDetail,
+    });
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      isNowFullyReversed ? 'ESTORNO_VENDA_PDV' : 'ESTORNO_PARCIAL_VENDA_PDV',
+      'RECIBOS',
+      `Estorno ${isNowFullyReversed ? 'integral' : 'parcial'} da venda ${sale.id} (R$ ${reversedAmount.toFixed(2)}) de ${student.name}. Motivo: ${cleanReason}`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+    if (receipt) this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
+    this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    return { sale, student, receipt, reversedAmount };
+  }
+
+  private toSaoPauloTime(isoOrDate?: string | null): string {
+    if (!isoOrDate) return '00:00:00';
+    const dt = new Date(isoOrDate);
+    if (Number.isNaN(dt.getTime())) return '00:00:00';
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(dt);
+  }
+
+  private formatPaymentMethodLabel(method: PaymentMethod): string {
+    const map: Record<PaymentMethod, string> = {
+      CONTA_ALUNO: 'Conta do Aluno (Faturamento Posterior)',
+      DINHEIRO: 'Dinheiro',
+      PIX: 'Pix',
+      CARTAO_CREDITO: 'Cartão de Crédito',
+      CARTAO_DEBITO: 'Cartão de Débito',
+      MERCADO_PAGO: 'Mercado Pago',
+    };
+    return map[method] || method;
+  }
+
+  private generateNextReceiptCode(): string {
+    const receipts = this.getReceipts();
+    let maxNum = 0;
+    const usedCodes = new Set<string>();
+    for (const r of receipts) {
+      usedCodes.add(r.receiptCode);
+      const match = /^ICE-(\d+)$/i.exec(r.receiptCode || '');
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
+    let next = maxNum + 1;
+    let code = `ICE-${String(next).padStart(6, '0')}`;
+    while (usedCodes.has(code)) {
+      next += 1;
+      code = `ICE-${String(next).padStart(6, '0')}`;
+    }
+    return code;
+  }
+
+  public createReceiptForSale(
+    sale: Sale,
+    student?: Student,
+    operatorUser?: { id: string; name: string; role: any },
+    opts?: { terminalId?: string; activeSession?: CashRegisterSession | null; skipSave?: boolean }
+  ): SalesReceipt {
+    const existing = this.getReceiptBySaleId(sale.id);
+    if (existing) {
+      if (!sale.receiptId || !sale.receiptCode) {
+        sale.receiptId = existing.id;
+        sale.receiptCode = existing.receiptCode;
+      }
+      return existing;
+    }
+
+    const resolvedStudent = student || this.data.students.find(s => s.id === sale.studentId);
+    const settings = this.data.settings;
+    const receiptSettings = settings.receiptSettings || initialSettings.receiptSettings!;
+    const nowIso = sale.createdAt || new Date().toISOString();
+    const receiptCode = this.generateNextReceiptCode();
+    const receiptId = `REC-${receiptCode}`;
+
+    const primaryGuardian = resolvedStudent?.guardians?.find(g => g.isPrimaryPayer && g.guardianName)
+      || resolvedStudent?.guardians?.find(g => g.guardianName);
+
+    const itemsSnapshot: ReceiptItemSnapshot[] = (sale.items || []).map((item, idx) => {
+      const prod = this.data.products.find(p => p.id === item.productId);
+      const rawSubtotal = this.roundCurrency(Number(item.unitPrice) * Number(item.quantity));
+      const itemDisc = this.roundCurrency(item.discountAmount || 0);
+      return {
+        itemIndex: idx,
+        productId: item.productId,
+        internalCode: item.internalCode || prod?.internalCode,
+        barcode: item.barcode || prod?.barcode,
+        name: item.name,
+        category: item.category,
+        unit: item.unit || prod?.unit || 'un',
+        unitPrice: this.roundCurrency(item.unitPrice),
+        quantity: Number(item.quantity),
+        individualDiscount: itemDisc,
+        subtotal: rawSubtotal,
+        total: this.roundCurrency(item.subtotal),
+      };
+    });
+
+    const productsSubtotal = this.roundCurrency(
+      sale.subtotalBeforeDiscount !== undefined
+        ? sale.subtotalBeforeDiscount
+        : itemsSnapshot.reduce((acc, it) => acc + it.subtotal, 0)
+    );
+    const discountTotal = this.roundCurrency(sale.discountAmount || 0);
+    const creditUsed = this.roundCurrency(sale.creditUsed || 0);
+
+    const rawPayments: SalePaymentEntry[] = Array.isArray(sale.payments) && sale.payments.length > 0
+      ? sale.payments
+      : [{
+          method: sale.paymentMethod || 'CONTA_ALUNO',
+          amount: this.roundCurrency(sale.total),
+          confirmedAt: (sale.paymentMethod && sale.paymentMethod !== 'CONTA_ALUNO') ? nowIso : undefined,
+        }];
+
+    const paymentLines: ReceiptPaymentLine[] = rawPayments.map(p => ({
+      method: p.method,
+      label: this.formatPaymentMethodLabel(p.method),
+      amount: this.roundCurrency(p.amount),
+      status: sale.status === 'REVERSED'
+        ? 'ESTORNADO'
+        : p.method === 'CONTA_ALUNO'
+          ? 'LANCADO_EM_CONTA'
+          : 'CONFIRMADO',
+      transactionId: p.transactionId,
+      confirmedAt: p.method === 'CONTA_ALUNO' ? undefined : (p.confirmedAt || nowIso),
+    }));
+
+    const amountPaid = sale.amountPaid !== undefined
+      ? this.roundCurrency(sale.amountPaid)
+      : this.roundCurrency(
+          paymentLines
+            .filter(p => p.status === 'CONFIRMADO')
+            .reduce((acc, p) => acc + p.amount, 0) - (sale.changeAmount || 0)
+        );
+
+    const reversals: ReceiptReversalRecord[] = sale.status === 'REVERSED'
+      ? [{
+          id: `EST-REC-${Date.now()}-${Math.floor(Math.random() * 900)}`,
+          originalSaleId: sale.id,
+          type: 'ESTORNO_TOTAL',
+          reason: sale.reversedReason || 'Estorno registrado no histórico',
+          operatorUserId: operatorUser?.id || sale.operatorUserId,
+          operatorUserName: sale.reversedByUserName || operatorUser?.name || sale.operatorUserName,
+          timestamp: sale.reversedAt || nowIso,
+          reversedAmount: this.roundCurrency(sale.reversedAmount || sale.total),
+          transactionId: paymentLines.find(p => p.transactionId)?.transactionId,
+        }]
+      : [];
+
+    const receipt: SalesReceipt = {
+      id: receiptId,
+      receiptCode,
+      saleId: sale.id,
+      version: 1,
+      status: sale.status === 'REVERSED' ? 'ESTORNADO' : 'ATIVO',
+      institution: {
+        storeName: settings.storeName || 'Lojinha ICEVES',
+        institutionName: settings.institutionName || 'Escola de Cristo — ICEVES',
+        cnpj: settings.cnpj || undefined,
+        unitName: settings.currentCohortName || 'Unidade ICEVES • 10ª Turma',
+        logoUrl: '/assets/aistudio/image_e4461e45.png',
+      },
+      saleSnapshot: {
+        saleId: sale.id,
+        createdAt: nowIso,
+        saoPauloDate: this.toSaoPauloDate(nowIso),
+        saoPauloTime: this.toSaoPauloTime(nowIso),
+        timezone: 'America/Sao_Paulo',
+        origin: sale.origin || 'LOJINHA',
+        saleStatus: sale.status === 'REVERSED' ? 'REVERSED' : 'COMPLETED',
+        transactionId: paymentLines.find(p => p.transactionId)?.transactionId || sale.id,
+        billingPeriod: sale.billingPeriod,
+        notes: sale.notes,
+      },
+      studentSnapshot: {
+        studentId: sale.studentId,
+        name: resolvedStudent?.name || sale.studentName,
+        registrationNumber: resolvedStudent?.registrationNumber || sale.registrationNumber,
+        classGroup: resolvedStudent?.classGroup || undefined,
+        guardianName: primaryGuardian?.guardianName || undefined,
+        guardianRelationship: primaryGuardian?.relationship || undefined,
+      },
+      items: itemsSnapshot,
+      financialSummary: {
+        productsSubtotal,
+        discountTotal,
+        creditUsed,
+        saleTotal: this.roundCurrency(sale.total),
+        amountPaid: Math.max(0, amountPaid),
+        changeAmount: this.roundCurrency(sale.changeAmount || 0),
+      },
+      payments: paymentLines,
+      operational: {
+        operatorUserId: sale.operatorUserId || operatorUser?.id || 'system',
+        operatorUserName: sale.operatorUserName || operatorUser?.name || 'Operador',
+        cashSessionId: sale.cashSessionId || opts?.activeSession?.id || undefined,
+        cashRegisterLabel: sale.cashSessionId || opts?.activeSession?.id
+          ? `Caixa ${(sale.cashSessionId || opts?.activeSession?.id || '').slice(-6)}`
+          : 'Lançamento Direto',
+        terminalId: opts?.terminalId || sale.terminalId || (sale.origin === 'PDV_PASSEIOS' ? 'PDV-PASSEIOS' : 'PDV-BALCAO-01'),
+        operationTimestamp: nowIso,
+      },
+      reversals,
+      reprintCount: 0,
+      customHeaderSnapshot: receiptSettings.customHeader || undefined,
+      customFooterSnapshot: receiptSettings.customFooter || undefined,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (!Array.isArray(this.data.receipts)) this.data.receipts = [];
+    this.data.receipts.unshift(receipt);
+    sale.receiptId = receipt.id;
+    sale.receiptCode = receipt.receiptCode;
+
+    if (!opts?.skipSave) {
+      this.saveDatabase();
+      this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
+      this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+    }
+
+    return receipt;
+  }
+
+  private appendReceiptReversal(
+    sale: Sale,
+    info: {
+      type: 'CANCELAMENTO' | 'ESTORNO_PARCIAL' | 'ESTORNO_TOTAL';
+      reason: string;
+      user: { id: string; name: string; role: any };
+      reversedAmount: number;
+      transactionId?: string;
+      items?: Array<{ productId: string; name: string; quantity: number; amount: number }>;
+    }
+  ): SalesReceipt | undefined {
+    const receipt = this.getReceiptBySaleId(sale.id) || this.createReceiptForSale(sale, undefined, info.user, { skipSave: true });
+    if (!receipt) return undefined;
+
+    const nowIso = sale.reversedAt || new Date().toISOString();
+    const record: ReceiptReversalRecord = {
+      id: `EST-REC-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      originalSaleId: sale.id,
+      type: info.type,
+      reason: info.reason,
+      operatorUserId: info.user.id,
+      operatorUserName: info.user.name,
+      timestamp: nowIso,
+      reversedAmount: this.roundCurrency(info.reversedAmount),
+      transactionId: info.transactionId,
+      items: info.items,
+    };
+
+    if (!Array.isArray(receipt.reversals)) receipt.reversals = [];
+    receipt.reversals.unshift(record);
+    receipt.version = (receipt.version || 1) + 1;
+    receipt.updatedAt = nowIso;
+
+    if (info.type === 'ESTORNO_TOTAL' || info.type === 'CANCELAMENTO' || sale.status === 'REVERSED') {
+      receipt.status = info.type === 'CANCELAMENTO' ? 'CANCELADO' : 'ESTORNADO';
+      receipt.saleSnapshot.saleStatus = 'REVERSED';
+      receipt.payments = receipt.payments.map(p => ({ ...p, status: 'ESTORNADO' }));
+    } else {
+      receipt.status = 'PARCIALMENTE_ESTORNADO';
+      receipt.saleSnapshot.saleStatus = 'PARTIALLY_REVERSED';
+    }
+
+    return receipt;
+  }
+
+  private ensureReceiptsForExistingSales() {
+    if (!Array.isArray(this.data.receipts)) this.data.receipts = [];
+    let modified = false;
+    // Process oldest to newest so sequential codes ICE-000001... follow chronological order
+    const chronological = [...(this.data.sales || [])].sort((a, b) =>
+      (a.createdAt || '').localeCompare(b.createdAt || '')
+    );
+    for (const sale of chronological) {
+      if (!this.data.receipts.some(r => r.saleId === sale.id)) {
+        this.createReceiptForSale(sale, undefined, undefined, { skipSave: true });
+        modified = true;
+      }
+    }
+    if (modified) {
+      this.saveDatabase(this.data, true);
+    }
+  }
+
+  public recordReceiptAction(
+    receiptId: string,
+    actionType: 'PRINT' | 'PDF' | 'REPRINT',
+    user: { id: string; name: string; role: UserRole; studentId?: string; guardianId?: string }
+  ): SalesReceipt {
+    const receipt = this.getReceiptById(receiptId);
+    if (!receipt) {
+      throw new Error('Recibo não encontrado.');
+    }
+
+    const receiptSettings = this.data.settings.receiptSettings || initialSettings.receiptSettings!;
+    const allowedRoles = receiptSettings.secondCopyAllowedRoles || ['ADMIN', 'MANAGER', 'CASHIER', 'VIEWER', 'STUDENT', 'GUARDIAN'];
+    if (actionType === 'REPRINT' && !allowedRoles.includes(user.role)) {
+      throw new Error(`O perfil ${user.role} não possui permissão para emitir segunda via de recibo.`);
+    }
+
+    if (user.role === 'STUDENT' && user.studentId && receipt.studentSnapshot.studentId !== user.studentId) {
+      throw new Error('Acesso negado: você só pode acessar os seus próprios comprovantes.');
+    }
+    if (user.role === 'GUARDIAN' && user.guardianId) {
+      const guardian = this.data.guardians.find(g => g.id === user.guardianId);
+      if (!guardian?.studentIds.includes(receipt.studentSnapshot.studentId)) {
+        throw new Error('Acesso negado: este comprovante pertence a um aluno não vinculado à sua conta.');
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    if (actionType === 'REPRINT' || actionType === 'PRINT' || actionType === 'PDF') {
+      if (actionType === 'REPRINT' || receipt.reprintCount > 0 || actionType === 'PRINT') {
+        receipt.reprintCount = (receipt.reprintCount || 0) + (actionType === 'PDF' && receipt.reprintCount === 0 ? 0 : 1);
+      }
+      receipt.lastReprintedAt = nowIso;
+      receipt.lastReprintedByUserName = user.name;
+      receipt.updatedAt = nowIso;
+    }
+
+    const actionMap = {
+      PRINT: 'IMPRESSAO_RECIBO',
+      REPRINT: 'REIMPRESSAO_SEGUNDA_VIA_RECIBO',
+      PDF: 'EXPORTACAO_PDF_RECIBO',
+    } as const;
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      actionMap[actionType],
+      'RECIBOS',
+      `${actionType === 'PDF' ? 'Exportação PDF' : actionType === 'REPRINT' ? 'Emissão de 2ª via' : 'Impressão'} do recibo ${receipt.receiptCode} (Venda ${receipt.saleId} • Aluno ${receipt.studentSnapshot.name}).`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
+    return receipt;
   }
 
   // 4. Ajuste manual de estoque (Entrada/Ajuste/Perda e Avaria)
@@ -1560,259 +2306,1444 @@ class DatabaseService {
     }
   }
 
-  // 6. Prévia de Fechamento Mensal
-  public getMonthlyClosingPreview(period: string): MonthlyClosingPreview {
-    // period e.g. '2026-10'
-    const eligibleStudents = this.data.students.filter(s => s.status === 'ACTIVE');
-    const existingInvoices = this.data.invoices.filter(i => i.billingPeriod === period && i.status !== 'CANCELADA');
+  // ============================================================================
+  // 6. MOTOR UNIFICADO DE FATURAMENTO (INDIVIDUAL, PERÍODO PERSONALIZADO E FECHAMENTO MENSAL)
+  // ============================================================================
+
+  private roundCurrency(value: number): number {
+    return Math.round((Number(value) || 0) * 100) / 100;
+  }
+
+  private toSaoPauloDate(isoOrDate?: string | null): string {
+    if (!isoOrDate) return '';
+    const trimmed = String(isoOrDate).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const dt = new Date(trimmed);
+    if (Number.isNaN(dt.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(dt);
+  }
+
+  private toSaoPauloPeriod(isoOrDate?: string | null): string {
+    const spDate = this.toSaoPauloDate(isoOrDate);
+    return spDate ? spDate.slice(0, 7) : '';
+  }
+
+  private getMonthBounds(period: string): { periodStart: string; periodEnd: string } {
+    if (!/^\d{4}-\d{2}$/.test(period)) {
+      throw new Error(`Competência mensal inválida: "${period}". Utilize o formato AAAA-MM.`);
+    }
+    const [yearStr, monthStr] = period.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    if (month < 1 || month > 12) {
+      throw new Error(`Mês inválido na competência "${period}".`);
+    }
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return {
+      periodStart: `${yearStr}-${monthStr}-01`,
+      periodEnd: `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+    };
+  }
+
+  private computeDefaultDueDate(periodEnd: string, mode: BillingBatchType, billingPeriod?: string): string {
+    const offset = Math.max(1, Math.min(28, Number(this.data.settings.dueDayOffset) || 10));
+    if (mode === 'FECHAMENTO_MENSAL' && billingPeriod && /^\d{4}-\d{2}$/.test(billingPeriod)) {
+      const [yStr, mStr] = billingPeriod.split('-');
+      const y = parseInt(yStr, 10);
+      const m = parseInt(mStr, 10);
+      const nextMonth = m === 12 ? 1 : m + 1;
+      const nextYear = m === 12 ? y + 1 : y;
+      const lastDayNext = new Date(Date.UTC(nextYear, nextMonth, 0)).getUTCDate();
+      return `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(Math.min(offset, lastDayNext)).padStart(2, '0')}`;
+    }
+    const base = new Date(`${periodEnd}T12:00:00Z`);
+    if (Number.isNaN(base.getTime())) {
+      return this.toSaoPauloDate(new Date(Date.now() + offset * 86400000).toISOString());
+    }
+    base.setUTCDate(base.getUTCDate() + offset);
+    return base.toISOString().slice(0, 10);
+  }
+
+  private getClosedPeriodsSet(): Set<string> {
+    const set = new Set<string>();
+    for (const batch of this.getBillingBatches()) {
+      if (batch.type === 'FECHAMENTO_MENSAL' && batch.status !== 'CANCELADO' && batch.billingPeriod) {
+        set.add(batch.billingPeriod);
+      }
+    }
+    for (const inv of this.data.invoices) {
+      if (inv.status !== 'CANCELADA' && (!inv.billingType || inv.billingType === 'FECHAMENTO_MENSAL') && inv.billingPeriod) {
+        set.add(inv.billingPeriod);
+      }
+    }
+    return set;
+  }
+
+  private getActiveInvoiceAllocations(sale: Sale): SaleInvoiceAllocation[] {
+    const activeInvoiceIds = new Set(
+      this.data.invoices.filter(i => i.status !== 'CANCELADA').map(i => i.id)
+    );
+
+    if (Array.isArray(sale.invoiceAllocations) && sale.invoiceAllocations.length > 0) {
+      return sale.invoiceAllocations.filter(alloc => activeInvoiceIds.has(alloc.invoiceId));
+    }
+
+    // Compatibilidade com vendas faturadas antes do rastreamento granular
+    if (sale.invoiceId && activeInvoiceIds.has(sale.invoiceId)) {
+      return [
+        {
+          invoiceId: sale.invoiceId,
+          amount: this.roundCurrency(sale.total),
+          items: (sale.items || []).map((item, idx) => ({
+            itemIndex: idx,
+            productId: item.productId,
+            name: item.name,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            amount: this.roundCurrency(item.subtotal)
+          })),
+          allocatedAt: sale.createdAt
+        }
+      ];
+    }
+
+    return [];
+  }
+
+  private getItemNetFactor(sale: Sale): number {
+    const rawItemsSum = (sale.items || []).reduce((acc, it) => acc + (Number(it.subtotal) || 0), 0);
+    if (rawItemsSum <= 0) return 1;
+    const netTarget = Math.max(0, Number(sale.total) || 0);
+    if (Math.abs(rawItemsSum - netTarget) < 0.01) return 1;
+    return netTarget / rawItemsSum;
+  }
+
+  public evaluateSaleBilling(sale: Sale): BillingPreviewSale {
+    const saoPauloDate = this.toSaoPauloDate(sale.createdAt) || this.toSaoPauloDate(new Date().toISOString());
+    const paymentMethod: PaymentMethod = sale.paymentMethod || 'CONTA_ALUNO';
+    const isAccountSale = paymentMethod === 'CONTA_ALUNO';
+    const reversedAmount = sale.status === 'REVERSED' ? this.roundCurrency(sale.total) : this.roundCurrency(sale.reversedAmount || 0);
+    const activeAllocations = this.getActiveInvoiceAllocations(sale);
+    const factor = this.getItemNetFactor(sale);
+
+    const billedQtyByItemIndex = new Map<number, number>();
+    let alreadyBilledAmount = 0;
+
+    for (const alloc of activeAllocations) {
+      alreadyBilledAmount = this.roundCurrency(alreadyBilledAmount + alloc.amount);
+      for (const allocItem of alloc.items || []) {
+        const prev = billedQtyByItemIndex.get(allocItem.itemIndex) || 0;
+        billedQtyByItemIndex.set(allocItem.itemIndex, prev + allocItem.quantity);
+      }
+    }
+
+    const previewItems: BillingPreviewSaleItem[] = (sale.items || []).map((item, idx) => {
+      const origQty = Number(item.quantity) || 0;
+      const billedQty = Math.min(origQty, billedQtyByItemIndex.get(idx) || 0);
+      const remQty = Math.max(0, origQty - billedQty);
+      const effectiveUnitPrice = this.roundCurrency((Number(item.unitPrice) || 0) * factor);
+      const origSub = this.roundCurrency((Number(item.subtotal) || origQty * Number(item.unitPrice || 0)) * factor);
+      const remAmt = remQty === origQty
+        ? origSub
+        : remQty === 0
+          ? 0
+          : this.roundCurrency(remQty * effectiveUnitPrice);
+      return {
+        itemIndex: idx,
+        productId: item.productId,
+        name: item.name,
+        category: item.category,
+        unitPrice: effectiveUnitPrice,
+        originalQuantity: origQty,
+        alreadyBilledQuantity: billedQty,
+        remainingQuantity: remQty,
+        originalSubtotal: origSub,
+        remainingAmount: remAmt
+      };
+    });
+
+    if (sale.status === 'REVERSED') {
+      return {
+        saleId: sale.id,
+        createdAt: sale.createdAt,
+        saoPauloDate,
+        billingPeriod: this.toSaoPauloPeriod(sale.createdAt) || sale.billingPeriod,
+        origin: sale.origin || 'LOJINHA',
+        paymentMethod,
+        billingStatus: 'ESTORNADA',
+        originalTotal: this.roundCurrency(sale.total),
+        reversedAmount,
+        alreadyBilledAmount: 0,
+        remainingBillableAmount: 0,
+        isEligible: false,
+        ineligibleReason: `Estornada no PDV${sale.reversedReason ? `: ${sale.reversedReason}` : ''}`,
+        items: previewItems.map(it => ({ ...it, remainingQuantity: 0, remainingAmount: 0 }))
+      };
+    }
+
+    if (!isAccountSale) {
+      return {
+        saleId: sale.id,
+        createdAt: sale.createdAt,
+        saoPauloDate,
+        billingPeriod: this.toSaoPauloPeriod(sale.createdAt) || sale.billingPeriod,
+        origin: sale.origin || 'LOJINHA',
+        paymentMethod,
+        billingStatus: 'TOTALMENTE_FATURADA',
+        originalTotal: this.roundCurrency(sale.total),
+        reversedAmount: 0,
+        alreadyBilledAmount: this.roundCurrency(sale.total),
+        remainingBillableAmount: 0,
+        isEligible: false,
+        ineligibleReason: `Pago no ato (${paymentMethod})`,
+        items: previewItems.map(it => ({ ...it, remainingQuantity: 0, remainingAmount: 0 }))
+      };
+    }
+
+    const maxRemainingNet = Math.max(0, this.roundCurrency(sale.total - reversedAmount - alreadyBilledAmount));
+    const hasRemainingQty = previewItems.some(it => it.remainingQuantity > 0);
+    const remainingBillableAmount = hasRemainingQty ? maxRemainingNet : 0;
+
+    let billingStatus: SaleBillingStatus = 'AGUARDANDO_FATURAMENTO';
+    if (remainingBillableAmount <= 0 && alreadyBilledAmount > 0) {
+      billingStatus = 'TOTALMENTE_FATURADA';
+    } else if (remainingBillableAmount > 0 && alreadyBilledAmount > 0) {
+      billingStatus = 'PARCIALMENTE_FATURADA';
+    } else if (sale.total <= 0) {
+      billingStatus = 'CANCELADA';
+    }
+
+    // Ajustar arredondamento do último item remanescente para fechar exatamente com remainingBillableAmount
+    if (remainingBillableAmount > 0) {
+      const remItems = previewItems.filter(it => it.remainingQuantity > 0);
+      const sumRem = this.roundCurrency(remItems.reduce((acc, it) => acc + it.remainingAmount, 0));
+      const diff = this.roundCurrency(remainingBillableAmount - sumRem);
+      if (remItems.length > 0 && Math.abs(diff) > 0 && Math.abs(diff) <= 0.1) {
+        remItems[remItems.length - 1].remainingAmount = this.roundCurrency(
+          Math.max(0, remItems[remItems.length - 1].remainingAmount + diff)
+        );
+      }
+    }
+
+    return {
+      saleId: sale.id,
+      createdAt: sale.createdAt,
+      saoPauloDate,
+      billingPeriod: this.toSaoPauloPeriod(sale.createdAt) || sale.billingPeriod,
+      origin: sale.origin || 'LOJINHA',
+      paymentMethod,
+      billingStatus,
+      originalTotal: this.roundCurrency(sale.total),
+      reversedAmount,
+      alreadyBilledAmount,
+      remainingBillableAmount,
+      isEligible: remainingBillableAmount > 0,
+      ineligibleReason:
+        remainingBillableAmount <= 0
+          ? billingStatus === 'TOTALMENTE_FATURADA'
+            ? 'Venda já faturada integralmente'
+            : 'Sem saldo faturável'
+          : undefined,
+      items: previewItems
+    };
+  }
+
+  private syncSaleBillingState(sale: Sale) {
+    const activeAllocs = this.getActiveInvoiceAllocations(sale);
+    const totalBilled = this.roundCurrency(activeAllocs.reduce((acc, a) => acc + a.amount, 0));
+    sale.invoiceAllocations = activeAllocs.length > 0 ? activeAllocs : undefined;
+    sale.billedAmount = totalBilled > 0 ? totalBilled : undefined;
+
+    if (sale.status === 'REVERSED') {
+      sale.billingStatus = 'ESTORNADA';
+      sale.invoiceId = undefined;
+      return;
+    }
+
+    const remaining = Math.max(0, this.roundCurrency(sale.total - (sale.reversedAmount || 0) - totalBilled));
+    if (remaining <= 0 && totalBilled > 0) {
+      sale.billingStatus = 'TOTALMENTE_FATURADA';
+      sale.invoiceId = activeAllocs[activeAllocs.length - 1]?.invoiceId;
+    } else if (remaining > 0 && totalBilled > 0) {
+      sale.billingStatus = 'PARCIALMENTE_FATURADA';
+      sale.invoiceId = undefined;
+    } else {
+      sale.billingStatus = 'AGUARDANDO_FATURAMENTO';
+      sale.invoiceId = undefined;
+    }
+  }
+
+  private recalculateStudentBalances(student: Student) {
+    let unbilledTotal = 0;
+    for (const sale of this.data.sales) {
+      if (sale.studentId !== student.id) continue;
+      const evalSale = this.evaluateSaleBilling(sale);
+      if (evalSale.isEligible) {
+        unbilledTotal = this.roundCurrency(unbilledTotal + evalSale.remainingBillableAmount);
+      }
+    }
+    student.currentConsumptionBalance = unbilledTotal;
+
+    const openInvoicesTotal = this.data.invoices
+      .filter(i => i.studentId === student.id && i.status !== 'CANCELADA' && i.status !== 'PAGA')
+      .reduce((acc, inv) => acc + inv.remainingBalance, 0);
+    student.totalOpenDebt = this.roundCurrency(openInvoicesTotal + unbilledTotal);
+  }
+
+  private buildConsumptionSummaryItems(links: InvoiceSaleItemLink[]): Invoice['consumptionItems'] {
+    const itemMap = new Map<string, { product: Product | undefined; name: string; category: any; qty: number; total: number }>();
+    for (const link of links) {
+      const sale = this.data.sales.find(s => s.id === link.saleId);
+      const isTripSale = sale?.origin === 'PDV_PASSEIOS';
+      const formattedTripDate = sale?.tripDate ? sale.tripDate.split('-').reverse().join('/') : '';
+      const tripPrefix = isTripSale && sale?.tripName
+        ? `[${sale.tripName}${formattedTripDate ? ` — ${formattedTripDate}` : ''}] `
+        : '';
+      const saleItem = sale?.items?.[link.itemIndex];
+      const baseCategory = saleItem?.category || 'Alimentos e Snacks';
+      const key = isTripSale ? `${link.saleId}_${link.productId}_${link.itemIndex}` : link.productId;
+      const displayName = `${tripPrefix}${link.productName}`;
+      const current = itemMap.get(key) || {
+        product: this.data.products.find(p => p.id === link.productId),
+        name: displayName,
+        category: isTripSale ? `PDV de Passeios • ${baseCategory}` : baseCategory,
+        qty: 0,
+        total: 0
+      };
+      current.qty += link.quantity;
+      current.total = this.roundCurrency(current.total + link.subtotal);
+      itemMap.set(key, current);
+    }
+
+    return Array.from(itemMap.entries()).map(([productId, data]) => ({
+      productId,
+      productName: data.name,
+      category: data.category,
+      quantity: data.qty,
+      averageUnitPrice: data.qty > 0 ? this.roundCurrency(data.total / data.qty) : 0,
+      totalAmount: this.roundCurrency(data.total)
+    }));
+  }
+
+  private generateUniqueInvoiceId(prefixPeriod: string, registrationNumber: string): string {
+    const cleanReg = (registrationNumber || 'ALUNO').replace(/[^a-zA-Z0-9]/g, '');
+    const base = `FAT-${prefixPeriod.replace(/[^0-9]/g, '')}-${cleanReg}`;
+    const existingIds = new Set(this.data.invoices.map(i => i.id));
+    if (!existingIds.has(base)) return base;
+    let seq = 2;
+    while (existingIds.has(`${base}-${String(seq).padStart(2, '0')}`)) {
+      seq += 1;
+    }
+    return `${base}-${String(seq).padStart(2, '0')}`;
+  }
+
+  private generateBatchId(type: BillingBatchType): string {
+    const prefixMap: Record<BillingBatchType, string> = {
+      INDIVIDUAL: 'LOT-IND',
+      PERIODO_PERSONALIZADO: 'LOT-PER',
+      FECHAMENTO_MENSAL: 'LOT-MES'
+    };
+    const dateSlug = this.toSaoPauloDate(new Date().toISOString()).replace(/-/g, '');
+    const seq = String(this.getBillingBatches().length + 1).padStart(3, '0');
+    const rand = Math.floor(100 + Math.random() * 900);
+    return `${prefixMap[type]}-${dateSlug}-${seq}-${rand}`;
+  }
+
+  public getUnbilledConsumptionOverview(): UnbilledConsumptionOverview {
+    const closedPeriodsSet = this.getClosedPeriodsSet();
+    const closedPeriods = Array.from(closedPeriodsSet).sort().reverse();
+
+    let totalUnbilledAmount = 0;
+    let totalPartiallyBilledAmount = 0;
+    let unbilledSalesCount = 0;
+    let partiallyBilledSalesCount = 0;
+    let billedSalesCount = 0;
+    let reversedOrCanceledSalesCount = 0;
+    let retroactiveClosedPeriodSalesCount = 0;
+    let retroactiveClosedPeriodAmount = 0;
+
+    const studentAgg = new Map<string, UnbilledConsumptionOverview['byStudent'][number]>();
+    const unbilledSales: BillingPreviewSale[] = [];
+
+    for (const sale of this.data.sales) {
+      const paymentMethod = sale.paymentMethod || 'CONTA_ALUNO';
+      if (sale.status === 'REVERSED') {
+        reversedOrCanceledSalesCount += 1;
+        continue;
+      }
+      if (paymentMethod !== 'CONTA_ALUNO') {
+        continue;
+      }
+
+      const evalSale = this.evaluateSaleBilling(sale);
+      if (evalSale.billingStatus === 'TOTALMENTE_FATURADA') {
+        billedSalesCount += 1;
+        continue;
+      }
+      if (evalSale.billingStatus === 'CANCELADA') {
+        reversedOrCanceledSalesCount += 1;
+        continue;
+      }
+      if (!evalSale.isEligible) {
+        continue;
+      }
+
+      unbilledSales.push(evalSale);
+      if (evalSale.billingStatus === 'PARCIALMENTE_FATURADA') {
+        partiallyBilledSalesCount += 1;
+        totalPartiallyBilledAmount = this.roundCurrency(totalPartiallyBilledAmount + evalSale.remainingBillableAmount);
+      } else {
+        unbilledSalesCount += 1;
+      }
+      totalUnbilledAmount = this.roundCurrency(totalUnbilledAmount + evalSale.remainingBillableAmount);
+
+      const saleSpPeriod = evalSale.saoPauloDate.slice(0, 7);
+      const isRetroactive = closedPeriodsSet.has(saleSpPeriod);
+      if (isRetroactive) {
+        retroactiveClosedPeriodSalesCount += 1;
+        retroactiveClosedPeriodAmount = this.roundCurrency(retroactiveClosedPeriodAmount + evalSale.remainingBillableAmount);
+      }
+
+      const student = this.data.students.find(s => s.id === sale.studentId);
+      const existing = studentAgg.get(sale.studentId) || {
+        studentId: sale.studentId,
+        studentName: student?.name || sale.studentName,
+        registrationNumber: student?.registrationNumber || sale.registrationNumber,
+        classGroup: student?.classGroup || '10ª Turma',
+        hasGuardian: Boolean(student && student.guardians && student.guardians.length > 0),
+        unbilledSalesCount: 0,
+        unbilledAmount: 0,
+        oldestSaleDate: evalSale.saoPauloDate,
+        newestSaleDate: evalSale.saoPauloDate,
+        hasRetroactiveClosedPeriodSale: false
+      };
+
+      existing.unbilledSalesCount += 1;
+      existing.unbilledAmount = this.roundCurrency(existing.unbilledAmount + evalSale.remainingBillableAmount);
+      if (evalSale.saoPauloDate < existing.oldestSaleDate) existing.oldestSaleDate = evalSale.saoPauloDate;
+      if (evalSale.saoPauloDate > existing.newestSaleDate) existing.newestSaleDate = evalSale.saoPauloDate;
+      if (isRetroactive) existing.hasRetroactiveClosedPeriodSale = true;
+      studentAgg.set(sale.studentId, existing);
+    }
+
+    const byStudent = Array.from(studentAgg.values()).sort((a, b) => b.unbilledAmount - a.unbilledAmount);
+
+    return {
+      totalUnbilledAmount,
+      totalPartiallyBilledAmount,
+      unbilledSalesCount,
+      partiallyBilledSalesCount,
+      billedSalesCount,
+      reversedOrCanceledSalesCount,
+      studentsWithUnbilledCount: byStudent.length,
+      retroactiveClosedPeriodSalesCount,
+      retroactiveClosedPeriodAmount,
+      closedPeriods,
+      byStudent,
+      unbilledSales
+    };
+  }
+
+  public previewPeriodBilling(payload: PeriodBillingPayload): BillingBatchPreview {
+    const mode = payload.mode || 'FECHAMENTO_MENSAL';
+    let billingPeriod = payload.billingPeriod || this.toSaoPauloPeriod(new Date().toISOString());
+    let periodStart = payload.periodStart || '';
+    let periodEnd = payload.periodEnd || '';
+
+    if (mode === 'FECHAMENTO_MENSAL') {
+      const bounds = this.getMonthBounds(billingPeriod);
+      periodStart = bounds.periodStart;
+      periodEnd = bounds.periodEnd;
+    } else {
+      if (!periodStart || !periodEnd) {
+        throw new Error('Informe a data inicial e a data final do período de consumo.');
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+        throw new Error('Datas de período inválidas. Use o formato AAAA-MM-DD.');
+      }
+      if (periodStart > periodEnd) {
+        throw new Error('A data inicial não pode ser posterior à data final.');
+      }
+      billingPeriod = payload.billingPeriod || periodEnd.slice(0, 7);
+    }
+
+    const dueDate = payload.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(payload.dueDate)
+      ? payload.dueDate
+      : this.computeDefaultDueDate(periodEnd, mode, billingPeriod);
+
+    const scope = payload.scope || 'ALL_STUDENTS';
+    const activeStudents = this.data.students.filter(s => s.status === 'ACTIVE');
+
+    let targetStudents: Student[] = activeStudents;
+    if (scope === 'CLASS_GROUP' && payload.classGroup) {
+      targetStudents = activeStudents.filter(s => s.classGroup === payload.classGroup);
+    } else if (scope === 'MANUAL_SELECTION') {
+      const allowedSet = new Set(payload.studentIds || []);
+      targetStudents = activeStudents.filter(s => allowedSet.has(s.id));
+    } else if (scope === 'EXCLUDE_STUDENTS') {
+      const excludedSet = new Set(payload.excludedStudentIds || []);
+      targetStudents = activeStudents.filter(s => !excludedSet.has(s.id));
+    }
+
+    const closedPeriodsSet = this.getClosedPeriodsSet();
+    const closedPeriodAlreadyProcessed = mode === 'FECHAMENTO_MENSAL' && closedPeriodsSet.has(billingPeriod);
+    const existingMonthlyInvoices = this.data.invoices.filter(
+      i =>
+        i.billingPeriod === billingPeriod &&
+        i.status !== 'CANCELADA' &&
+        (!i.billingType || i.billingType === 'FECHAMENTO_MENSAL')
+    );
+
+    const isTuitionEnabled = Boolean(this.data.settings.tuitionBillingActive);
+    const inconsistencies: BillingBatchPreview['inconsistencies'] = [];
+    const studentsPreview: BillingStudentPreviewItem[] = [];
 
     let totalTuitions = 0;
     let totalConsumptions = 0;
-    let pendingUnpaidSalesCount = 0;
-    const inconsistencies: MonthlyClosingPreview['inconsistencies'] = [];
+    let grossPurchasesTotal = 0;
+    let reversalsTotal = 0;
+    let alreadyBilledTotal = 0;
+    let netBillableTotal = 0;
+    let validSalesCount = 0;
+    let alreadyBilledSalesCount = 0;
+    let ineligibleSalesCount = 0;
+    let invoicesToCreateCount = 0;
+    let studentsWithBillableConsumptionCount = 0;
+    let retroactiveSalesInClosedPeriodCount = 0;
+    let studentsMissingGuardianCount = 0;
 
-    // Checar vendas em aberto (não faturadas)
-    const unbilledSales = this.data.sales.filter(s => s.status === 'COMPLETED' && !s.invoiceId);
-    pendingUnpaidSalesCount = unbilledSales.length;
+    for (const student of targetStudents) {
+      const salesInPeriod = this.data.sales
+        .filter(s => {
+          if (s.studentId !== student.id) return false;
+          const spDate = this.toSaoPauloDate(s.createdAt);
+          return spDate >= periodStart && spDate <= periodEnd;
+        })
+        .map(s => this.evaluateSaleBilling(s));
 
-    const isTuitionEnabled = Boolean(this.data.settings.tuitionBillingActive);
+      let studentGross = 0;
+      let studentReversals = 0;
+      let studentAlreadyBilled = 0;
+      let studentNet = 0;
+      let studentEligibleCount = 0;
+      let studentAlreadyCount = 0;
+      let studentIneligibleCount = 0;
 
-    for (const student of eligibleStudents) {
-      const studentTuition = isTuitionEnabled ? (Number(student.defaultTuition) || 0) : 0;
-      totalTuitions += studentTuition;
+      for (const sEval of salesInPeriod) {
+        if (sEval.billingStatus === 'ESTORNADA') {
+          studentReversals = this.roundCurrency(studentReversals + sEval.reversedAmount);
+          studentIneligibleCount += 1;
+          continue;
+        }
+        if (sEval.paymentMethod !== 'CONTA_ALUNO') {
+          studentIneligibleCount += 1;
+          continue;
+        }
+        studentGross = this.roundCurrency(studentGross + sEval.originalTotal);
+        studentAlreadyBilled = this.roundCurrency(studentAlreadyBilled + sEval.alreadyBilledAmount);
 
-      // Calcular consumo em aberto do aluno na Lojinha
-      const studentSales = unbilledSales.filter(s => s.studentId === student.id);
-      const salesSum = studentSales.reduce((acc, sale) => acc + sale.total, 0);
-      const studentConsumption = Math.max(salesSum, Number(student.currentConsumptionBalance) || 0);
-      totalConsumptions += studentConsumption;
+        if (sEval.isEligible) {
+          studentNet = this.roundCurrency(studentNet + sEval.remainingBillableAmount);
+          studentEligibleCount += 1;
+          const spMonth = sEval.saoPauloDate.slice(0, 7);
+          if (closedPeriodsSet.has(spMonth)) {
+            retroactiveSalesInClosedPeriodCount += 1;
+          }
+        } else if (sEval.billingStatus === 'TOTALMENTE_FATURADA') {
+          studentAlreadyCount += 1;
+        } else {
+          studentIneligibleCount += 1;
+        }
+      }
 
-      // Inconsistências
-      const alreadyHasInvoice = existingInvoices.some(i => i.studentId === student.id);
-      if (alreadyHasInvoice) {
+      const existingMonthly = mode === 'FECHAMENTO_MENSAL'
+        ? existingMonthlyInvoices.find(i => i.studentId === student.id)
+        : undefined;
+
+      const tuitionAmount = isTuitionEnabled ? (Number(student.defaultTuition) || 0) : 0;
+      const grossToBill = this.roundCurrency(tuitionAmount + studentNet);
+      const willGenerateInvoice =
+        grossToBill > 0 &&
+        !(mode === 'FECHAMENTO_MENSAL' && existingMonthly);
+
+      const warnings: string[] = [];
+      const blockers: string[] = [];
+
+      if (existingMonthly && mode === 'FECHAMENTO_MENSAL') {
+        const msg = studentNet > 0
+          ? `Já possui fatura de fechamento mensal (${existingMonthly.id}) em ${billingPeriod}, mas há R$ ${studentNet.toFixed(2)} de consumo retroativo não faturado. Use Lançar Fatura ou Período Personalizado para cobrança complementar.`
+          : `O aluno já possui cobrança de fechamento mensal gerada para ${billingPeriod} (${existingMonthly.id}). Não será duplicada.`;
+        warnings.push(msg);
         inconsistencies.push({
           studentId: student.id,
           studentName: student.name,
           severity: 'WARNING',
-          message: `O aluno já possui cobrança gerada para ${period}. Não será duplicada.`
+          message: msg
         });
       }
 
-      if (student.guardians.length === 0 && (student.payerRule === 'GUARDIAN' || student.payerRule === 'GUARDIAN_ONLY')) {
-        inconsistencies.push({
-          studentId: student.id,
-          studentName: student.name,
-          severity: 'BLOCKER',
-          message: `Aluno configurado como 'Pagamento Exclusivo pelo Responsável', mas não possui responsável vinculado.`
-        });
+      const hasGuardian = Boolean(student.guardians && student.guardians.length > 0);
+      if (!hasGuardian) {
+        studentsMissingGuardianCount += 1;
+        const requiresGuardian = student.payerRule === 'GUARDIAN' || student.payerRule === 'GUARDIAN_ONLY';
+        if (requiresGuardian && (willGenerateInvoice || mode === 'FECHAMENTO_MENSAL')) {
+          const msg = `Aluno configurado como 'Pagamento Exclusivo pelo Responsável', mas não possui responsável vinculado.`;
+          blockers.push(msg);
+          inconsistencies.push({
+            studentId: student.id,
+            studentName: student.name,
+            severity: 'BLOCKER',
+            message: msg
+          });
+        } else if (willGenerateInvoice) {
+          const msg = `Aluno sem responsável financeiro vinculado — cobrança será emitida diretamente para o aluno.`;
+          warnings.push(msg);
+          inconsistencies.push({
+            studentId: student.id,
+            studentName: student.name,
+            severity: 'WARNING',
+            message: msg
+          });
+        }
       }
+
+      if (studentNet > 0) studentsWithBillableConsumptionCount += 1;
+      if (willGenerateInvoice) {
+        invoicesToCreateCount += 1;
+        totalTuitions = this.roundCurrency(totalTuitions + tuitionAmount);
+        totalConsumptions = this.roundCurrency(totalConsumptions + studentNet);
+        netBillableTotal = this.roundCurrency(netBillableTotal + studentNet);
+      }
+
+      grossPurchasesTotal = this.roundCurrency(grossPurchasesTotal + studentGross);
+      reversalsTotal = this.roundCurrency(reversalsTotal + studentReversals);
+      alreadyBilledTotal = this.roundCurrency(alreadyBilledTotal + studentAlreadyBilled);
+      validSalesCount += studentEligibleCount;
+      alreadyBilledSalesCount += studentAlreadyCount;
+      ineligibleSalesCount += studentIneligibleCount;
+
+      const guardiansSummary = hasGuardian
+        ? student.guardians.map(g => `${g.guardianName || 'Responsável'} (${g.relationship})`).join(', ')
+        : 'Sem responsável vinculado';
+
+      studentsPreview.push({
+        studentId: student.id,
+        studentName: student.name,
+        registrationNumber: student.registrationNumber,
+        classGroup: student.classGroup,
+        guardiansSummary,
+        hasGuardian,
+        payerRule: student.payerRule,
+        tuitionAmount,
+        grossPurchasesTotal: studentGross,
+        reversalsTotal: studentReversals,
+        alreadyBilledTotal: studentAlreadyBilled,
+        netConsumptionToBill: studentNet,
+        grossTotalToBill: grossToBill,
+        eligibleSalesCount: studentEligibleCount,
+        alreadyBilledSalesCount: studentAlreadyCount,
+        ineligibleSalesCount: studentIneligibleCount,
+        sales: salesInPeriod,
+        willGenerateInvoice,
+        existingInvoiceId: existingMonthly?.id,
+        warnings,
+        blockers
+      });
     }
 
-    const totalGrossToBill = Math.round((totalTuitions + totalConsumptions) * 100) / 100;
+    const totalGrossToBill = this.roundCurrency(totalTuitions + totalConsumptions);
 
     return {
-      period,
-      studentsCount: eligibleStudents.length,
-      totalTuitions: Math.round(totalTuitions * 100) / 100,
-      totalConsumptions: Math.round(totalConsumptions * 100) / 100,
-      totalPreviousBalances: 0,
+      mode,
+      billingPeriod,
+      periodStart,
+      periodEnd,
+      dueDate,
+      billingLabel: payload.billingLabel,
+      scope,
+      studentsCount: targetStudents.length,
+      studentsWithBillableConsumptionCount,
+      invoicesToCreateCount,
+      validSalesCount,
+      alreadyBilledSalesCount,
+      ineligibleSalesCount,
+      grossPurchasesTotal,
+      reversalsTotal,
+      alreadyBilledTotal,
+      netBillableTotal,
+      totalTuitions,
+      totalConsumptions,
       totalGrossToBill,
-      pendingUnpaidSalesCount,
-      existingInvoicesCount: existingInvoices.length,
+      existingInvoicesCount: existingMonthlyInvoices.length,
+      closedPeriodAlreadyProcessed,
+      retroactiveSalesInClosedPeriodCount,
+      studentsMissingGuardianCount,
+      students: studentsPreview,
       inconsistencies,
       canProceed: !inconsistencies.some(inc => inc.severity === 'BLOCKER')
     };
   }
 
-  // 7. Executar Fechamento Mensal e Publicar Faturas
-  public executeMonthlyClosing(period: string, user: { id: string; name: string; role: any }) {
-    const preview = this.getMonthlyClosingPreview(period);
-    if (!preview.canProceed) {
-      throw new Error('Não é possível fechar o mês devido a inconsistências impeditivas.');
+  public executePeriodBilling(
+    payload: PeriodBillingPayload,
+    user: { id: string; name: string; role: any }
+  ): {
+    batch: BillingBatch;
+    invoicesCreated: number;
+    invoices: Invoice[];
+    period: string;
+    deduplicated?: boolean;
+  } {
+    // 1. Idempotência por chave de lote
+    if (payload.idempotencyKey) {
+      const existingBatch = this.getBillingBatches().find(b => b.idempotencyKey === payload.idempotencyKey);
+      if (existingBatch) {
+        const existingInvs = this.data.invoices.filter(i => existingBatch.invoiceIds.includes(i.id));
+        return {
+          batch: existingBatch,
+          invoicesCreated: existingInvs.length,
+          invoices: existingInvs,
+          period: existingBatch.billingPeriod,
+          deduplicated: true
+        };
+      }
     }
 
-    const eligibleStudents = this.data.students.filter(s => s.status === 'ACTIVE');
+    const preview = this.previewPeriodBilling(payload);
+    if (!preview.canProceed) {
+      const firstBlocker = preview.inconsistencies.find(i => i.severity === 'BLOCKER');
+      throw new Error(firstBlocker?.message || 'Não é possível emitir o faturamento devido a inconsistências impeditivas.');
+    }
+
+    const candidates = preview.students.filter(s => s.willGenerateInvoice && s.grossTotalToBill > 0);
+    if (candidates.length === 0) {
+      throw new Error(
+        `Nenhuma cobrança com saldo positivo elegível encontrada no período ${preview.periodStart} a ${preview.periodEnd}.`
+      );
+    }
+
+    const batchId = this.generateBatchId(preview.mode);
+    const nowIso = new Date().toISOString();
     const createdInvoices: Invoice[] = [];
-    const now = new Date();
+    let totalBatchSalesCount = 0;
 
-    // Data de vencimento baseada no offset de configurações
-    const [yearStr, monthStr] = period.split('-');
-    const year = parseInt(yearStr, 10);
-    const month = parseInt(monthStr, 10); // 1-12
-    
-    // Mês seguinte para vencimento
-    const nextMonth = month === 12 ? 1 : month + 1;
-    const nextYear = month === 12 ? year + 1 : year;
-    const dueDay = this.data.settings.dueDayOffset;
-    const dueDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
-    const closingDate = `${year}-${String(month).padStart(2, '0')}-28`;
+    for (const studentPreview of candidates) {
+      const student = this.data.students.find(s => s.id === studentPreview.studentId);
+      if (!student) continue;
 
-    const isTuitionEnabled = Boolean(this.data.settings.tuitionBillingActive);
+      const eligibleSales = studentPreview.sales.filter(s => s.isEligible && s.remainingBillableAmount > 0);
+      const itemLinks: InvoiceSaleItemLink[] = [];
+      const salesIds: string[] = [];
 
-    for (const student of eligibleStudents) {
-      // PREVENÇÃO DE DUPLICIDADE (Idempotência estrita)
-      const existing = this.data.invoices.find(
-        i => i.studentId === student.id && i.billingPeriod === period && i.status !== 'CANCELADA'
-      );
-      if (existing) {
-        continue; // Não gerar faturas duplicadas!
-      }
-
-      // Vendas não faturadas para este aluno
-      const studentSales = this.data.sales.filter(
-        s => s.studentId === student.id && s.status === 'COMPLETED' && !s.invoiceId
+      const invoiceId = this.generateUniqueInvoiceId(
+        preview.mode === 'FECHAMENTO_MENSAL' ? preview.billingPeriod : preview.periodEnd,
+        student.registrationNumber
       );
 
-      const salesSum = studentSales.reduce((acc, s) => acc + s.total, 0);
-      const consumptionTotal = Math.max(salesSum, Number(student.currentConsumptionBalance) || 0);
-      const tuitionAmount = isTuitionEnabled ? (Number(student.defaultTuition) || 0) : 0;
-      const grossTotal = Math.round((tuitionAmount + consumptionTotal) * 100) / 100;
+      for (const sEval of eligibleSales) {
+        const sale = this.data.sales.find(x => x.id === sEval.saleId);
+        if (!sale) continue;
 
-      // Não gerar cobrança zerada (R$ 0,00)
-      if (grossTotal <= 0) {
-        continue;
-      }
+        const allocItems: SaleAllocatedItem[] = [];
+        for (const it of sEval.items) {
+          if (it.remainingQuantity <= 0) continue;
+          allocItems.push({
+            itemIndex: it.itemIndex,
+            productId: it.productId,
+            name: it.name,
+            quantity: it.remainingQuantity,
+            unitPrice: it.unitPrice,
+            amount: it.remainingAmount
+          });
+          itemLinks.push({
+            saleId: sale.id,
+            saleDate: sale.createdAt,
+            itemIndex: it.itemIndex,
+            productId: it.productId,
+            productName: it.name,
+            quantity: it.remainingQuantity,
+            unitPrice: it.unitPrice,
+            subtotal: it.remainingAmount
+          });
+        }
 
-      // Agrupar itens de consumo para o extrato da cobrança
-      const itemMap = new Map<string, { product: Product | undefined; name: string; category: any; qty: number; total: number }>();
-      for (const sale of studentSales) {
-        const isTripSale = sale.origin === 'PDV_PASSEIOS';
-        const formattedTripDate = sale.tripDate ? sale.tripDate.split('-').reverse().join('/') : '';
-        const tripPrefix = isTripSale && sale.tripName
-          ? `[${sale.tripName}${formattedTripDate ? ` — ${formattedTripDate}` : ''}] `
-          : '';
-        for (const item of sale.items) {
-          const key = isTripSale ? `${sale.id}_${item.productId}` : item.productId;
-          const displayName = `${tripPrefix}${item.name}`;
-          const current = itemMap.get(key) || {
-            product: this.data.products.find(p => p.id === item.productId),
-            name: displayName,
-            category: isTripSale ? `PDV de Passeios • ${item.category}` : item.category,
-            qty: 0,
-            total: 0
-          };
-          current.qty += item.quantity;
-          current.total += item.subtotal;
-          itemMap.set(key, current);
+        if (allocItems.length > 0) {
+          if (!Array.isArray(sale.invoiceAllocations)) sale.invoiceAllocations = [];
+          sale.invoiceAllocations.push({
+            invoiceId,
+            batchId,
+            amount: sEval.remainingBillableAmount,
+            items: allocItems,
+            allocatedAt: nowIso
+          });
+          salesIds.push(sale.id);
         }
       }
 
-      const consumptionItems = Array.from(itemMap.entries()).map(([productId, data]) => ({
-        productId,
-        productName: data.name,
-        category: data.category,
-        quantity: data.qty,
-        averageUnitPrice: data.qty > 0 ? Math.round((data.total / data.qty) * 100) / 100 : 0,
-        totalAmount: Math.round(data.total * 100) / 100
-      }));
+      totalBatchSalesCount += salesIds.length;
+      const consumptionItems = this.buildConsumptionSummaryItems(itemLinks);
 
-      const invoiceId = `FAT-${period.replace('-', '')}-${student.registrationNumber.replace('-', '')}`;
-
-      // Vincular vendas a esta cobrança
-      for (const sale of studentSales) {
-        sale.invoiceId = invoiceId;
-      }
-
-      // Montar código Pix Copia e Cola no padrão oficial Bacen EMV
       const pixCode = generateBacenPixPayload({
         pixKey: this.data.settings.pixKey,
         receiverName: this.data.settings.pixReceiverName,
         city: this.data.settings.pixCity,
-        amount: grossTotal,
+        amount: studentPreview.grossTotalToBill,
         txId: invoiceId
       });
+
+      const historyEntry: InvoiceHistoryEntry = {
+        id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: nowIso,
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        action: preview.mode === 'FECHAMENTO_MENSAL' ? 'EMISSAO_FECHAMENTO_MENSAL' : 'EMISSAO_LOTE_PERIODO',
+        details: `Fatura emitida no lote ${batchId} (${preview.periodStart} a ${preview.periodEnd}) com ${salesIds.length} venda(s) totalizando R$ ${studentPreview.grossTotalToBill.toFixed(2)}.`
+      };
 
       const invoice: Invoice = {
         id: invoiceId,
         studentId: student.id,
         studentName: student.name,
         registrationNumber: student.registrationNumber,
-        billingPeriod: period,
-        tuitionAmount,
-        canteenConsumptionTotal: Math.round(consumptionTotal * 100) / 100,
+        classGroup: student.classGroup,
+        billingPeriod: preview.billingPeriod,
+        billingType: preview.mode,
+        batchId,
+        periodStart: preview.periodStart,
+        periodEnd: preview.periodEnd,
+        billingLabel: preview.billingLabel || (preview.mode === 'PERIODO_PERSONALIZADO' ? `${preview.periodStart} a ${preview.periodEnd}` : undefined),
+        tuitionAmount: studentPreview.tuitionAmount,
+        canteenConsumptionTotal: studentPreview.netConsumptionToBill,
         previousBalance: 0,
         adjustmentsTotal: 0,
-        grossTotal,
+        grossTotal: studentPreview.grossTotalToBill,
         paidTotal: 0,
-        remainingBalance: grossTotal,
-        closingDate,
-        dueDate,
+        remainingBalance: studentPreview.grossTotalToBill,
+        closingDate: preview.periodEnd,
+        dueDate: preview.dueDate,
         status: 'PUBLICADA',
-        salesIds: studentSales.map(s => s.id),
+        salesIds,
+        saleItemLinks: itemLinks,
         consumptionItems,
         paymentAllocations: [],
         pixCopyPasteCode: pixCode,
         pixQrCodePayload: pixCode,
         approvedByUserName: user.name,
-        approvedAt: now.toISOString(),
-        publishedAt: now.toISOString(),
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString()
+        approvedAt: nowIso,
+        publishedAt: nowIso,
+        notes: payload.notes?.trim() || undefined,
+        history: [historyEntry],
+        createdAt: nowIso,
+        updatedAt: nowIso
       };
 
       createdInvoices.push(invoice);
       this.data.invoices.unshift(invoice);
 
-      // Zerar o saldo de consumo aberto do aluno pois agora está faturado nesta cobrança
-      student.currentConsumptionBalance = 0;
-      const openInvoicesTotal = this.data.invoices
-        .filter(i => i.studentId === student.id && i.status !== 'CANCELADA' && i.status !== 'PAGA')
-        .reduce((acc, inv) => acc + inv.remainingBalance, 0);
-      student.totalOpenDebt = Math.round(openInvoicesTotal * 100) / 100;
+      for (const sId of salesIds) {
+        const allocatedSale = this.data.sales.find(s => s.id === sId);
+        if (allocatedSale) {
+          this.syncSaleBillingState(allocatedSale);
+          this.triggerSupabaseSync('sales', allocatedSale, 'mapSaleToSupabase');
+        }
+      }
 
-      // Disparar Notificações WhatsApp conforme preferências do Aluno
-      this.scheduleInvoiceNotifications(invoice, student);
+      this.recalculateStudentBalances(student);
+      this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+
+      // Desacoplado: falha na notificação nunca impede emissão nem duplica fatura
+      this.scheduleInvoiceNotificationsSafe(invoice, student);
     }
 
-    if (createdInvoices.length === 0) {
-      throw new Error(`Nenhuma cobrança com saldo positivo pendente para gerar na competência ${period}.`);
+    const totalAmount = this.roundCurrency(createdInvoices.reduce((acc, i) => acc + i.grossTotal, 0));
+    const batch: BillingBatch = {
+      id: batchId,
+      type: preview.mode,
+      billingPeriod: preview.billingPeriod,
+      periodStart: preview.periodStart,
+      periodEnd: preview.periodEnd,
+      billingLabel: preview.billingLabel,
+      dueDate: preview.dueDate,
+      scope: preview.scope,
+      classGroupFilter: payload.classGroup,
+      studentsCount: createdInvoices.length,
+      invoicesCount: createdInvoices.length,
+      salesCount: totalBatchSalesCount,
+      totalAmount,
+      invoiceIds: createdInvoices.map(i => i.id),
+      createdByUserId: user.id,
+      createdByUserName: user.name,
+      status: 'CONCLUIDO',
+      idempotencyKey: payload.idempotencyKey,
+      notes: payload.notes,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    if (!Array.isArray(this.data.billingBatches)) this.data.billingBatches = [];
+    this.data.billingBatches.unshift(batch);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      preview.mode === 'FECHAMENTO_MENSAL' ? 'FECHAMENTO_MENSAL_EXECUTADO' : 'FATURAMENTO_PERIODO_EXECUTADO',
+      preview.mode === 'FECHAMENTO_MENSAL' ? 'FECHAMENTO' : 'FATURAS',
+      `Lote ${batch.id} (${preview.mode}) emitido para ${preview.periodStart} a ${preview.periodEnd}. ${createdInvoices.length} fatura(s) gerada(s) totalizando R$ ${totalAmount.toFixed(2)}.`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('billing_batches', batch, 'mapBillingBatchToSupabase');
+    createdInvoices.forEach(inv => this.triggerSupabaseSync('invoices', inv, 'mapInvoiceToSupabase'));
+
+    return {
+      batch,
+      invoicesCreated: createdInvoices.length,
+      invoices: createdInvoices,
+      period: preview.billingPeriod
+    };
+  }
+
+  public getStudentIndividualBillingContext(
+    studentId: string,
+    periodStart?: string,
+    periodEnd?: string
+  ) {
+    const student = this.data.students.find(s => s.id === studentId);
+    if (!student) throw new Error('Aluno não encontrado.');
+
+    if (periodStart && periodEnd && periodStart > periodEnd) {
+      throw new Error('A data inicial não pode ser maior que a data final.');
+    }
+
+    const salesEval = this.data.sales
+      .filter(s => {
+        if (s.studentId !== studentId) return false;
+        const spDate = this.toSaoPauloDate(s.createdAt);
+        if (periodStart && spDate < periodStart) return false;
+        if (periodEnd && spDate > periodEnd) return false;
+        return true;
+      })
+      .map(s => this.evaluateSaleBilling(s));
+
+    const studentInvoices = this.data.invoices.filter(i => i.studentId === studentId);
+    const guardians = (student.guardians || []).map(g => {
+      const full = this.data.guardians.find(x => x.id === g.guardianId);
+      return {
+        ...g,
+        guardianName: full?.name || g.guardianName || 'Responsável',
+        guardianPhone: full?.phone || g.guardianPhone || '',
+        guardianEmail: full?.email || ''
+      };
+    });
+
+    const eligibleSalesTotal = this.roundCurrency(
+      salesEval.filter(s => s.isEligible).reduce((acc, s) => acc + s.remainingBillableAmount, 0)
+    );
+
+    return {
+      student,
+      guardians,
+      sales: salesEval,
+      eligibleSalesTotal,
+      studentInvoices
+    };
+  }
+
+  public previewIndividualInvoice(payload: IndividualInvoicePayload) {
+    const student = this.data.students.find(s => s.id === payload.studentId);
+    if (!student) throw new Error('Aluno não encontrado.');
+
+    if (!payload.dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(payload.dueDate)) {
+      throw new Error('Data de vencimento inválida. Informe no formato AAAA-MM-DD.');
+    }
+
+    const hasGuardian = Boolean(student.guardians && student.guardians.length > 0);
+    const requiresGuardian = student.payerRule === 'GUARDIAN' || student.payerRule === 'GUARDIAN_ONLY';
+    if (!hasGuardian && requiresGuardian) {
+      throw new Error(`O aluno ${student.name} está configurado para cobrança exclusiva pelo responsável, mas não possui responsável vinculado.`);
+    }
+
+    const tuitionAmount = Math.max(0, this.roundCurrency(Number(payload.tuitionAmount) || 0));
+    const discountAmount = Math.max(0, this.roundCurrency(Number(payload.discountAmount) || 0));
+    const creditAmount = Math.max(0, this.roundCurrency(Number(payload.creditAmount) || 0));
+    const totalAdjustments = this.roundCurrency(discountAmount + creditAmount);
+
+    if (totalAdjustments > 0 && (!payload.discountReason || payload.discountReason.trim().length < 3)) {
+      throw new Error('Informe a justificativa para aplicar desconto ou crédito autorizado na fatura.');
+    }
+
+    const selections = Array.isArray(payload.selections) ? payload.selections : [];
+    if (selections.length === 0 && tuitionAmount <= 0) {
+      throw new Error('Selecione ao menos uma compra/item elegível para compor a fatura individual.');
+    }
+
+    const allocatedLinks: InvoiceSaleItemLink[] = [];
+    const saleAllocationsPlan: Array<{
+      sale: Sale;
+      amount: number;
+      items: SaleAllocatedItem[];
+    }> = [];
+
+    let canteenConsumptionTotal = 0;
+
+    for (const sel of selections) {
+      const sale = this.data.sales.find(s => s.id === sel.saleId);
+      if (!sale) throw new Error(`Venda ${sel.saleId} não encontrada.`);
+      if (sale.studentId !== student.id) {
+        throw new Error(`A venda ${sel.saleId} pertence a outro aluno e não pode ser faturada para ${student.name}.`);
+      }
+
+      const evalSale = this.evaluateSaleBilling(sale);
+      if (!evalSale.isEligible) {
+        throw new Error(`A venda ${sale.id} não é elegível para faturamento (${evalSale.ineligibleReason || evalSale.billingStatus}).`);
+      }
+
+      const requestedItems = Array.isArray(sel.items) && sel.items.length > 0
+        ? sel.items
+        : evalSale.items.filter(it => it.remainingQuantity > 0).map(it => ({
+            itemIndex: it.itemIndex,
+            quantity: it.remainingQuantity
+          }));
+
+      if (requestedItems.length === 0) {
+        throw new Error(`Nenhum item com saldo disponível selecionado na venda ${sale.id}.`);
+      }
+
+      const seenItemIndexes = new Set<number>();
+      const saleItemsToAllocate: SaleAllocatedItem[] = [];
+      let saleAllocatedAmount = 0;
+
+      for (const reqIt of requestedItems) {
+        if (seenItemIndexes.has(reqIt.itemIndex)) {
+          throw new Error(`Item duplicado detectado na seleção da venda ${sale.id}.`);
+        }
+        seenItemIndexes.add(reqIt.itemIndex);
+
+        const evalItem = evalSale.items.find(it => it.itemIndex === reqIt.itemIndex);
+        if (!evalItem) {
+          throw new Error(`Item ${reqIt.itemIndex} não pertence à venda ${sale.id}.`);
+        }
+        const qty = Number(reqIt.quantity);
+        if (!Number.isFinite(qty) || qty <= 0) {
+          throw new Error(`Quantidade inválida para o item "${evalItem.name}" na venda ${sale.id}.`);
+        }
+        if (qty > evalItem.remainingQuantity) {
+          throw new Error(
+            `Quantidade solicitada (${qty}) do item "${evalItem.name}" na venda ${sale.id} excede o saldo não faturado (${evalItem.remainingQuantity}).`
+          );
+        }
+
+        const itemAmount = qty === evalItem.remainingQuantity
+          ? evalItem.remainingAmount
+          : this.roundCurrency(qty * evalItem.unitPrice);
+
+        saleItemsToAllocate.push({
+          itemIndex: evalItem.itemIndex,
+          productId: evalItem.productId,
+          name: evalItem.name,
+          quantity: qty,
+          unitPrice: evalItem.unitPrice,
+          amount: itemAmount
+        });
+        allocatedLinks.push({
+          saleId: sale.id,
+          saleDate: sale.createdAt,
+          itemIndex: evalItem.itemIndex,
+          productId: evalItem.productId,
+          productName: evalItem.name,
+          quantity: qty,
+          unitPrice: evalItem.unitPrice,
+          subtotal: itemAmount
+        });
+        saleAllocatedAmount = this.roundCurrency(saleAllocatedAmount + itemAmount);
+      }
+
+      if (saleAllocatedAmount > evalSale.remainingBillableAmount + 0.05) {
+        throw new Error(`Valor selecionado na venda ${sale.id} ultrapassa o saldo pendente.`);
+      }
+      saleAllocatedAmount = Math.min(saleAllocatedAmount, evalSale.remainingBillableAmount);
+      canteenConsumptionTotal = this.roundCurrency(canteenConsumptionTotal + saleAllocatedAmount);
+      saleAllocationsPlan.push({
+        sale,
+        amount: saleAllocatedAmount,
+        items: saleItemsToAllocate
+      });
+    }
+
+    const subtotal = this.roundCurrency(tuitionAmount + canteenConsumptionTotal);
+    if (totalAdjustments > subtotal) {
+      throw new Error(`O total de descontos/créditos (R$ ${totalAdjustments.toFixed(2)}) não pode exceder o valor bruto (R$ ${subtotal.toFixed(2)}).`);
+    }
+
+    const grossTotal = this.roundCurrency(subtotal - totalAdjustments);
+    if (grossTotal <= 0) {
+      throw new Error('O valor líquido final da fatura individual deve ser maior que R$ 0,00.');
+    }
+
+    const consumptionItems = this.buildConsumptionSummaryItems(allocatedLinks);
+    const derivedPeriodStart = payload.periodStart || (
+      allocatedLinks.length > 0
+        ? allocatedLinks.map(l => this.toSaoPauloDate(l.saleDate)).sort()[0]
+        : this.toSaoPauloDate(new Date().toISOString())
+    );
+    const derivedPeriodEnd = payload.periodEnd || (
+      allocatedLinks.length > 0
+        ? allocatedLinks.map(l => this.toSaoPauloDate(l.saleDate)).sort().slice(-1)[0]
+        : this.toSaoPauloDate(new Date().toISOString())
+    );
+    const billingPeriod = derivedPeriodEnd.slice(0, 7);
+
+    return {
+      student,
+      hasGuardian,
+      warnings: !hasGuardian
+        ? ['Aluno sem responsável vinculado — cobrança será emitida diretamente para o aluno.']
+        : [],
+      billingPeriod,
+      periodStart: derivedPeriodStart,
+      periodEnd: derivedPeriodEnd,
+      dueDate: payload.dueDate,
+      tuitionAmount,
+      canteenConsumptionTotal,
+      discountAmount,
+      creditAmount,
+      totalAdjustments,
+      grossTotal,
+      salesCount: saleAllocationsPlan.length,
+      consumptionItems,
+      allocatedLinks,
+      saleAllocationsPlan
+    };
+  }
+
+  public createIndividualInvoice(
+    payload: IndividualInvoicePayload,
+    user: { id: string; name: string; role: any }
+  ): { batch: BillingBatch; invoice: Invoice; deduplicated?: boolean } {
+    if (payload.idempotencyKey) {
+      const existingBatch = this.getBillingBatches().find(b => b.idempotencyKey === payload.idempotencyKey);
+      if (existingBatch) {
+        const existingInv = this.data.invoices.find(i => existingBatch.invoiceIds.includes(i.id));
+        if (existingInv) {
+          return { batch: existingBatch, invoice: existingInv, deduplicated: true };
+        }
+      }
+    }
+
+    const plan = this.previewIndividualInvoice(payload);
+    const nowIso = new Date().toISOString();
+    const batchId = this.generateBatchId('INDIVIDUAL');
+    const invoiceId = this.generateUniqueInvoiceId(plan.periodEnd, plan.student.registrationNumber);
+
+    const pixCode = generateBacenPixPayload({
+      pixKey: this.data.settings.pixKey,
+      receiverName: this.data.settings.pixReceiverName,
+      city: this.data.settings.pixCity,
+      amount: plan.grossTotal,
+      txId: invoiceId
+    });
+
+    const historyEntry: InvoiceHistoryEntry = {
+      id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: nowIso,
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      action: 'EMISSAO_INDIVIDUAL',
+      details: `Fatura individual emitida para ${plan.student.name} (${plan.periodStart} a ${plan.periodEnd}), ${plan.salesCount} venda(s), total líquido R$ ${plan.grossTotal.toFixed(2)}.${plan.totalAdjustments > 0 ? ` Desconto/crédito: R$ ${plan.totalAdjustments.toFixed(2)} (${payload.discountReason}).` : ''}`
+    };
+
+    const invoice: Invoice = {
+      id: invoiceId,
+      studentId: plan.student.id,
+      studentName: plan.student.name,
+      registrationNumber: plan.student.registrationNumber,
+      classGroup: plan.student.classGroup,
+      billingPeriod: plan.billingPeriod,
+      billingType: 'INDIVIDUAL',
+      batchId,
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+      billingLabel: payload.billingLabel?.trim() || `Avulsa (${plan.periodStart} a ${plan.periodEnd})`,
+      tuitionAmount: plan.tuitionAmount,
+      canteenConsumptionTotal: plan.canteenConsumptionTotal,
+      previousBalance: 0,
+      adjustmentsTotal: plan.totalAdjustments,
+      creditApplied: plan.creditAmount,
+      discountReason: payload.discountReason?.trim() || undefined,
+      grossTotal: plan.grossTotal,
+      paidTotal: 0,
+      remainingBalance: plan.grossTotal,
+      closingDate: plan.periodEnd,
+      dueDate: plan.dueDate,
+      status: 'PUBLICADA',
+      salesIds: plan.saleAllocationsPlan.map(p => p.sale.id),
+      saleItemLinks: plan.allocatedLinks,
+      consumptionItems: plan.consumptionItems,
+      paymentAllocations: [],
+      pixCopyPasteCode: pixCode,
+      pixQrCodePayload: pixCode,
+      approvedByUserName: user.name,
+      approvedAt: nowIso,
+      publishedAt: nowIso,
+      notes: payload.notes?.trim() || undefined,
+      history: [historyEntry],
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    this.data.invoices.unshift(invoice);
+
+    for (const itemPlan of plan.saleAllocationsPlan) {
+      if (!Array.isArray(itemPlan.sale.invoiceAllocations)) {
+        itemPlan.sale.invoiceAllocations = [];
+      }
+      itemPlan.sale.invoiceAllocations.push({
+        invoiceId,
+        batchId,
+        amount: itemPlan.amount,
+        items: itemPlan.items,
+        allocatedAt: nowIso
+      });
+      this.syncSaleBillingState(itemPlan.sale);
+      this.triggerSupabaseSync('sales', itemPlan.sale, 'mapSaleToSupabase');
+    }
+
+    this.recalculateStudentBalances(plan.student);
+    this.triggerSupabaseSync('students', plan.student, 'mapStudentToSupabase');
+
+    const batch: BillingBatch = {
+      id: batchId,
+      type: 'INDIVIDUAL',
+      billingPeriod: plan.billingPeriod,
+      periodStart: plan.periodStart,
+      periodEnd: plan.periodEnd,
+      billingLabel: invoice.billingLabel,
+      dueDate: plan.dueDate,
+      scope: 'SINGLE_STUDENT',
+      studentsCount: 1,
+      invoicesCount: 1,
+      salesCount: plan.salesCount,
+      totalAmount: plan.grossTotal,
+      invoiceIds: [invoice.id],
+      createdByUserId: user.id,
+      createdByUserName: user.name,
+      status: 'CONCLUIDO',
+      idempotencyKey: payload.idempotencyKey,
+      notes: payload.notes?.trim() || undefined,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    if (!Array.isArray(this.data.billingBatches)) this.data.billingBatches = [];
+    this.data.billingBatches.unshift(batch);
+
+    // Notificação segura/desacoplada
+    this.scheduleInvoiceNotificationsSafe(invoice, plan.student);
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'EMITIR_FATURA_INDIVIDUAL',
+      'FATURAS',
+      `Fatura individual ${invoice.id} emitida para ${plan.student.name} no valor de R$ ${invoice.grossTotal.toFixed(2)} (${plan.salesCount} venda(s)).`
+    );
+
+    this.saveDatabase();
+    this.triggerSupabaseSync('billing_batches', batch, 'mapBillingBatchToSupabase');
+    this.triggerSupabaseSync('invoices', invoice, 'mapInvoiceToSupabase');
+
+    return { batch, invoice };
+  }
+
+  // 6.1 Prévia de Fechamento Mensal (Compatível com API legada + motor unificado)
+  public getMonthlyClosingPreview(period: string): MonthlyClosingPreview {
+    const batchPreview = this.previewPeriodBilling({
+      mode: 'FECHAMENTO_MENSAL',
+      billingPeriod: period,
+      scope: 'ALL_STUDENTS',
+      onlyUnbilled: true
+    });
+
+    return {
+      period: batchPreview.billingPeriod,
+      studentsCount: batchPreview.studentsCount,
+      totalTuitions: batchPreview.totalTuitions,
+      totalConsumptions: batchPreview.totalConsumptions,
+      totalPreviousBalances: 0,
+      totalGrossToBill: batchPreview.totalGrossToBill,
+      pendingUnpaidSalesCount: batchPreview.validSalesCount,
+      existingInvoicesCount: batchPreview.existingInvoicesCount,
+      inconsistencies: batchPreview.inconsistencies,
+      canProceed: batchPreview.canProceed,
+      batchPreview
+    };
+  }
+
+  // 7. Executar Fechamento Mensal e Publicar Faturas (Delega ao motor unificado)
+  public executeMonthlyClosing(
+    period: string,
+    user: { id: string; name: string; role: any },
+    options?: Partial<PeriodBillingPayload>
+  ) {
+    const res = this.executePeriodBilling(
+      {
+        mode: 'FECHAMENTO_MENSAL',
+        billingPeriod: period,
+        scope: options?.scope || 'ALL_STUDENTS',
+        classGroup: options?.classGroup,
+        studentIds: options?.studentIds,
+        excludedStudentIds: options?.excludedStudentIds,
+        dueDate: options?.dueDate,
+        billingLabel: options?.billingLabel,
+        notes: options?.notes,
+        idempotencyKey: options?.idempotencyKey
+      },
+      user
+    );
+
+    return {
+      period: res.period,
+      batch: res.batch,
+      invoicesCreated: res.invoicesCreated,
+      invoices: res.invoices,
+      deduplicated: res.deduplicated
+    };
+  }
+
+  // 7.0 Cancelamento controlado de fatura (Preserva histórico, auditoria e devolve consumo não pago)
+  public cancelInvoice(invoiceId: string, reason: string, user: { id: string; name: string; role: any }) {
+    const cleanReason = (reason || '').trim();
+    if (cleanReason.length < 3) {
+      throw new Error('Informe uma justificativa clara (mínimo 3 caracteres) para cancelar a fatura.');
+    }
+
+    const invoice = this.data.invoices.find(i => i.id === invoiceId);
+    if (!invoice) throw new Error('Fatura não encontrada.');
+    if (invoice.status === 'CANCELADA') {
+      throw new Error('Esta fatura já se encontra cancelada.');
+    }
+    if (invoice.paidTotal > 0) {
+      throw new Error('Não é possível cancelar uma fatura que já possui pagamentos confirmados.');
+    }
+
+    const nowIso = new Date().toISOString();
+    invoice.status = 'CANCELADA';
+    invoice.canceledAt = nowIso;
+    invoice.canceledByUserName = user.name;
+    invoice.canceledReason = cleanReason;
+    invoice.remainingBalance = 0;
+    invoice.updatedAt = nowIso;
+
+    if (!Array.isArray(invoice.history)) invoice.history = [];
+    invoice.history.unshift({
+      id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: nowIso,
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      action: 'CANCELAMENTO_CONTROLADO',
+      details: `Fatura cancelada por ${user.name}. Motivo: ${cleanReason}`
+    });
+
+    // Devolver compras/itens alocados para status aguardando faturamento
+    for (const sale of this.data.sales) {
+      let touched = false;
+      if (sale.invoiceId === invoiceId) {
+        sale.invoiceId = undefined;
+        touched = true;
+      }
+      if (Array.isArray(sale.invoiceAllocations) && sale.invoiceAllocations.some(a => a.invoiceId === invoiceId)) {
+        sale.invoiceAllocations = sale.invoiceAllocations.filter(a => a.invoiceId !== invoiceId);
+        touched = true;
+      }
+      if (touched) {
+        this.syncSaleBillingState(sale);
+        this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+      }
+    }
+
+    // Atualizar status do lote associado
+    if (invoice.batchId) {
+      const batch = this.getBillingBatches().find(b => b.id === invoice.batchId);
+      if (batch) {
+        const batchInvoices = this.data.invoices.filter(i => batch.invoiceIds.includes(i.id));
+        const allCanceled = batchInvoices.length > 0 && batchInvoices.every(i => i.status === 'CANCELADA');
+        const anyCanceled = batchInvoices.some(i => i.status === 'CANCELADA');
+        batch.status = allCanceled ? 'CANCELADO' : anyCanceled ? 'PARCIALMENTE_CANCELADO' : 'CONCLUIDO';
+        batch.updatedAt = nowIso;
+        this.triggerSupabaseSync('billing_batches', batch, 'mapBillingBatchToSupabase');
+      }
+    }
+
+    // Recalcular saldos do aluno
+    const student = this.data.students.find(s => s.id === invoice.studentId);
+    if (student) {
+      this.recalculateStudentBalances(student);
+      this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     }
 
     this.logAudit(
       user.id,
       user.name,
       user.role,
-      'FECHAMENTO_MENSAL_EXECUTADO',
-      'FECHAMENTO',
-      `Fechamento de ${period} concluído com sucesso. ${createdInvoices.length} cobranças geradas e publicadas.`
+      'CANCELAR_FATURA',
+      'FATURAS',
+      `Fatura ${invoice.id} (${invoice.studentName}) cancelada controladamente. Motivo: ${cleanReason}. Consumo devolvido à fila de faturamento.`
     );
 
     this.saveDatabase();
-    createdInvoices.forEach(inv => this.triggerSupabaseSync('invoices', inv, 'mapInvoiceToSupabase'));
-    return {
-      period,
-      invoicesCreated: createdInvoices.length,
-      invoices: createdInvoices
-    };
+    this.triggerSupabaseSync('invoices', invoice, 'mapInvoiceToSupabase');
+    return invoice;
   }
 
-  // 7.1 Excluir uma fatura individual
+  // 7.1 Excluir uma fatura individual (Mantido para compatibilidade administrativa)
   public deleteInvoice(invoiceId: string, user: { id: string; name: string; role: any }) {
     const idx = this.data.invoices.findIndex(i => i.id === invoiceId);
     if (idx === -1) throw new Error('Cobrança não encontrada.');
 
     const deleted = this.data.invoices.splice(idx, 1)[0];
 
-    // Desvincular vendas que apontavam para esta fatura
+    // Desvincular vendas e alocações que apontavam para esta fatura
     for (const sale of this.data.sales) {
+      let touched = false;
       if (sale.invoiceId === invoiceId) {
         sale.invoiceId = undefined;
+        touched = true;
+      }
+      if (Array.isArray(sale.invoiceAllocations) && sale.invoiceAllocations.some(a => a.invoiceId === invoiceId)) {
+        sale.invoiceAllocations = sale.invoiceAllocations.filter(a => a.invoiceId !== invoiceId);
+        touched = true;
+      }
+      if (touched) {
+        this.syncSaleBillingState(sale);
+        this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
       }
     }
 
-    // Recalcular saldo de consumo aberto e dívida total do aluno
+    if (deleted.batchId) {
+      const batch = this.getBillingBatches().find(b => b.id === deleted.batchId);
+      if (batch) {
+        batch.invoiceIds = batch.invoiceIds.filter(id => id !== deleted.id);
+        batch.invoicesCount = batch.invoiceIds.length;
+        if (batch.invoicesCount === 0) {
+          batch.status = 'CANCELADO';
+        }
+        batch.updatedAt = new Date().toISOString();
+      }
+    }
+
     const student = this.data.students.find(s => s.id === deleted.studentId);
     if (student) {
-      const unbilledSalesTotal = this.data.sales
-        .filter(s => s.studentId === student.id && s.status === 'COMPLETED' && !s.invoiceId)
-        .reduce((acc, s) => acc + s.total, 0);
-      student.currentConsumptionBalance = Math.round(unbilledSalesTotal * 100) / 100;
-
-      const remainingOpenInvoices = this.data.invoices.filter(
-        i => i.studentId === student.id && i.status !== 'CANCELADA' && i.status !== 'PAGA'
-      );
-      const openInvoicesTotal = remainingOpenInvoices.reduce((acc, inv) => acc + inv.remainingBalance, 0);
-      student.totalOpenDebt = Math.round((openInvoicesTotal + student.currentConsumptionBalance) * 100) / 100;
+      this.recalculateStudentBalances(student);
       this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     }
 
@@ -1821,11 +3752,12 @@ class DatabaseService {
       user.name,
       user.role,
       'EXCLUIR_FATURA',
-      'FATURAMENTO',
-      `Cobrança ${deleted.id} do aluno ${deleted.studentName} foi excluída permanentemente.`
+      'FATURAS',
+      `Cobrança ${deleted.id} do aluno ${deleted.studentName} foi excluída.`
     );
 
     this.saveDatabase();
+    this.triggerSupabaseDelete('invoices', invoiceId);
     return { success: true, deletedId: invoiceId };
   }
 
@@ -1833,19 +3765,17 @@ class DatabaseService {
   public clearAllInvoices(user: { id: string; name: string; role: any }) {
     const totalDeleted = this.data.invoices.length;
     this.data.invoices = [];
+    this.data.billingBatches = [];
 
-    // Limpar invoiceId de todas as vendas para que voltem a ser consumo em aberto na Lojinha
     for (const sale of this.data.sales) {
       sale.invoiceId = undefined;
+      sale.invoiceAllocations = undefined;
+      sale.billedAmount = undefined;
+      this.syncSaleBillingState(sale);
     }
 
-    // Recalcular currentConsumptionBalance e totalOpenDebt de todos os estudantes com base nas vendas reais
     for (const student of this.data.students) {
-      const unbilledSalesTotal = this.data.sales
-        .filter(s => s.studentId === student.id && s.status === 'COMPLETED' && !s.invoiceId)
-        .reduce((acc, s) => acc + s.total, 0);
-      student.currentConsumptionBalance = Math.round(unbilledSalesTotal * 100) / 100;
-      student.totalOpenDebt = student.currentConsumptionBalance;
+      this.recalculateStudentBalances(student);
       this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     }
 
@@ -1854,12 +3784,93 @@ class DatabaseService {
       user.name,
       user.role,
       'LIMPAR_TODAS_FATURAS',
-      'FATURAMENTO',
+      'FATURAS',
       `Todas as ${totalDeleted} faturas foram excluídas de todos os estudantes com sucesso. Saldos de consumo da Lojinha restaurados.`
     );
 
     this.saveDatabase();
     return { success: true, totalDeleted };
+  }
+
+  private scheduleInvoiceNotificationsSafe(invoice: Invoice, student: Student) {
+    try {
+      this.scheduleInvoiceNotifications(invoice, student);
+    } catch (err: any) {
+      // Falha de notificação nunca bloqueia ou reverte emissão da fatura
+      this.data.whatsappNotifications.unshift({
+        id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        type: 'NOVA_FATURA',
+        recipientName: student.name,
+        recipientPhone: student.phone || '',
+        recipientRole: 'ALUNO',
+        studentName: student.name,
+        studentId: student.id,
+        invoiceId: invoice.id,
+        messageText: `Fatura ${invoice.id} emitida (R$ ${invoice.grossTotal.toFixed(2)}).`,
+        status: 'FALHA',
+        scheduledFor: new Date().toISOString(),
+        attemptsCount: 1,
+        lastErrorMessage: err?.message || 'Erro ao agendar notificação'
+      });
+    }
+  }
+
+  public retryInvoiceNotification(invoiceId: string, user: { id: string; name: string; role: any }) {
+    const invoice = this.data.invoices.find(i => i.id === invoiceId);
+    if (!invoice) throw new Error('Fatura não encontrada.');
+    if (invoice.status === 'PAGA' || invoice.status === 'CANCELADA' || invoice.remainingBalance <= 0) {
+      throw new Error('Faturas já quitadas ou canceladas não devem receber reenvio de cobrança.');
+    }
+
+    const student = this.data.students.find(s => s.id === invoice.studentId);
+    if (!student) throw new Error('Aluno da fatura não encontrado.');
+
+    const pendingNotifs = this.data.whatsappNotifications.filter(
+      n => n.invoiceId === invoice.id && (n.status === 'FALHA' || n.status === 'PROGRAMADO')
+    );
+
+    const processed: WhatsAppNotification[] = [];
+    if (pendingNotifs.length > 0) {
+      for (const notif of pendingNotifs) {
+        processed.push(this.retryWhatsAppNotification(notif.id));
+      }
+    } else {
+      const prevAuto = this.data.settings.whatsappAutoEnabled;
+      this.data.settings.whatsappAutoEnabled = true;
+      try {
+        const beforeCount = this.data.whatsappNotifications.length;
+        this.scheduleInvoiceNotifications(invoice, student);
+        const createdCount = this.data.whatsappNotifications.length - beforeCount;
+        for (let idx = 0; idx < createdCount; idx++) {
+          processed.push(this.data.whatsappNotifications[idx]);
+        }
+      } finally {
+        this.data.settings.whatsappAutoEnabled = prevAuto;
+      }
+    }
+
+    if (!Array.isArray(invoice.history)) invoice.history = [];
+    invoice.history.unshift({
+      id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      action: 'REENVIO_NOTIFICACAO',
+      details: `Notificação da fatura reprocessada sem duplicar cobrança (${processed.length} envio(s)).`
+    });
+
+    this.logAudit(
+      user.id,
+      user.name,
+      user.role,
+      'REENVIAR_NOTIFICACAO_FATURA',
+      'NOTIFICACOES',
+      `Notificações da fatura ${invoice.id} reenviadas com sucesso (${processed.length} mensagem(ns)).`
+    );
+
+    this.saveDatabase();
+    return { invoiceId: invoice.id, notifications: processed };
   }
 
   // Programar notificações WhatsApp respeitando quem deve receber
@@ -1883,7 +3894,7 @@ class DatabaseService {
         studentName: student.name,
         studentId: student.id,
         invoiceId: invoice.id,
-        messageText: `Olá, ${student.name}! Seu fechamento da Lojinha Iceves ref. a ${invoice.billingPeriod} foi emitido. Valor Total: R$ ${invoice.grossTotal.toFixed(2)} ${detailsText}. Vencimento: ${invoice.dueDate}.`,
+        messageText: `Olá, ${student.name}! Sua fatura da Lojinha Iceves (${invoice.billingLabel || invoice.billingPeriod}) foi emitida. Valor Total: R$ ${invoice.grossTotal.toFixed(2)} ${detailsText}. Vencimento: ${invoice.dueDate}.`,
         status: 'ENTREGUE',
         scheduledFor: new Date().toISOString(),
         sentAt: new Date().toISOString(),
@@ -1904,7 +3915,7 @@ class DatabaseService {
             studentName: student.name,
             studentId: student.id,
             invoiceId: invoice.id,
-            messageText: `Prezado(a) ${guardian.name}, o fechamento de consumo da Lojinha Iceves de ${student.name} referente a ${invoice.billingPeriod} está disponível. Total: R$ ${invoice.grossTotal.toFixed(2)}. Vencimento: ${invoice.dueDate}.`,
+            messageText: `Prezado(a) ${guardian.name}, a fatura de consumo da Lojinha Iceves de ${student.name} (${invoice.billingLabel || invoice.billingPeriod}) está disponível. Total: R$ ${invoice.grossTotal.toFixed(2)}. Vencimento: ${invoice.dueDate}.`,
             status: 'ENTREGUE',
             scheduledFor: new Date().toISOString(),
             sentAt: new Date().toISOString(),
@@ -2276,17 +4287,30 @@ class DatabaseService {
   // 10.1 Atualização flexível de Mensalidade e Ajustes na Fatura
   public updateInvoice(
     invoiceId: string, 
-    updates: { tuitionAmount?: number; adjustmentsTotal?: number; notes?: string }, 
+    updates: { tuitionAmount?: number; adjustmentsTotal?: number; dueDate?: string; discountReason?: string; notes?: string }, 
     user: { id: string; name: string; role: any }
   ) {
     const invoice = this.data.invoices.find(i => i.id === invoiceId);
     if (!invoice) throw new Error('Fatura não encontrada.');
+    if (invoice.status === 'CANCELADA') {
+      throw new Error('Fatura cancelada não pode ser editada.');
+    }
+
+    const prevTuition = invoice.tuitionAmount;
+    const prevAdj = invoice.adjustmentsTotal || 0;
+    const prevDue = invoice.dueDate;
 
     if (updates.tuitionAmount !== undefined) {
       invoice.tuitionAmount = Math.max(0, Number(updates.tuitionAmount) || 0);
     }
     if (updates.adjustmentsTotal !== undefined) {
-      invoice.adjustmentsTotal = Number(updates.adjustmentsTotal) || 0;
+      invoice.adjustmentsTotal = Math.max(0, Number(updates.adjustmentsTotal) || 0);
+    }
+    if (updates.dueDate !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(updates.dueDate)) {
+      invoice.dueDate = updates.dueDate;
+    }
+    if (updates.discountReason !== undefined) {
+      invoice.discountReason = updates.discountReason;
     }
     if (updates.notes !== undefined) {
       invoice.notes = updates.notes;
@@ -2322,16 +4346,35 @@ class DatabaseService {
         amount: invoice.remainingBalance,
         txId: invoice.id
       });
+      invoice.pixQrCodePayload = invoice.pixCopyPasteCode;
     }
 
-    invoice.updatedAt = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    invoice.updatedAt = nowIso;
+
+    if (!Array.isArray(invoice.history)) invoice.history = [];
+    invoice.history.unshift({
+      id: `HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: nowIso,
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      action: 'AJUSTE_MANUAL_FATURA',
+      details: `Mensalidade: R$ ${prevTuition.toFixed(2)} → R$ ${invoice.tuitionAmount.toFixed(2)} | Descontos: R$ ${prevAdj.toFixed(2)} → R$ ${(invoice.adjustmentsTotal || 0).toFixed(2)} | Vencimento: ${prevDue} → ${invoice.dueDate}.${invoice.discountReason || invoice.notes ? ` Obs: ${invoice.discountReason || invoice.notes}` : ''}`
+    });
+
+    const student = this.data.students.find(s => s.id === invoice.studentId);
+    if (student) {
+      this.recalculateStudentBalances(student);
+      this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    }
 
     this.logAudit(
       user.id,
       user.name,
       user.role,
       'AJUSTAR_MENSALIDADE_FATURA',
-      'FATURAMENTO',
+      'FATURAS',
       `Fatura ${invoice.id} (${invoice.studentName}) teve sua mensalidade ajustada para R$ ${invoice.tuitionAmount.toFixed(2)} e ajustes para R$ ${(invoice.adjustmentsTotal || 0).toFixed(2)}. Novo total: R$ ${invoice.grossTotal.toFixed(2)}.`
     );
 
@@ -2971,6 +5014,11 @@ class DatabaseService {
 
       this.data.sales.unshift(newSale);
 
+      const tripReceipt = this.createReceiptForSale(newSale, student, user, {
+        terminalId: 'PDV-PASSEIOS',
+        skipSave: true
+      });
+
       participant.saleId = newSale.id;
       participant.status = 'LANCADO';
 
@@ -2978,6 +5026,7 @@ class DatabaseService {
       updatedStudents.push(student);
 
       this.triggerSupabaseSync('sales', newSale, 'mapSaleToSupabase');
+      this.triggerSupabaseSync('receipts', tripReceipt, 'mapReceiptToSupabase');
       this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     });
 
@@ -3120,6 +5169,15 @@ class DatabaseService {
         this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
       }
       this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+      const tripRevReceipt = this.appendReceiptReversal(sale, {
+        type: 'ESTORNO_TOTAL',
+        reason: cleanReason,
+        user,
+        reversedAmount: sale.total,
+      });
+      if (tripRevReceipt) {
+        this.triggerSupabaseSync('receipts', tripRevReceipt, 'mapReceiptToSupabase');
+      }
     }
 
     participant.status = 'ESTORNADO';
@@ -3252,6 +5310,8 @@ class DatabaseService {
       sales: initialSales,
       financialLedger: initialFinancialLedger,
       invoices: initialInvoices,
+      billingBatches: [],
+      receipts: [],
       pixPayments: initialPixPayments,
       whatsappNotifications: initialWhatsAppNotifications,
       auditLogs: initialAuditLogs,
@@ -3260,6 +5320,7 @@ class DatabaseService {
       cashSessions: [],
       cashMovements: [],
     };
+    this.ensureReceiptsForExistingSales();
     this.logAudit(user.id, user.name, user.role, 'RESET_BASE_DE_DADOS', 'SISTEMA', 'Base de dados resetada para estado semente.');
     this.saveDatabase();
     return { success: true };

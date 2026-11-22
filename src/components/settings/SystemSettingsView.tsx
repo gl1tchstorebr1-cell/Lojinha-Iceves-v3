@@ -82,6 +82,18 @@ export function SystemSettingsView({
     supabaseServiceRoleKey: (settings as any)?.supabaseServiceRoleKey || '',
     tuitionBillingActive: settings?.tuitionBillingActive ?? false,
     defaultTuitionAmount: settings?.defaultTuitionAmount ?? 0,
+    receiptSettings: {
+      autoPrintOnSale: settings?.receiptSettings?.autoPrintOnSale ?? false,
+      defaultPrintFormat: settings?.receiptSettings?.defaultPrintFormat || '80mm',
+      customHeader: settings?.receiptSettings?.customHeader || 'ESCOLA DE CRISTO — ICEVES • 10ª TURMA',
+      customFooter: settings?.receiptSettings?.customFooter || 'Obrigado pela preferência! Guarde este comprovante.',
+      showOperator: settings?.receiptSettings?.showOperator ?? true,
+      showClassGroup: settings?.receiptSettings?.showClassGroup ?? true,
+      showGuardian: settings?.receiptSettings?.showGuardian ?? true,
+      showUnitCodeSku: settings?.receiptSettings?.showUnitCodeSku ?? true,
+      showTerminalInfo: settings?.receiptSettings?.showTerminalInfo ?? true,
+      secondCopyAllowedRoles: settings?.receiptSettings?.secondCopyAllowedRoles || ['ADMIN', 'MANAGER', 'CASHIER'],
+    },
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -909,6 +921,145 @@ export function SystemSettingsView({
           </div>
         </div>
 
+        {/* 3.B Configurações de Recibos, Comprovantes & Impressão Térmica */}
+        <div className="bg-[#1B1B1B] rounded-2xl border border-emerald-500/30 p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#242424] pb-3">
+            <div>
+              <h3 className="font-semibold text-[#F5F5F5] text-sm">
+                3.B Recibos de Vendas, Comprovantes & Impressão (58mm / 80mm / A4)
+              </h3>
+              <p className="text-[11px] text-[#A1A1AA]">
+                Personalize o formato padrão de impressão, cabeçalho, rodapé, campos exibidos e permissões de emissão de 2ª via.
+              </p>
+            </div>
+            <span className="text-[10px] font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold">
+              Padronizado America/Sao_Paulo
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="p-3.5 bg-[#151515] rounded-xl border border-[#282828] flex items-center justify-between">
+              <div>
+                <span className="font-semibold text-[#F5F5F5] block">Impressão Automática ao Concluir Venda</span>
+                <span className="text-[11px] text-[#A1A1AA]">
+                  Aciona a janela de impressão imediatamente após registrar a venda no PDV.
+                </span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={formData.receiptSettings?.autoPrintOnSale ?? false}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      receiptSettings: {
+                        ...(formData.receiptSettings as any),
+                        autoPrintOnSale: e.target.checked,
+                      },
+                    })
+                  }
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-6 bg-[#282828] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+
+            <div className="p-3.5 bg-[#151515] rounded-xl border border-[#282828]">
+              <label className="block font-semibold text-[#F5F5F5] mb-1">
+                Formato Padrão de Impressão
+              </label>
+              <select
+                value={formData.receiptSettings?.defaultPrintFormat || '80mm'}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    receiptSettings: {
+                      ...(formData.receiptSettings as any),
+                      defaultPrintFormat: e.target.value as any,
+                    },
+                  })
+                }
+                className="w-full p-2 bg-[#1A1A1A] border border-[#303030] rounded-lg text-[#F5F5F5] font-mono text-xs focus:border-emerald-500 focus:outline-none"
+              >
+                <option value="58mm">Térmica 58mm (Compacta)</option>
+                <option value="80mm">Térmica 80mm (Padrão Balcão PDV)</option>
+                <option value="A4">Folha A4 (Comprovante Detalhado)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block font-medium text-[#F5F5F5] mb-1">Cabeçalho Personalizado do Recibo</label>
+              <input
+                type="text"
+                value={formData.receiptSettings?.customHeader || ''}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    receiptSettings: {
+                      ...(formData.receiptSettings as any),
+                      customHeader: e.target.value,
+                    },
+                  })
+                }
+                placeholder="Ex: ESCOLA DE CRISTO — ICEVES • 10ª TURMA"
+                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block font-medium text-[#F5F5F5] mb-1">Mensagem de Rodapé do Recibo</label>
+              <input
+                type="text"
+                value={formData.receiptSettings?.customFooter || ''}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    receiptSettings: {
+                      ...(formData.receiptSettings as any),
+                      customFooter: e.target.value,
+                    },
+                  })
+                }
+                placeholder="Ex: Obrigado pela preferência! Guarde este comprovante."
+                className="w-full p-2.5 bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 text-xs">
+            {[
+              { key: 'showOperator', label: 'Exibir Operador' },
+              { key: 'showClassGroup', label: 'Exibir Turma do Aluno' },
+              { key: 'showGuardian', label: 'Exibir Responsável' },
+              { key: 'showUnitCodeSku', label: 'Exibir Código / SKU' },
+              { key: 'showTerminalInfo', label: 'Exibir Sessão / Terminal' },
+            ].map((field) => (
+              <label
+                key={field.key}
+                className="p-2.5 rounded-xl bg-[#151515] border border-[#282828] flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <span className="text-[11px] font-medium text-zinc-200">{field.label}</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean((formData.receiptSettings as any)?.[field.key] ?? true)}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      receiptSettings: {
+                        ...(formData.receiptSettings as any),
+                        [field.key]: e.target.checked,
+                      },
+                    })
+                  }
+                  className="accent-emerald-500 w-4 h-4"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
         {/* 4. Gateway Mercado Pago — Checkout Transparente & Webhooks (Dados 100% via API) */}
         <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242424] pb-3">
@@ -1510,7 +1661,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon,
 DO $$ 
 DECLARE
   tbl text;
-  tbls text[] := ARRAY['settings', 'users', 'guardians', 'students', 'products', 'stock_movements', 'sales', 'invoices', 'pix_payments', 'whatsapp_notifications', 'audit_logs', 'passeios'];
+  tbls text[] := ARRAY['settings', 'users', 'guardians', 'students', 'products', 'stock_movements', 'sales', 'sales_receipts', 'invoices', 'pix_payments', 'whatsapp_notifications', 'audit_logs', 'passeios'];
 BEGIN
   FOREACH tbl IN ARRAY tbls LOOP
     IF to_regclass('public.' || tbl) IS NOT NULL THEN

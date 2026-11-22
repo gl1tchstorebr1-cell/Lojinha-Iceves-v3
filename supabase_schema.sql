@@ -26,9 +26,12 @@ CREATE TABLE IF NOT EXISTS settings (
   whatsapp_auto_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   whatsapp_provider_name TEXT NOT NULL DEFAULT 'Evolution API / Z-API',
   whatsapp_provider_status TEXT NOT NULL DEFAULT 'CONNECTED',
+  receipt_settings JSONB,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   updated_by_user_name TEXT DEFAULT 'Sistema'
 );
+
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS receipt_settings JSONB;
 
 -- 3. Tabela de Usuários (Controle de Acesso / RBAC)
 CREATE TABLE IF NOT EXISTS users (
@@ -173,18 +176,60 @@ ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS subtotal NUMERIC(10,2);
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(10,2) DEFAULT 0.00;
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS cash_session_id TEXT;
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS reversed_amount NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'AGUARDANDO_FATURAMENTO';
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS billed_amount NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS invoice_allocations JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS payments JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS amount_paid NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS change_amount NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS credit_used NUMERIC(10,2) DEFAULT 0.00;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS terminal_id TEXT;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS receipt_id TEXT;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS receipt_code TEXT;
 
--- 9. Tabela de Faturas Mensais Consolidadas
+-- 8.1 Tabela de Recibos e Comprovantes Imutáveis de Vendas
+CREATE TABLE IF NOT EXISTS sales_receipts (
+  id TEXT PRIMARY KEY,
+  receipt_code TEXT NOT NULL UNIQUE,
+  sale_id TEXT NOT NULL UNIQUE REFERENCES sales(id) ON DELETE CASCADE,
+  version INT NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'ATIVO' CHECK (status IN ('ATIVO', 'PARCIALMENTE_ESTORNADO', 'ESTORNADO', 'CANCELADO')),
+  institution JSONB NOT NULL DEFAULT '{}'::jsonb,
+  sale_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  student_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  financial_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  payments JSONB DEFAULT '[]'::jsonb,
+  operational JSONB NOT NULL DEFAULT '{}'::jsonb,
+  reversals JSONB DEFAULT '[]'::jsonb,
+  reprint_count INT NOT NULL DEFAULT 0,
+  last_reprinted_at TIMESTAMPTZ,
+  last_reprinted_by_user_name TEXT,
+  custom_header_snapshot TEXT,
+  custom_footer_snapshot TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. Tabela de Faturas Mensais e Lançamentos Consolidadas
 CREATE TABLE IF NOT EXISTS invoices (
   id TEXT PRIMARY KEY,
   student_id TEXT REFERENCES students(id),
   student_name TEXT NOT NULL,
   registration_number TEXT NOT NULL,
   billing_period TEXT NOT NULL,
+  billing_type TEXT DEFAULT 'FECHAMENTO_MENSAL',
+  batch_id TEXT,
+  period_start DATE,
+  period_end DATE,
+  billing_label TEXT,
   tuition_amount NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   canteen_consumption_total NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   previous_balance NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   adjustments_total NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  credit_applied NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  discount_reason TEXT,
   gross_total NUMERIC(10,2) NOT NULL,
   paid_total NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   remaining_balance NUMERIC(10,2) NOT NULL,
@@ -192,6 +237,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   due_date DATE NOT NULL,
   status TEXT NOT NULL DEFAULT 'PUBLICADA' CHECK (status IN ('RASCUNHO', 'AGUARDANDO_APROVACAO', 'PUBLICADA', 'PARCIALMENTE_PAGA', 'PAGA', 'VENCIDA', 'CANCELADA')),
   sales_ids JSONB DEFAULT '[]'::jsonb,
+  sale_item_links JSONB DEFAULT '[]'::jsonb,
   consumption_items JSONB DEFAULT '[]'::jsonb,
   payment_allocations JSONB DEFAULT '[]'::jsonb,
   pix_copy_paste_code TEXT,
@@ -199,9 +245,63 @@ CREATE TABLE IF NOT EXISTS invoices (
   approved_by_user_name TEXT,
   approved_at TIMESTAMPTZ,
   published_at TIMESTAMPTZ,
+  canceled_at TIMESTAMPTZ,
+  canceled_by_user_name TEXT,
+  canceled_reason TEXT,
+  notes TEXT,
+  history JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS billing_type TEXT DEFAULT 'FECHAMENTO_MENSAL';
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS batch_id TEXT;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS period_start DATE;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS period_end DATE;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS billing_label TEXT;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS credit_applied NUMERIC(10,2) NOT NULL DEFAULT 0.00;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS discount_reason TEXT;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS sale_item_links JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS canceled_at TIMESTAMPTZ;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS canceled_by_user_name TEXT;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS canceled_reason TEXT;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS history JSONB DEFAULT '[]'::jsonb;
+
+-- 9.1 Tabela de Lotes / Histórico de Faturamentos
+CREATE TABLE IF NOT EXISTS billing_batches (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('INDIVIDUAL', 'PERIODO_PERSONALIZADO', 'FECHAMENTO_MENSAL')),
+  billing_period TEXT NOT NULL,
+  period_start DATE,
+  period_end DATE,
+  billing_label TEXT,
+  due_date DATE NOT NULL,
+  scope TEXT DEFAULT 'ALL_STUDENTS',
+  class_group_filter TEXT,
+  students_count INT NOT NULL DEFAULT 0,
+  invoices_count INT NOT NULL DEFAULT 0,
+  sales_count INT NOT NULL DEFAULT 0,
+  total_amount NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  invoice_ids JSONB DEFAULT '[]'::jsonb,
+  created_by_user_id TEXT NOT NULL,
+  created_by_user_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'CONCLUIDO' CHECK (status IN ('CONCLUIDO', 'PARCIALMENTE_CANCELADO', 'CANCELADO')),
+  idempotency_key TEXT,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9.2 Tabela Relacional de Vínculo Fatura <-> Venda/Item (Prevenção de Duplicidade)
+CREATE TABLE IF NOT EXISTS invoice_sale_links (
+  id TEXT PRIMARY KEY,
+  invoice_id TEXT REFERENCES invoices(id) ON DELETE CASCADE,
+  sale_id TEXT REFERENCES sales(id) ON DELETE CASCADE,
+  batch_id TEXT REFERENCES billing_batches(id) ON DELETE SET NULL,
+  item_index INT NOT NULL DEFAULT 0,
+  quantity NUMERIC(10,2) NOT NULL DEFAULT 1,
+  allocated_amount NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 10. Tabela de Pagamentos (Pix e Mercado Pago)
@@ -318,6 +418,7 @@ CREATE TABLE IF NOT EXISTS customer_account_movements (
 CREATE INDEX IF NOT EXISTS idx_sales_created_at ON public.sales (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_student_id ON public.sales (student_id);
 CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON public.sales (payment_method);
+CREATE INDEX IF NOT EXISTS idx_sales_receipts_sale_id ON public.sales_receipts (sale_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON public.stock_movements (product_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_timestamp ON public.stock_movements (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_invoices_student_id ON public.invoices (student_id);
@@ -370,7 +471,10 @@ DECLARE
     'products',
     'stock_movements',
     'sales',
+    'sales_receipts',
     'invoices',
+    'billing_batches',
+    'invoice_sale_links',
     'pix_payments',
     'whatsapp_notifications',
     'audit_logs',

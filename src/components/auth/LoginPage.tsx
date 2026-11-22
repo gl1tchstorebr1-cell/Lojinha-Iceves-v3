@@ -120,7 +120,7 @@ export function LoginPage() {
       <div className="w-full max-w-md relative z-10 space-y-6">
         
         {/* Brand Header */}
-        <div className="text-center space-y-2.5">
+        <div className="text-center space-y-2.5 animate-blur-in">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shadow-xl shadow-emerald-500/20 mb-1 overflow-hidden">
             <img
               src="/assets/aistudio/image_e4461e45.png"
@@ -137,7 +137,10 @@ export function LoginPage() {
         </div>
 
         {/* Main Authentication Card */}
-        <div className="rounded-2xl bg-[#111111] border border-white/[0.08] p-6 sm:p-7 shadow-2xl relative overflow-hidden">
+        <div
+          className="rounded-2xl bg-[#111111] border border-white/[0.08] p-6 sm:p-7 shadow-2xl relative overflow-hidden animate-blur-in"
+          style={{ animationDelay: '75ms' }}
+        >
           
           {/* Navigation Tabs between Login & Register */}
           <div className="flex items-center gap-1 bg-[#18181b] p-1 rounded-xl mb-6 border border-white/[0.06]">

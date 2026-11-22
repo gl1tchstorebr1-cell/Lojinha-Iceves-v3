@@ -14,23 +14,29 @@ import {
   ChevronRight,
   Eye,
   Bus,
-  MapPin
+  MapPin,
+  Download
 } from 'lucide-react';
-import { Guardian, Student, Invoice, Sale, PixPayment, Passeio } from '../../types';
+import { Guardian, Student, Invoice, Sale, PixPayment, Passeio, SalesReceipt, SystemSettings } from '../../types';
 import { formatCurrency, formatDate, formatDateTime, formatPeriod } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { MercadoPagoCheckoutModal } from '../payment/MercadoPagoCheckoutModal';
 import { QrCodeDisplay } from '../common/QrCodeDisplay';
+import { ReceiptPreviewModal } from '../receipts/ReceiptPreviewModal';
+import { downloadReceiptPdf } from '../../utils/receiptPdf';
 
 interface GuardianPortalProps {
   guardian: Guardian;
   students: Student[];
   invoices: Invoice[];
   sales: Sale[];
+  receipts?: SalesReceipt[];
+  settings?: SystemSettings | null;
   pixPayments: PixPayment[];
   passeios?: Passeio[];
   onPaymentSubmitted: (payment: PixPayment) => void;
+  onReceiptUpdated?: (receipt: SalesReceipt) => void;
 }
 
 export function GuardianPortal({ 
@@ -38,9 +44,12 @@ export function GuardianPortal({
   students, 
   invoices, 
   sales, 
+  receipts = [],
+  settings = null,
   pixPayments, 
   passeios = [],
-  onPaymentSubmitted 
+  onPaymentSubmitted,
+  onReceiptUpdated
 }: GuardianPortalProps) {
   const { user } = useAuth();
   const activePasseios = passeios.filter(p => p.ativo);
@@ -78,6 +87,34 @@ export function GuardianPortal({
 
   // View detailed consumption modal
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
+  const [previewReceipt, setPreviewReceipt] = useState<SalesReceipt | null>(null);
+
+  const resolveReceiptForSale = async (sale: Sale): Promise<SalesReceipt | null> => {
+    const local = receipts.find(r => r.saleId === sale.id || r.id === sale.receiptId);
+    if (local) return local;
+    try {
+      const fetched = await api.getReceiptBySaleId(sale.id);
+      if (onReceiptUpdated) onReceiptUpdated(fetched);
+      return fetched;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleOpenSaleReceipt = async (sale: Sale) => {
+    const rec = await resolveReceiptForSale(sale);
+    if (rec) setPreviewReceipt(rec);
+  };
+
+  const handleDownloadSaleReceiptPdf = async (sale: Sale) => {
+    const rec = await resolveReceiptForSale(sale);
+    if (rec) {
+      await downloadReceiptPdf(rec, settings, {
+        isSecondCopy: rec.reprintCount > 0,
+        mode: sale.status === 'REVERSED' ? 'REVERSAL' : 'SALE',
+      });
+    }
+  };
 
   const copyPix = (code: string, id: string) => {
     navigator.clipboard.writeText(code);
@@ -521,13 +558,34 @@ export function GuardianPortal({
                           </p>
                         )}
                       </div>
-                      <div className="text-right shrink-0">
-                        <span className={`font-bold font-mono block ${sale.status === 'REVERSED' ? 'line-through text-[#71717A]' : 'text-[#F5F5F5]'}`}>
-                          {formatCurrency(sale.total)}
-                        </span>
-                        <span className="text-[10px] text-[#A1A1AA]">
-                          {isTripLaunch ? 'PDV de Passeios' : 'Conta Mensal'}
-                        </span>
+                      <div className="text-right shrink-0 space-y-2">
+                        <div>
+                          <span className={`font-bold font-mono block ${sale.status === 'REVERSED' ? 'line-through text-[#71717A]' : 'text-[#F5F5F5]'}`}>
+                            {formatCurrency(sale.total)}
+                          </span>
+                          <span className="text-[10px] text-[#A1A1AA]">
+                            {isTripLaunch ? 'PDV de Passeios' : 'Conta Mensal'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenSaleReceipt(sale)}
+                            className="px-2.5 py-1 rounded-lg bg-[#222222] hover:bg-[#2C2C2C] border border-[#303030] text-[11px] font-semibold text-emerald-400 flex items-center gap-1 cursor-pointer"
+                            title="Visualizar Recibo Detalhado"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>Recibo</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadSaleReceiptPdf(sale)}
+                            className="p-1.5 rounded-lg bg-[#222222] hover:bg-[#2C2C2C] border border-[#303030] text-zinc-300 hover:text-white cursor-pointer"
+                            title="Baixar PDF do Recibo"
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -807,6 +865,17 @@ export function GuardianPortal({
             </form>
           </div>
         </div>
+      )}
+
+      {previewReceipt && (
+        <ReceiptPreviewModal
+          receipt={previewReceipt}
+          settings={settings}
+          isSecondCopy={previewReceipt.reprintCount > 0}
+          initialMode={previewReceipt.status === 'ESTORNADO' ? 'REVERSAL' : 'SALE'}
+          onReceiptUpdated={onReceiptUpdated}
+          onClose={() => setPreviewReceipt(null)}
+        />
       )}
 
     </div>

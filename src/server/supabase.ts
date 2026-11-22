@@ -103,13 +103,14 @@ export async function checkSupabaseConnection(): Promise<SupabaseStatus> {
       client.from('students').select('id', { count: 'exact', head: true }),
       client.from('invoices').select('id', { count: 'exact', head: true }),
       client.from('sales').select('id', { count: 'exact', head: true }),
+      client.from('sales_receipts').select('id', { count: 'exact', head: true }),
       client.from('passeios').select('id', { count: 'exact', head: true }),
     ]);
 
     const tablesFound: string[] = [];
     const recordsCount: Record<string, number> = {};
 
-    const tableNames = ['settings', 'products', 'students', 'invoices', 'sales', 'passeios'];
+    const tableNames = ['settings', 'products', 'students', 'invoices', 'sales', 'sales_receipts', 'passeios'];
     testQueries.forEach((res, idx) => {
       const tbl = tableNames[idx];
       if (res.status === 'fulfilled' && !res.value.error) {
@@ -162,6 +163,7 @@ export function mapSettingsToSupabase(s: any) {
     whatsapp_auto_enabled: s.whatsappAutoEnabled ?? true,
     whatsapp_provider_name: s.whatsappProviderName || 'Evolution API',
     whatsapp_provider_status: s.whatsappProviderStatus || 'CONNECTED',
+    receipt_settings: s.receiptSettings || null,
     updated_at: s.updatedAt || new Date().toISOString(),
     updated_by_user_name: s.updatedByUserName || 'Sistema'
   };
@@ -269,10 +271,47 @@ export function mapSaleToSupabase(sa: any) {
     reversed_reason: sa.reversedReason || null,
     reversed_by_user_name: sa.reversedByUserName || null,
     reversed_at: sa.reversedAt || null,
+    reversed_amount: sa.reversedAmount !== undefined ? Number(sa.reversedAmount) : 0,
     billing_period: sa.billingPeriod,
     invoice_id: sa.invoiceId || null,
+    billing_status: sa.billingStatus || 'AGUARDANDO_FATURAMENTO',
+    billed_amount: sa.billedAmount !== undefined ? Number(sa.billedAmount) : 0,
+    invoice_allocations: sa.invoiceAllocations || [],
+    payment_method: sa.paymentMethod || 'CONTA_ALUNO',
+    payments: sa.payments || [],
+    amount_paid: sa.amountPaid !== undefined ? Number(sa.amountPaid) : 0,
+    change_amount: sa.changeAmount !== undefined ? Number(sa.changeAmount) : 0,
+    credit_used: sa.creditUsed !== undefined ? Number(sa.creditUsed) : 0,
+    terminal_id: sa.terminalId || null,
+    receipt_id: sa.receiptId || null,
+    receipt_code: sa.receiptCode || null,
     idempotency_key: sa.idempotencyKey || null,
     created_at: sa.createdAt || new Date().toISOString(),
+  };
+}
+
+export function mapReceiptToSupabase(rec: any) {
+  return {
+    id: rec.id,
+    receipt_code: rec.receiptCode,
+    sale_id: rec.saleId,
+    version: Number(rec.version) || 1,
+    status: rec.status || 'ATIVO',
+    institution: rec.institution || {},
+    sale_snapshot: rec.saleSnapshot || {},
+    student_snapshot: rec.studentSnapshot || {},
+    items: rec.items || [],
+    financial_summary: rec.financialSummary || {},
+    payments: rec.payments || [],
+    operational: rec.operational || {},
+    reversals: rec.reversals || [],
+    reprint_count: Number(rec.reprintCount) || 0,
+    last_reprinted_at: rec.lastReprintedAt || null,
+    last_reprinted_by_user_name: rec.lastReprintedByUserName || null,
+    custom_header_snapshot: rec.customHeaderSnapshot || null,
+    custom_footer_snapshot: rec.customFooterSnapshot || null,
+    created_at: rec.createdAt || new Date().toISOString(),
+    updated_at: rec.updatedAt || new Date().toISOString(),
   };
 }
 
@@ -283,10 +322,17 @@ export function mapInvoiceToSupabase(inv: any) {
     student_name: inv.studentName,
     registration_number: inv.registrationNumber,
     billing_period: inv.billingPeriod,
+    billing_type: inv.billingType || 'FECHAMENTO_MENSAL',
+    batch_id: inv.batchId || null,
+    period_start: inv.periodStart || null,
+    period_end: inv.periodEnd || null,
+    billing_label: inv.billingLabel || null,
     tuition_amount: Number(inv.tuitionAmount) || 0,
     canteen_consumption_total: Number(inv.canteenConsumptionTotal) || 0,
     previous_balance: Number(inv.previousBalance) || 0,
     adjustments_total: Number(inv.adjustmentsTotal) || 0,
+    credit_applied: Number(inv.creditApplied) || 0,
+    discount_reason: inv.discountReason || null,
     gross_total: Number(inv.grossTotal) || 0,
     paid_total: Number(inv.paidTotal) || 0,
     remaining_balance: Number(inv.remainingBalance) || 0,
@@ -294,6 +340,7 @@ export function mapInvoiceToSupabase(inv: any) {
     due_date: inv.dueDate,
     status: inv.status || 'PUBLICADA',
     sales_ids: inv.salesIds || [],
+    sale_item_links: inv.saleItemLinks || [],
     consumption_items: inv.consumptionItems || [],
     payment_allocations: inv.paymentAllocations || [],
     pix_copy_paste_code: inv.pixCopyPasteCode || null,
@@ -301,9 +348,39 @@ export function mapInvoiceToSupabase(inv: any) {
     approved_by_user_name: inv.approvedByUserName || null,
     approved_at: inv.approvedAt || null,
     published_at: inv.publishedAt || null,
+    canceled_at: inv.canceledAt || null,
+    canceled_by_user_name: inv.canceledByUserName || null,
+    canceled_reason: inv.canceledReason || null,
     notes: inv.notes || null,
+    history: inv.history || [],
     created_at: inv.createdAt || new Date().toISOString(),
     updated_at: inv.updatedAt || new Date().toISOString(),
+  };
+}
+
+export function mapBillingBatchToSupabase(b: any) {
+  return {
+    id: b.id,
+    type: b.type,
+    billing_period: b.billingPeriod,
+    period_start: b.periodStart || null,
+    period_end: b.periodEnd || null,
+    billing_label: b.billingLabel || null,
+    due_date: b.dueDate,
+    scope: b.scope || 'ALL_STUDENTS',
+    class_group_filter: b.classGroupFilter || null,
+    students_count: Number(b.studentsCount) || 0,
+    invoices_count: Number(b.invoicesCount) || 0,
+    sales_count: Number(b.salesCount) || 0,
+    total_amount: Number(b.totalAmount) || 0,
+    invoice_ids: b.invoiceIds || [],
+    created_by_user_id: b.createdByUserId,
+    created_by_user_name: b.createdByUserName,
+    status: b.status || 'CONCLUIDO',
+    idempotency_key: b.idempotencyKey || null,
+    notes: b.notes || null,
+    created_at: b.createdAt || new Date().toISOString(),
+    updated_at: b.updatedAt || new Date().toISOString(),
   };
 }
 
@@ -398,6 +475,53 @@ export function mapPasseioFromSupabase(row: any) {
 
 const permissionDeniedBackoff = new Map<string, number>();
 
+function stripExtendedColumns(table: string, row: Record<string, any>): Record<string, any> | null {
+  if (table === 'products' && 'images' in row) {
+    const { images, ...rest } = row;
+    return rest;
+  }
+  if (table === 'settings' && 'receipt_settings' in row) {
+    const { receipt_settings, ...rest } = row;
+    return rest;
+  }
+  if (table === 'sales') {
+    const {
+      reversed_amount,
+      billing_status,
+      billed_amount,
+      invoice_allocations,
+      payments,
+      amount_paid,
+      change_amount,
+      credit_used,
+      terminal_id,
+      receipt_id,
+      receipt_code,
+      ...rest
+    } = row;
+    return rest;
+  }
+  if (table === 'invoices') {
+    const {
+      billing_type,
+      batch_id,
+      period_start,
+      period_end,
+      billing_label,
+      credit_applied,
+      discount_reason,
+      sale_item_links,
+      canceled_at,
+      canceled_by_user_name,
+      canceled_reason,
+      history,
+      ...rest
+    } = row;
+    return rest;
+  }
+  return null;
+}
+
 export async function syncRecordToSupabase(
   table: string,
   record: any,
@@ -422,10 +546,12 @@ export async function syncRecordToSupabase(
   try {
     const payload = mapper ? mapper(record) : record;
     let { error } = await client.from(table).upsert(payload, { onConflict: 'id' });
-    if (error && table === 'products' && error.message?.includes("'images' column") && payload && typeof payload === 'object') {
-      const { images, ...fallbackPayload } = payload;
-      const retry = await client.from(table).upsert(fallbackPayload, { onConflict: 'id' });
-      error = retry.error;
+    if (error && error.message?.includes('schema cache') && payload && typeof payload === 'object') {
+      const fallbackPayload = stripExtendedColumns(table, payload);
+      if (fallbackPayload) {
+        const retry = await client.from(table).upsert(fallbackPayload, { onConflict: 'id' });
+        error = retry.error;
+      }
     }
     if (error) {
       if (error.message?.toLowerCase().includes('permission denied')) {
@@ -500,7 +626,14 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   // 1. Settings
   try {
     const settingsRow = mapSettingsToSupabase(db.getSettings());
-    const { error } = await client.from('settings').upsert([settingsRow], { onConflict: 'id' });
+    let { error } = await client.from('settings').upsert([settingsRow], { onConflict: 'id' });
+    if (error && error.message?.includes('schema cache')) {
+      const fallbackRow = stripExtendedColumns('settings', settingsRow);
+      if (fallbackRow) {
+        const retry = await client.from('settings').upsert([fallbackRow], { onConflict: 'id' });
+        error = retry.error;
+      }
+    }
     if (error) throw error;
     results['settings'] = { count: 1, status: 'OK' };
     totalCount += 1;
@@ -582,7 +715,12 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const salesRows = db.getSales().map(mapSaleToSupabase);
     if (salesRows.length > 0) {
-      const { error } = await client.from('sales').upsert(salesRows, { onConflict: 'id' });
+      let { error } = await client.from('sales').upsert(salesRows, { onConflict: 'id' });
+      if (error && error.message?.includes('schema cache')) {
+        const fallbackRows = salesRows.map(r => stripExtendedColumns('sales', r) || r);
+        const retry = await client.from('sales').upsert(fallbackRows, { onConflict: 'id' });
+        error = retry.error;
+      }
       if (error) throw error;
     }
     results['sales'] = { count: salesRows.length, status: 'OK' };
@@ -595,7 +733,12 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const invoicesRows = db.getInvoices().map(mapInvoiceToSupabase);
     if (invoicesRows.length > 0) {
-      const { error } = await client.from('invoices').upsert(invoicesRows, { onConflict: 'id' });
+      let { error } = await client.from('invoices').upsert(invoicesRows, { onConflict: 'id' });
+      if (error && error.message?.includes('schema cache')) {
+        const fallbackRows = invoicesRows.map(r => stripExtendedColumns('invoices', r) || r);
+        const retry = await client.from('invoices').upsert(fallbackRows, { onConflict: 'id' });
+        error = retry.error;
+      }
       if (error) throw error;
     }
     results['invoices'] = { count: invoicesRows.length, status: 'OK' };
@@ -654,6 +797,32 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
     totalCount += passeiosRows.length;
   } catch (e: any) {
     results['passeios'] = { count: 0, status: 'ERROR', error: e.message };
+  }
+
+  // 13. Billing Batches
+  try {
+    const batchesRows = db.getBillingBatches().map(mapBillingBatchToSupabase);
+    if (batchesRows.length > 0) {
+      const { error } = await client.from('billing_batches').upsert(batchesRows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    results['billing_batches'] = { count: batchesRows.length, status: 'OK' };
+    totalCount += batchesRows.length;
+  } catch (e: any) {
+    results['billing_batches'] = { count: 0, status: 'ERROR', error: e.message };
+  }
+
+  // 14. Sales Receipts
+  try {
+    const receiptsRows = db.getReceipts().map(mapReceiptToSupabase);
+    if (receiptsRows.length > 0) {
+      const { error } = await client.from('sales_receipts').upsert(receiptsRows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    results['sales_receipts'] = { count: receiptsRows.length, status: 'OK' };
+    totalCount += receiptsRows.length;
+  } catch (e: any) {
+    results['sales_receipts'] = { count: 0, status: 'ERROR', error: e.message };
   }
 
   const hasErrors = Object.values(results).some(r => r.status === 'ERROR');
