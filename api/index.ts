@@ -38,6 +38,9 @@ export default async function vercelApiHandler(req: IncomingMessage & { body?: a
     };
 
     const response = await handleApiRoute(apiReq);
+    if (apiReq.method !== 'GET' && apiReq.method !== 'HEAD' && apiReq.method !== 'OPTIONS') {
+      await db.flushSupabaseSync(6000);
+    }
     res.statusCode = response.status;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.end(JSON.stringify(response.data));

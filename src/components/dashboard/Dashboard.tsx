@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback, useDeferredValue } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts';
@@ -42,30 +42,40 @@ const OFFICIAL_CATEGORIES: ProductCategory[] = OFFICIAL_PRODUCT_CATEGORIES;
 // ==========================================
 // ANIMATED COUNTER COMPONENT
 // ==========================================
-const AnimatedCounter = ({ value, prefix = '', suffix = '', decimals = 0 }: { value: number; prefix?: string; suffix?: string; decimals?: number }) => {
+const AnimatedCounter = React.memo(({ value, prefix = '', suffix = '', decimals = 0 }: { value: number; prefix?: string; suffix?: string; decimals?: number }) => {
   const [displayValue, setDisplayValue] = useState(0);
+  const currentValRef = useRef(0);
 
   useEffect(() => {
     const end = value || 0;
-    if (end === 0 || (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+    const start = currentValRef.current;
+
+    if (
+      Math.abs(end - start) < 0.0001 ||
+      (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    ) {
+      currentValRef.current = end;
       setDisplayValue(end);
       return;
     }
-    const start = 0;
-    const duration = 700;
+
+    const duration = start === 0 ? 580 : 360;
     const startTime = performance.now();
     let rafId = 0;
 
     const updateCount = (currentTime: number) => {
       const elapsed = currentTime - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      const easeProgress = 1 - (1 - progress) * (1 - progress);
+      const easeProgress = 1 - Math.pow(1 - progress, 3);
       const current = start + (end - start) * easeProgress;
-      
+
+      currentValRef.current = current;
       setDisplayValue(current);
 
       if (progress < 1) {
         rafId = requestAnimationFrame(updateCount);
+      } else {
+        currentValRef.current = end;
       }
     };
 
@@ -79,36 +89,63 @@ const AnimatedCounter = ({ value, prefix = '', suffix = '', decimals = 0 }: { va
   });
 
   return <span>{prefix}{formatted}{suffix}</span>;
-};
+});
 
 // ==========================================
 // SPOTLIGHT CARD COMPONENT (3D Tilt + Background Fade Glow on Hover)
 // ==========================================
-const SpotlightCard = ({ children, className = '', onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => {
+const SpotlightCard = React.memo(({ children, className = '', onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const glowRef = useRef<HTMLDivElement>(null);
+  const rectRef = useRef<DOMRect | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pointerPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   useEffect(() => {
-    return attachTilt3D(cardRef.current, 6);
+    const detach = attachTilt3D(cardRef.current, 6);
+    return () => {
+      detach();
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
   }, []);
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const card = cardRef.current;
-    const glow = glowRef.current;
-    if (!card || !glow) return;
-    const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    glow.style.background = `radial-gradient(520px circle at ${x}px ${y}px, rgba(16, 185, 129, 0.12), rgba(20, 184, 166, 0.04) 40%, transparent 70%)`;
-  };
+    if (!card || !glowRef.current) return;
+    if (!rectRef.current) {
+      rectRef.current = card.getBoundingClientRect();
+    }
+    pointerPosRef.current.x = e.clientX - rectRef.current.left;
+    pointerPosRef.current.y = e.clientY - rectRef.current.top;
 
-  const handlePointerEnter = () => {
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        if (!glowRef.current) return;
+        const { x, y } = pointerPosRef.current;
+        glowRef.current.style.background = `radial-gradient(520px circle at ${x}px ${y}px, rgba(16, 185, 129, 0.12), rgba(20, 184, 166, 0.04) 40%, transparent 70%)`;
+      });
+    }
+  }, []);
+
+  const handlePointerEnter = useCallback(() => {
+    if (cardRef.current) {
+      rectRef.current = cardRef.current.getBoundingClientRect();
+    }
     if (glowRef.current) glowRef.current.style.opacity = '1';
-  };
+  }, []);
 
-  const handlePointerLeave = () => {
+  const handlePointerLeave = useCallback(() => {
+    rectRef.current = null;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     if (glowRef.current) glowRef.current.style.opacity = '0';
-  };
+  }, []);
 
   return (
     <div
@@ -117,17 +154,19 @@ const SpotlightCard = ({ children, className = '', onClick }: { children: React.
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
       onClick={onClick}
-      className={`relative overflow-hidden rounded-xl bg-[#111111] border border-white/[0.08] p-5 shadow-sm transition-colors duration-300 hover:border-white/[0.16] will-change-transform ${className}`}
+      className={`card-borda-conica shadow-[0_14px_34px_-18px_rgba(0,0,0,0.8)] will-change-transform ${className}`}
     >
-      <div
-        ref={glowRef}
-        className="pointer-events-none absolute -inset-px transition-opacity duration-500 ease-out"
-        style={{ opacity: 0 }}
-      />
-      <div className="relative z-10">{children}</div>
+      <div className="conteudo relative overflow-hidden border border-white/[0.06] p-5 transition-colors duration-200 hover:border-white/[0.14]">
+        <div
+          ref={glowRef}
+          className="pointer-events-none absolute -inset-px transition-opacity duration-300 ease-out"
+          style={{ opacity: 0 }}
+        />
+        <div className="relative z-10">{children}</div>
+      </div>
     </div>
   );
-};
+});
 
 interface DashboardProps {
   sales: Sale[];
@@ -162,6 +201,7 @@ export function Dashboard({
 
   // Table state
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [statusFilter, setStatusFilter] = useState('All');
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -587,12 +627,14 @@ export function Dashboard({
   // Filtered students list
   const filteredStudents = useMemo(() => {
     const baseList = activeTargetStudent ? [activeTargetStudent] : students;
+    const q = deferredSearchQuery.trim().toLowerCase();
     return baseList
       .filter((st) => {
         const matchesSearch =
-          st.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          st.registrationNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          st.email.toLowerCase().includes(searchQuery.toLowerCase());
+          !q ||
+          st.name.toLowerCase().includes(q) ||
+          st.registrationNumber.toLowerCase().includes(q) ||
+          st.email.toLowerCase().includes(q);
         const matchesStatus =
           statusFilter === 'All' ||
           (statusFilter === 'Active' && st.status === 'ACTIVE') ||
@@ -604,7 +646,7 @@ export function Dashboard({
         if (sortAsc) return a.name.localeCompare(b.name);
         return b.name.localeCompare(a.name);
       });
-  }, [students, activeTargetStudent, searchQuery, statusFilter, sortAsc]);
+  }, [students, activeTargetStudent, deferredSearchQuery, statusFilter, sortAsc]);
 
   // Filtered sales items when viewing a specific student
   const filteredStudentSales = useMemo(() => {
@@ -671,44 +713,50 @@ export function Dashboard({
     <div className="space-y-6">
       
       {/* Banner Institucional / Contexto do Aluno ou Geral */}
-      <div className="rounded-xl bg-gradient-to-r from-[#0d1f18] via-[#111815] to-[#111111] border border-emerald-500/25 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shadow-md shadow-emerald-950/60 flex items-center justify-center shrink-0 overflow-hidden">
+      <div className="executive-surface rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-16 -left-12 w-64 h-40 rounded-full bg-emerald-500/[0.08] blur-3xl"
+        />
+        <div className="flex items-center gap-3.5 relative z-10 min-w-0">
+          <div className="w-12 h-12 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/35 shadow-lg shadow-emerald-950/60 flex items-center justify-center shrink-0 overflow-hidden">
             <img
               src={activeTargetStudent?.avatar || '/assets/aistudio/image_e4461e45.png'}
               alt="Logo ICEVES"
               decoding="async"
+              referrerPolicy="no-referrer"
               className="w-full h-full rounded-full object-cover"
             />
           </div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-bold text-white">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+              <h2 className="text-base font-bold text-white tracking-tight truncate">
                 {activeTargetStudent
                   ? `Dashboard Individual — ${activeTargetStudent.name}`
                   : 'Escola de Cristo no ICEVES — 10ª Turma'}
               </h2>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+              <span className="text-zinc-600 hidden sm:inline" aria-hidden="true">·</span>
+              <span className="text-xs font-medium text-emerald-400 font-mono tabular-nums">
                 {activeTargetStudent
-                  ? `Matrícula: ${activeTargetStudent.registrationNumber}`
-                  : 'Formatura: Dia 27 ao Dia 30'}
+                  ? `Matrícula ${activeTargetStudent.registrationNumber}`
+                  : 'Formatura 27 a 30'}
               </span>
             </div>
-            <p className="text-[11px] text-zinc-400 mt-0.5">
+            <p className="text-xs text-zinc-400 mt-0.5">
               {activeTargetStudent
-                ? 'Todos os indicadores e gráficos abaixo refletem exclusivamente os seus gastos reais por categoria na Lojinha Iceves.'
-                : `Dados 100% reais calculados do consumo de cada aluno e categoria • ${students.length} alunos na 10ª Turma`}
+                ? 'Indicadores e gráficos refletindo exclusivamente o consumo real por categoria na Lojinha Iceves.'
+                : `Dados reais consolidados de consumo e recebimentos · ${students.length} alunos cadastrados`}
             </p>
           </div>
         </div>
 
         {/* Se não for aluno logado, permite filtrar o dashboard por qualquer aluno específico */}
         {!isStudent && (
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto relative z-10">
             <select
               value={selectedStudentFilter}
               onChange={(e) => setSelectedStudentFilter(e.target.value)}
-              className="bg-[#18181b] border border-emerald-500/30 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              className="bg-[#141419] border border-white/[0.1] hover:border-emerald-500/35 rounded-xl px-3.5 py-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-colors cursor-pointer"
             >
               <option value="ALL">Visão Consolidada (Todos os Alunos)</option>
               {students.map(st => (
@@ -722,10 +770,11 @@ export function Dashboard({
 
         {isStudent && (
           <button
+            type="button"
             onClick={() => onNavigate('student_portal')}
-            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-xs text-white font-semibold transition cursor-pointer self-start sm:self-auto shadow-sm"
+            className="relative z-10 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-xs text-white font-semibold transition-all cursor-pointer self-start sm:self-auto shadow-md shadow-emerald-950/50 whitespace-nowrap shrink-0"
           >
-            Ver Meu Extrato & Passeios &gt;
+            Ver Meu Extrato & Passeios
           </button>
         )}
       </div>
@@ -737,46 +786,46 @@ export function Dashboard({
         
         {/* Card 1: Gasto / Consumo Real */}
         <SpotlightCard>
-          <div className="flex items-center justify-between mb-2">
-            <ShoppingCart className="w-4 h-4 text-emerald-400" />
+          <div className="flex items-center justify-between mb-3">
             <span className="text-zinc-400 text-xs font-medium">
-              {activeTargetStudent ? 'Meu Gasto Total (Lojinha)' : 'Consumo Total Registrado'}
+              {activeTargetStudent ? 'Meu Gasto Total' : 'Consumo Total Registrado'}
             </span>
+            <ShoppingCart className="w-4 h-4 text-emerald-400/90" />
           </div>
-          <div className="flex items-baseline justify-between mt-3">
-            <div className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="text-2xl sm:text-[26px] font-bold tracking-tight text-white tabular-nums">
               <AnimatedCounter value={selectedCategorySpent} prefix="R$ " decimals={2} />
             </div>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-              {scopedCompletedSales.length} compra(s)
+            <span className="text-[11px] font-medium text-emerald-400 tabular-nums shrink-0">
+              {scopedCompletedSales.length} venda(s)
             </span>
           </div>
-          <p className="text-[11px] text-zinc-500 mt-2">
+          <p className="text-[11px] text-zinc-500 mt-2.5 leading-relaxed">
             {selectedCategory === 'ALL'
               ? activeTargetStudent
                 ? 'Soma real de todas as suas compras no balcão'
                 : 'Soma real das compras de todos os alunos'
-              : `Gasto real apenas na categoria ${selectedCategory}`}
+              : `Gasto real na categoria ${selectedCategory}`}
           </p>
         </SpotlightCard>
 
         {/* Card 2: Consumo em Aberto */}
         <SpotlightCard>
-          <div className="flex items-center justify-between mb-2">
-            <Receipt className="w-4 h-4 text-emerald-400" />
+          <div className="flex items-center justify-between mb-3">
             <span className="text-zinc-400 text-xs font-medium">
-              {activeTargetStudent ? 'Meu Consumo em Aberto' : 'Consumo Aberto (Mês)'}
+              {activeTargetStudent ? 'Consumo em Aberto' : 'Consumo Aberto (Mês)'}
             </span>
+            <Receipt className="w-4 h-4 text-emerald-400/90" />
           </div>
-          <div className="flex items-baseline justify-between mt-3">
-            <div className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="text-2xl sm:text-[26px] font-bold tracking-tight text-white tabular-nums">
               <AnimatedCounter value={totalOpenConsumption} prefix="R$ " decimals={2} />
             </div>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-300 bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+            <span className="text-[11px] font-medium text-teal-300 shrink-0">
               Mês vigente
             </span>
           </div>
-          <p className="text-[11px] text-zinc-500 mt-2">
+          <p className="text-[11px] text-zinc-500 mt-2.5 leading-relaxed">
             {activeTargetStudent
               ? 'Saldo atual na sua conta da lojinha'
               : 'Saldo em aberto nas contas dos alunos'}
@@ -785,21 +834,21 @@ export function Dashboard({
 
         {/* Card 3: Pagamentos Confirmados / Saldo Devedor */}
         <SpotlightCard>
-          <div className="flex items-center justify-between mb-2">
-            <DollarSign className="w-4 h-4 text-emerald-400" />
+          <div className="flex items-center justify-between mb-3">
             <span className="text-zinc-400 text-xs font-medium">
-              {activeTargetStudent ? 'Meus Pagamentos (Pix)' : 'Pagamentos Confirmados'}
+              {activeTargetStudent ? 'Pagamentos (Pix)' : 'Pagamentos Confirmados'}
             </span>
+            <DollarSign className="w-4 h-4 text-emerald-400/90" />
           </div>
-          <div className="flex items-baseline justify-between mt-3">
-            <div className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="text-2xl sm:text-[26px] font-bold tracking-tight text-white tabular-nums">
               <AnimatedCounter value={totalPixPaid} prefix="R$ " decimals={2} />
             </div>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+            <span className="text-[11px] font-medium text-emerald-400 tabular-nums shrink-0">
               {scopedConfirmedPix.length} pago(s)
             </span>
           </div>
-          <p className="text-[11px] text-zinc-500 mt-2">
+          <p className="text-[11px] text-zinc-500 mt-2.5 leading-relaxed tabular-nums">
             {activeTargetStudent
               ? `Saldo devedor em faturas: ${formatCurrency(totalOpenDebt)}`
               : `Faturas em aberto: ${formatCurrency(totalOpenDebt)}`}
@@ -808,24 +857,24 @@ export function Dashboard({
 
         {/* Card 4: Situação / Adimplência Real */}
         <SpotlightCard>
-          <div className="flex items-center justify-between mb-2">
-            <BarChart3 className="w-4 h-4 text-emerald-400" />
+          <div className="flex items-center justify-between mb-3">
             <span className="text-zinc-400 text-xs font-medium">
               {activeTargetStudent ? 'Situação Financeira' : 'Índice de Quitação Real'}
             </span>
+            <BarChart3 className="w-4 h-4 text-emerald-400/90" />
           </div>
-          <div className="flex items-baseline justify-between mt-3">
-            <div className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="text-2xl sm:text-[26px] font-bold tracking-tight text-white tabular-nums">
               <AnimatedCounter value={paymentRate} suffix="%" decimals={1} />
             </div>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 shrink-0">
               <TrendingUp className="w-3 h-3" /> {totalOpenDebt === 0 ? 'Em dia' : 'Pendente'}
             </span>
           </div>
-          <p className="text-[11px] text-zinc-500 mt-2">
+          <p className="text-[11px] text-zinc-500 mt-2.5 leading-relaxed tabular-nums">
             {activeTargetStudent
               ? totalOpenDebt === 0 && totalOpenConsumption === 0
-                ? 'Você não possui pendências financeiras'
+                ? 'Sem pendências financeiras registradas'
                 : `Total pendente: ${formatCurrency(totalOpenDebt + totalOpenConsumption)}`
               : `${students.filter(s => s.totalOpenDebt === 0).length} de ${students.length} alunos sem faturas vencidas`}
           </p>
@@ -836,39 +885,39 @@ export function Dashboard({
       {/* Compact Real-Time Store & Margin KPI Strip */}
       {!isStudent && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="rounded-xl bg-[#111111] border border-white/[0.08] px-3.5 py-2.5">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold block">Faturamento Hoje</span>
-            <span className="text-base font-bold text-white font-mono">{formatCurrency(operationalMetrics.todayRevenue)}</span>
+          <div className="executive-surface rounded-xl px-4 py-3">
+            <span className="text-[11px] text-zinc-400 font-medium block">Faturamento hoje</span>
+            <span className="text-base font-bold text-white font-mono tabular-nums mt-0.5 block">{formatCurrency(operationalMetrics.todayRevenue)}</span>
           </div>
-          <div className="rounded-xl bg-[#111111] border border-white/[0.08] px-3.5 py-2.5">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold block">Faturamento do Mês</span>
-            <span className="text-base font-bold text-emerald-400 font-mono">{formatCurrency(operationalMetrics.monthRevenue)}</span>
+          <div className="executive-surface rounded-xl px-4 py-3">
+            <span className="text-[11px] text-zinc-400 font-medium block">Faturamento do mês</span>
+            <span className="text-base font-bold text-emerald-400 font-mono tabular-nums mt-0.5 block">{formatCurrency(operationalMetrics.monthRevenue)}</span>
           </div>
-          <div className="rounded-xl bg-[#111111] border border-white/[0.08] px-3.5 py-2.5">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold block">Ticket Médio</span>
-            <span className="text-base font-bold text-white font-mono">{formatCurrency(operationalMetrics.avgTicket)}</span>
+          <div className="executive-surface rounded-xl px-4 py-3">
+            <span className="text-[11px] text-zinc-400 font-medium block">Ticket médio</span>
+            <span className="text-base font-bold text-white font-mono tabular-nums mt-0.5 block">{formatCurrency(operationalMetrics.avgTicket)}</span>
           </div>
-          <div className="rounded-xl bg-[#111111] border border-white/[0.08] px-3.5 py-2.5">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold block">Lucro Estimado</span>
-            <span className="text-base font-bold text-teal-300 font-mono">{formatCurrency(operationalMetrics.estimatedProfit)}</span>
+          <div className="executive-surface rounded-xl px-4 py-3">
+            <span className="text-[11px] text-zinc-400 font-medium block">Lucro estimado</span>
+            <span className="text-base font-bold text-teal-300 font-mono tabular-nums mt-0.5 block">{formatCurrency(operationalMetrics.estimatedProfit)}</span>
           </div>
           <button
             type="button"
             onClick={() => onNavigate('products')}
-            className="rounded-xl bg-[#111111] border border-white/[0.08] hover:border-amber-500/40 px-3.5 py-2.5 text-left cursor-pointer transition"
+            className="executive-surface-interactive rounded-xl px-4 py-3 text-left cursor-pointer hover:border-amber-500/35"
           >
-            <span className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block">Estoque Baixo</span>
-            <span className="text-base font-bold text-amber-300 font-mono">
+            <span className="text-[11px] text-amber-400/90 font-medium block">Estoque baixo</span>
+            <span className="text-base font-bold text-amber-300 font-mono tabular-nums mt-0.5 block">
               {operationalMetrics.lowStock} / {operationalMetrics.activeProductsCount}
             </span>
           </button>
           <button
             type="button"
             onClick={() => onNavigate('products')}
-            className="rounded-xl bg-[#111111] border border-white/[0.08] hover:border-rose-500/40 px-3.5 py-2.5 text-left cursor-pointer transition"
+            className="executive-surface-interactive rounded-xl px-4 py-3 text-left cursor-pointer hover:border-rose-500/35"
           >
-            <span className="text-[10px] uppercase tracking-wider text-rose-400 font-bold block">Sem Estoque</span>
-            <span className="text-base font-bold text-rose-300 font-mono">
+            <span className="text-[11px] text-rose-400/90 font-medium block">Sem estoque</span>
+            <span className="text-base font-bold text-rose-300 font-mono tabular-nums mt-0.5 block">
               {operationalMetrics.outOfStock} itens
             </span>
           </button>
@@ -878,7 +927,7 @@ export function Dashboard({
       {/* ================================================================= */}
       {/* 2. DASHBOARD POR CATEGORIA (Gasto Real em cada uma das 4 categorias) */}
       {/* ================================================================= */}
-      <div className="rounded-xl bg-[#111111] border border-white/[0.08] p-5 space-y-4">
+      <div className="executive-surface rounded-2xl p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
@@ -921,10 +970,10 @@ export function Dashboard({
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(isSelected ? 'ALL' : cat)}
-                className={`text-left p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                className={`text-left rounded-xl p-4 border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
                   isSelected
-                    ? 'bg-emerald-950/30 border-emerald-500 ring-1 ring-emerald-500/40 shadow-lg'
-                    : 'bg-[#161618] border-white/[0.07] hover:border-emerald-500/30 hover:bg-white/[0.03]'
+                    ? 'bg-emerald-950/60 border-emerald-500 ring-1 ring-emerald-500/40 shadow-lg'
+                    : 'bg-[#161618] border-white/[0.07] hover:border-emerald-500/30 hover:bg-[#1a1a1f]'
                 }`}
               >
                 <div className="space-y-2 w-full">
@@ -970,7 +1019,7 @@ export function Dashboard({
       {/* 3. REAL ACTIVITY CHARTS                    */}
       {/* ========================================== */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
-        <div className="xl:col-span-7 rounded-xl bg-[#111111] border border-white/[0.08] p-5">
+        <div className="xl:col-span-7 executive-surface rounded-2xl p-5">
           
           {/* Header controls */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -1067,12 +1116,12 @@ export function Dashboard({
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
                       return (
-                        <div className="rounded-lg bg-[#18181b] border border-emerald-500/25 p-3 shadow-xl text-xs space-y-1">
+                        <div className="rounded-xl bg-[#111116]/95 backdrop-blur-md border border-white/[0.12] p-3 shadow-2xl text-xs space-y-1.5">
                           <div className="text-zinc-400 font-medium mb-1">{label}</div>
                           {payload.map((entry, index) => (
-                            <div key={index} className="flex items-center justify-between gap-4">
+                            <div key={index} className="flex items-center justify-between gap-5">
                               <span style={{ color: entry.color }}>{entry.name}:</span>
-                              <span className="font-semibold text-white">R$ {Number(entry.value).toFixed(2)}</span>
+                              <span className="font-semibold text-white font-mono tabular-nums">R$ {Number(entry.value).toFixed(2)}</span>
                             </div>
                           ))}
                         </div>
@@ -1087,9 +1136,10 @@ export function Dashboard({
                     dataKey="pagamentosPix"
                     name="Pagamentos Pix"
                     stroke="#14B8A6"
-                    strokeWidth={1.5}
+                    strokeWidth={1.75}
                     fillOpacity={1}
                     fill="url(#gradTeal)"
+                    animationDuration={420}
                   />
                 )}
                 {visibleSeries.categoriaSelecionada && (
@@ -1101,16 +1151,16 @@ export function Dashboard({
                     strokeWidth={2}
                     fillOpacity={1}
                     fill="url(#gradEmerald)"
+                    animationDuration={420}
                   />
                 )}
               </AreaChart>
             </ResponsiveContainer>
           </div>
-
         </div>
 
         {/* 7-Day Daily Sales BarChart */}
-        <div className="xl:col-span-5 rounded-xl bg-[#111111] border border-white/[0.08] p-5 flex flex-col justify-between">
+        <div className="xl:col-span-5 executive-surface rounded-2xl p-5 flex flex-col justify-between">
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1240,7 +1290,7 @@ export function Dashboard({
       {/* ======================================================= */}
       {!isStudent && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <div className="lg:col-span-7 rounded-xl bg-[#111111] border border-white/[0.08] p-5 space-y-4">
+          <div className="lg:col-span-7 executive-surface rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold tracking-tight text-white">
@@ -1251,9 +1301,9 @@ export function Dashboard({
               <button
                 type="button"
                 onClick={() => onNavigate('reports')}
-                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 cursor-pointer whitespace-nowrap"
               >
-                Ver Relatório &gt;
+                Ver Relatório →
               </button>
             </div>
             {operationalMetrics.topProducts.length === 0 ? (
@@ -1273,22 +1323,22 @@ export function Dashboard({
                         if (!active || !payload?.length) return null;
                         const row = payload[0].payload;
                         return (
-                          <div className="rounded-lg bg-[#18181b] border border-emerald-500/25 p-2.5 text-xs space-y-1">
+                          <div className="rounded-xl bg-[#111116]/95 backdrop-blur-md border border-white/[0.12] p-2.5 shadow-2xl text-xs space-y-1">
                             <div className="font-bold text-white">{row.name}</div>
-                            <div className="text-emerald-400 font-mono">{formatCurrency(row.revenue)}</div>
-                            <div className="text-zinc-400">{row.qty} unidade(s)</div>
+                            <div className="text-emerald-400 font-mono tabular-nums">{formatCurrency(row.revenue)}</div>
+                            <div className="text-zinc-400 tabular-nums">{row.qty} unidade(s)</div>
                           </div>
                         );
                       }}
                     />
-                    <Bar dataKey="revenue" fill="#10B981" radius={[6, 6, 0, 0]} maxBarSize={36} />
+                    <Bar dataKey="revenue" fill="#10B981" radius={[6, 6, 0, 0]} maxBarSize={36} animationDuration={420} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
           </div>
 
-          <div className="lg:col-span-5 rounded-xl bg-[#111111] border border-white/[0.08] p-5 space-y-4">
+          <div className="lg:col-span-5 executive-surface rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold tracking-tight text-white">
@@ -1351,7 +1401,7 @@ export function Dashboard({
       {/* 4. INDIVIDUAL STUDENT PURCHASES OR ALL STUDENTS SPENDING TABLE  */}
       {/* =============================================================== */}
       {activeTargetStudent ? (
-        <div className="rounded-xl bg-[#111111] border border-white/[0.08] overflow-hidden">
+        <div className="executive-surface rounded-2xl overflow-hidden">
           <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.08]">
             <div>
               <h2 className="text-base font-semibold tracking-tight text-white">
@@ -1421,7 +1471,7 @@ export function Dashboard({
           )}
         </div>
       ) : (
-        <div className="rounded-xl bg-[#111111] border border-white/[0.08] overflow-hidden">
+        <div className="executive-surface rounded-2xl overflow-hidden">
           
           {/* Table Header */}
           <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.08]">
@@ -1573,7 +1623,6 @@ export function Dashboard({
           <div className="p-4 border-t border-white/[0.08] flex items-center justify-between text-xs text-zinc-400">
             <div>Exibindo {filteredStudents.length} de {students.length} alunos cadastrados</div>
           </div>
-
         </div>
       )}
 

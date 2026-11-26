@@ -168,44 +168,52 @@ export function SalesReceiptsManagement({
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-[#161619] p-4 rounded-xl border border-white/[0.07]">
-          <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold block">
-            Recibos Emitidos
-          </span>
-          <span className="text-xl font-bold text-white font-mono tabular-nums mt-1 block">
-            {metrics.total}
-          </span>
-          <span className="text-[11px] text-zinc-500">{metrics.activeCount} ativos</span>
+        <div className="card-borda-conica card-borda-compact">
+          <div className="conteudo bg-[#161619] p-4 border border-white/[0.07]">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold block">
+              Recibos Emitidos
+            </span>
+            <span className="text-xl font-bold text-white font-mono tabular-nums mt-1 block">
+              {metrics.total}
+            </span>
+            <span className="text-[11px] text-zinc-500">{metrics.activeCount} ativos</span>
+          </div>
         </div>
 
-        <div className="bg-[#161619] p-4 rounded-xl border border-white/[0.07]">
-          <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold block">
-            Volume Comprovado
-          </span>
-          <span className="text-xl font-bold text-emerald-400 font-mono tabular-nums mt-1 block">
-            {formatCurrency(metrics.totalValue)}
-          </span>
-          <span className="text-[11px] text-zinc-500">Vendas ativas no filtro</span>
+        <div className="card-borda-conica card-borda-compact">
+          <div className="conteudo bg-[#161619] p-4 border border-white/[0.07]">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold block">
+              Volume Comprovado
+            </span>
+            <span className="text-xl font-bold text-emerald-400 font-mono tabular-nums mt-1 block">
+              {formatCurrency(metrics.totalValue)}
+            </span>
+            <span className="text-[11px] text-zinc-500">Vendas ativas no filtro</span>
+          </div>
         </div>
 
-        <div className="bg-[#161619] p-4 rounded-xl border border-white/[0.07]">
-          <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold block">
-            Estornos / Cancelamentos
-          </span>
-          <span className="text-xl font-bold text-rose-400 font-mono tabular-nums mt-1 block">
-            {metrics.reversedCount}
-          </span>
-          <span className="text-[11px] text-zinc-500">Com histórico preservado</span>
+        <div className="card-borda-conica card-borda-compact">
+          <div className="conteudo bg-[#161619] p-4 border border-white/[0.07]">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold block">
+              Estornos / Cancelamentos
+            </span>
+            <span className="text-xl font-bold text-rose-400 font-mono tabular-nums mt-1 block">
+              {metrics.reversedCount}
+            </span>
+            <span className="text-[11px] text-zinc-500">Com histórico preservado</span>
+          </div>
         </div>
 
-        <div className="bg-[#161619] p-4 rounded-xl border border-white/[0.07]">
-          <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold block">
-            Reimpressões (2ª Via)
-          </span>
-          <span className="text-xl font-bold text-zinc-100 font-mono tabular-nums mt-1 block">
-            {metrics.totalReprints}
-          </span>
-          <span className="text-[11px] text-zinc-500">Auditadas em log</span>
+        <div className="card-borda-conica card-borda-compact">
+          <div className="conteudo bg-[#161619] p-4 border border-white/[0.07]">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold block">
+              Reimpressões (2ª Via)
+            </span>
+            <span className="text-xl font-bold text-zinc-100 font-mono tabular-nums mt-1 block">
+              {metrics.totalReprints}
+            </span>
+            <span className="text-[11px] text-zinc-500">Auditadas em log</span>
+          </div>
         </div>
       </div>
 

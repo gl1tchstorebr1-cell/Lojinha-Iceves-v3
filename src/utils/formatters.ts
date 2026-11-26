@@ -10,28 +10,41 @@ export function formatCurrency(value: number | undefined | null): string {
   }).format(value);
 }
 
+export function parsePriceValue(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) ? raw : null;
+  }
+  const str = String(raw).trim();
+  if (!str) return null;
+  // Remove currency symbol and spaces
+  let cleaned = str.replace(/[R$\s]/g, '');
+  // Handle Brazilian formatting (e.g. "1.250,50" or "25,50")
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (cleaned.includes(',')) {
+    cleaned = cleaned.replace(',', '.');
+  }
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+}
+
 export function isProductPricePending(product?: { price?: number | null; priceStatus?: 'DEFINED' | 'PENDING' } | null): boolean {
   if (!product) return true;
-  if (product.priceStatus === 'PENDING') return true;
-  if (product.price === null || product.price === undefined) return true;
-  const num = Number(product.price);
-  return Number.isNaN(num) || num <= 0;
+  const num = parsePriceValue(product.price);
+  if (num !== null && num > 0) return false;
+  return true;
 }
 
 export function formatProductPrice(
   price: number | undefined | null,
-  priceStatus?: 'DEFINED' | 'PENDING'
+  _priceStatus?: 'DEFINED' | 'PENDING'
 ): string {
-  if (
-    priceStatus === 'PENDING' ||
-    price === undefined ||
-    price === null ||
-    Number.isNaN(Number(price)) ||
-    Number(price) <= 0
-  ) {
+  const num = parsePriceValue(price);
+  if (num === null || num <= 0) {
     return 'Preço não definido';
   }
-  return formatCurrency(Number(price));
+  return formatCurrency(num);
 }
 
 export function formatDate(dateString: string | undefined | null): string {

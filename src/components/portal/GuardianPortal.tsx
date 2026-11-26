@@ -25,6 +25,7 @@ import { MercadoPagoCheckoutModal } from '../payment/MercadoPagoCheckoutModal';
 import { QrCodeDisplay } from '../common/QrCodeDisplay';
 import { ReceiptPreviewModal } from '../receipts/ReceiptPreviewModal';
 import { downloadReceiptPdf } from '../../utils/receiptPdf';
+import { getInitialsAvatar } from '../../utils/avatar';
 
 interface GuardianPortalProps {
   guardian: Guardian;
@@ -247,8 +248,9 @@ export function GuardianPortal({
                 }`}
               >
                 <img 
-                  src={st.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
+                  src={st.avatar || getInitialsAvatar(st.name)} 
                   alt={st.name} 
+                  referrerPolicy="no-referrer"
                   className="w-5 h-5 rounded-full object-cover"
                 />
                 <span>{st.name}</span>
@@ -264,22 +266,28 @@ export function GuardianPortal({
           
           {/* Dependent Financial Highlights Card */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828]">
-              <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Edição & Formatura</span>
-              <span className="block text-lg font-bold text-[#F5F5F5] mt-1.5">10ª Turma — Escola de Cristo</span>
-              <span className="text-[11px] text-emerald-400 mt-0.5 block">Formatura: Dia 27 ao Dia 30 (ICEVES)</span>
+            <div className="card-borda-conica">
+              <div className="conteudo bg-[#1B1B1B] p-5 border border-[#282828]">
+                <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Edição & Formatura</span>
+                <span className="block text-lg font-bold text-[#F5F5F5] mt-1.5">10ª Turma — Escola de Cristo</span>
+                <span className="text-[11px] text-emerald-400 mt-0.5 block">Formatura: Dia 27 ao Dia 30 (ICEVES)</span>
+              </div>
             </div>
 
-            <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828]">
-              <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Consumo da Lojinha (Mês Vigente)</span>
-              <span className="block text-xl font-bold text-emerald-400 mt-1.5">{formatCurrency(selectedStudent.currentConsumptionBalance)}</span>
-              <span className="text-[11px] text-[#71717A] mt-0.5 block">Será consolidado no fechamento mensal</span>
+            <div className="card-borda-conica">
+              <div className="conteudo bg-[#1B1B1B] p-5 border border-[#282828]">
+                <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Consumo da Lojinha (Mês Vigente)</span>
+                <span className="block text-xl font-bold text-emerald-400 mt-1.5">{formatCurrency(selectedStudent.currentConsumptionBalance)}</span>
+                <span className="text-[11px] text-[#71717A] mt-0.5 block">Será consolidado no fechamento mensal</span>
+              </div>
             </div>
 
-            <div className="bg-[#1B1B1B] rounded-2xl p-5 border border-[#282828]">
-              <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Saldo Devedor em Faturas</span>
-              <span className="block text-xl font-bold text-red-400 mt-1.5">{formatCurrency(selectedStudent.totalOpenDebt)}</span>
-              <span className="text-[11px] text-[#71717A] mt-0.5 block">Total pendente de liquidação</span>
+            <div className="card-borda-conica">
+              <div className="conteudo bg-[#1B1B1B] p-5 border border-[#282828]">
+                <span className="text-[10px] font-semibold text-[#A1A1AA] uppercase tracking-wider">Saldo Devedor em Faturas</span>
+                <span className="block text-xl font-bold text-red-400 mt-1.5">{formatCurrency(selectedStudent.totalOpenDebt)}</span>
+                <span className="text-[11px] text-[#71717A] mt-0.5 block">Total pendente de liquidação</span>
+              </div>
             </div>
           </div>
 

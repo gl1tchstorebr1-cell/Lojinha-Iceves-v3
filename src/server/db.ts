@@ -100,6 +100,7 @@ class DatabaseService {
   private data: DatabaseSchema;
   private saveQueued = false;
   private supabaseModPromise: Promise<typeof import('./supabase.ts')> | null = null;
+  private pendingSyncPromises = new Set<Promise<void>>();
 
   constructor() {
     this.data = this.loadDatabase();
@@ -138,12 +139,26 @@ class DatabaseService {
     return 'Alimentos e Snacks';
   }
 
+  private parseNumericPrice(raw: any): number | null {
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+    const str = String(raw).trim();
+    if (!str) return null;
+    let cleaned = str.replace(/[R$\s]/g, '');
+    if (cleaned.includes(',') && cleaned.includes('.')) {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else if (cleaned.includes(',')) {
+      cleaned = cleaned.replace(',', '.');
+    }
+    const num = Number(cleaned);
+    return Number.isFinite(num) ? num : null;
+  }
+
   private isPricePending(product?: { price?: number | null; priceStatus?: string } | null): boolean {
     if (!product) return true;
-    if (product.priceStatus === 'PENDING') return true;
-    if (product.price === null || product.price === undefined) return true;
-    const num = Number(product.price);
-    return Number.isNaN(num) || num <= 0;
+    const num = this.parseNumericPrice(product.price);
+    if (num !== null && num > 0) return false;
+    return true;
   }
 
   private loadDatabase(): DatabaseSchema {
@@ -335,7 +350,11 @@ class DatabaseService {
               }
             }
 
-            const isPending = p.priceStatus === 'PENDING' || p.price === null || p.price === undefined || Number(p.price) <= 0;
+            const parsedPrice = this.parseNumericPrice(p.price);
+            const isPending = parsedPrice === null || parsedPrice <= 0;
+            if (!isPending && p.priceStatus === 'PENDING') {
+              productsNeedsSave = true;
+            }
             const normalizedCategory = p.archived
               ? p.category
               : this.normalizeCategory(p.category);
@@ -359,7 +378,7 @@ class DatabaseService {
               ...p,
               id: productId,
               category: normalizedCategory,
-              price: isPending ? null : Number(p.price),
+              price: isPending ? null : Math.round(parsedPrice * 100) / 100,
               priceStatus: isPending ? 'PENDING' : 'DEFINED',
               images,
               imageUrl: resolvedImageUrl,
@@ -651,7 +670,7 @@ class DatabaseService {
   }
 
   public triggerSupabaseSync(table: string, record: any, mapperName: string) {
-    setTimeout(async () => {
+    const task = (async () => {
       try {
         if (!this.supabaseModPromise) {
           this.supabaseModPromise = import('./supabase.ts');
@@ -659,10 +678,47 @@ class DatabaseService {
         const supabaseMod = await this.supabaseModPromise;
         const mapper = (supabaseMod as any)[mapperName];
         await supabaseMod.syncRecordToSupabase(table, record, mapper);
-      } catch (e) {
-        // quiet background auto-sync
+      } catch (e: any) {
+        console.warn(`[Supabase Auto-Sync] Falha ao enfileirar sync em ${table}:`, e?.message || e);
       }
-    }, 0);
+    })();
+    this.pendingSyncPromises.add(task);
+    task.finally(() => {
+      this.pendingSyncPromises.delete(task);
+    });
+  }
+
+  public triggerSupabaseDelete(table: string, id: string) {
+    const task = (async () => {
+      try {
+        if (!this.supabaseModPromise) {
+          this.supabaseModPromise = import('./supabase.ts');
+        }
+        const supabaseMod = await this.supabaseModPromise;
+        await supabaseMod.deleteRecordFromSupabase(table, id);
+      } catch (e: any) {
+        console.warn(`[Supabase Auto-Sync] Falha ao excluir registro ${id} em ${table}:`, e?.message || e);
+      }
+    })();
+    this.pendingSyncPromises.add(task);
+    task.finally(() => {
+      this.pendingSyncPromises.delete(task);
+    });
+  }
+
+  public async flushSupabaseSync(timeoutMs = 8000): Promise<void> {
+    if (this.pendingSyncPromises.size === 0) return;
+    const deadline = Date.now() + timeoutMs;
+    while (this.pendingSyncPromises.size > 0) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const batch = Array.from(this.pendingSyncPromises);
+      await Promise.race([
+        Promise.allSettled(batch),
+        new Promise<void>(resolve => setTimeout(resolve, remaining)),
+      ]);
+      if (Date.now() >= deadline) break;
+    }
   }
 
   // --- GETTERS ---
@@ -786,17 +842,6 @@ class DatabaseService {
       this.data.tripOperations = [];
     }
     return this.data.tripOperations;
-  }
-
-  public triggerSupabaseDelete(table: string, id: string) {
-    setTimeout(async () => {
-      try {
-        const supabaseMod = await import('./supabase.ts');
-        await supabaseMod.deleteRecordFromSupabase(table, id);
-      } catch (e) {
-        // quiet background delete
-      }
-    }, 0);
   }
 
   // --- REGRAS DE NEGÓCIO ---
@@ -1120,10 +1165,12 @@ class DatabaseService {
         timestamp: nowIso
       };
       this.data.stockMovements.unshift(movement);
+      this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+      this.triggerSupabaseSync('stock_movements', movement, 'mapStockMovementToSupabase');
 
       // Checar se disparar alerta de estoque baixo
       if (product.currentStock <= product.minStock) {
-        this.data.whatsappNotifications.unshift({
+        const lowStockNotif: WhatsAppNotification = {
           id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 100)}`,
           type: 'ALERTA_ESTOQUE',
           recipientName: 'Coordenação Lojinha',
@@ -1135,7 +1182,9 @@ class DatabaseService {
           scheduledFor: nowIso,
           sentAt: nowIso,
           attemptsCount: 1
-        });
+        };
+        this.data.whatsappNotifications.unshift(lowStockNotif);
+        this.triggerSupabaseSync('whatsapp_notifications', lowStockNotif, 'mapNotificationToSupabase');
       }
     }
 
@@ -1205,7 +1254,7 @@ class DatabaseService {
       for (const pLine of finalPayments) {
         const netLineAmount = pLine.method === 'DINHEIRO' ? Math.max(0, Math.round((pLine.amount - changeAmount) * 100) / 100) : pLine.amount;
         if (netLineAmount <= 0) continue;
-        this.data.cashMovements.unshift({
+        const cashMov: CashMovement = {
           id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           sessionId: activeSession.id,
           type: movTypeMap[pLine.method] || 'VENDA_CONTA_ALUNO',
@@ -1216,7 +1265,9 @@ class DatabaseService {
           performedByUserId: operatorUser.id,
           performedByUserName: operatorUser.name,
           timestamp: nowIso
-        });
+        };
+        this.data.cashMovements.unshift(cashMov);
+        this.triggerSupabaseSync('cash_movements', cashMov, 'mapCashMovementToSupabase');
       }
     }
 
@@ -1240,7 +1291,7 @@ class DatabaseService {
 
     this.saveDatabase();
     this.triggerSupabaseSync('sales', newSale, 'mapSaleToSupabase');
-    this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
+    this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     return { sale: newSale, student, receipt };
   }
@@ -1269,7 +1320,7 @@ class DatabaseService {
         product.currentStock += item.quantity;
         product.updatedAt = new Date().toISOString();
 
-        this.data.stockMovements.unshift({
+        const revMovement: StockMovement = {
           id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           productId: product.id,
           productName: product.name,
@@ -1282,7 +1333,10 @@ class DatabaseService {
           performedByUserName: user.name,
           referenceId: sale.id,
           timestamp: new Date().toISOString()
-        });
+        };
+        this.data.stockMovements.unshift(revMovement);
+        this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+        this.triggerSupabaseSync('stock_movements', revMovement, 'mapStockMovementToSupabase');
       }
     }
 
@@ -1321,7 +1375,7 @@ class DatabaseService {
     const activeSession = this.getActiveCashSession();
     if (activeSession) {
       if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
-      this.data.cashMovements.unshift({
+      const revCashMov: CashMovement = {
         id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         sessionId: activeSession.id,
         type: 'ESTORNO',
@@ -1332,7 +1386,9 @@ class DatabaseService {
         performedByUserId: user.id,
         performedByUserName: user.name,
         timestamp: new Date().toISOString()
-      });
+      };
+      this.data.cashMovements.unshift(revCashMov);
+      this.triggerSupabaseSync('cash_movements', revCashMov, 'mapCashMovementToSupabase');
     }
 
     sale.status = 'REVERSED';
@@ -1361,7 +1417,7 @@ class DatabaseService {
 
     this.saveDatabase();
     this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
-    if (receipt) this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
+    if (receipt) this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     return { sale, student, receipt };
   }
@@ -1434,7 +1490,7 @@ class DatabaseService {
         const prevStock = product.currentStock;
         product.currentStock += qty;
         product.updatedAt = nowIso;
-        this.data.stockMovements.unshift({
+        const partialMov: StockMovement = {
           id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           productId: product.id,
           productName: product.name,
@@ -1447,7 +1503,10 @@ class DatabaseService {
           performedByUserName: user.name,
           referenceId: sale.id,
           timestamp: nowIso
-        });
+        };
+        this.data.stockMovements.unshift(partialMov);
+        this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+        this.triggerSupabaseSync('stock_movements', partialMov, 'mapStockMovementToSupabase');
       }
     }
 
@@ -1478,7 +1537,7 @@ class DatabaseService {
     const activeSession = this.getActiveCashSession();
     if (activeSession) {
       if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
-      this.data.cashMovements.unshift({
+      const partialCashMov: CashMovement = {
         id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         sessionId: activeSession.id,
         type: 'ESTORNO',
@@ -1489,7 +1548,9 @@ class DatabaseService {
         performedByUserId: user.id,
         performedByUserName: user.name,
         timestamp: nowIso
-      });
+      };
+      this.data.cashMovements.unshift(partialCashMov);
+      this.triggerSupabaseSync('cash_movements', partialCashMov, 'mapCashMovementToSupabase');
     }
 
     sale.reversedAmount = totalReversedAfter;
@@ -1521,7 +1582,7 @@ class DatabaseService {
 
     this.saveDatabase();
     this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
-    if (receipt) this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
+    if (receipt) this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     return { sale, student, receipt, reversedAmount };
   }
@@ -1736,7 +1797,7 @@ class DatabaseService {
 
     if (!opts?.skipSave) {
       this.saveDatabase();
-      this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
+      this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
       this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
     }
 
@@ -1858,7 +1919,7 @@ class DatabaseService {
     );
 
     this.saveDatabase();
-    this.triggerSupabaseSync('receipts', receipt, 'mapReceiptToSupabase');
+    this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
     return receipt;
   }
 
@@ -1904,7 +1965,7 @@ class DatabaseService {
     product.currentStock = newStock;
     product.updatedAt = new Date().toISOString();
 
-    this.data.stockMovements.unshift({
+    const stockMov: StockMovement = {
       id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       productId: product.id,
       productName: product.name,
@@ -1916,7 +1977,8 @@ class DatabaseService {
       performedByUserId: user.id,
       performedByUserName: user.name,
       timestamp: new Date().toISOString()
-    });
+    };
+    this.data.stockMovements.unshift(stockMov);
 
     this.logAudit(
       user.id,
@@ -1929,6 +1991,7 @@ class DatabaseService {
 
     this.saveDatabase();
     this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+    this.triggerSupabaseSync('stock_movements', stockMov, 'mapStockMovementToSupabase');
     return product;
   }
 
@@ -1973,7 +2036,7 @@ class DatabaseService {
     };
 
     this.data.cashSessions.unshift(session);
-    this.data.cashMovements.unshift({
+    const openingMov: CashMovement = {
       id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       sessionId: session.id,
       type: 'ABERTURA',
@@ -1984,7 +2047,8 @@ class DatabaseService {
       performedByUserId: user.id,
       performedByUserName: user.name,
       timestamp: session.openedAt
-    });
+    };
+    this.data.cashMovements.unshift(openingMov);
 
     this.logAudit(
       user.id,
@@ -1996,6 +2060,8 @@ class DatabaseService {
     );
 
     this.saveDatabase();
+    this.triggerSupabaseSync('cash_registers', session, 'mapCashRegisterToSupabase');
+    this.triggerSupabaseSync('cash_movements', openingMov, 'mapCashMovementToSupabase');
     return session;
   }
 
@@ -2045,6 +2111,7 @@ class DatabaseService {
     );
 
     this.saveDatabase();
+    this.triggerSupabaseSync('cash_movements', mov, 'mapCashMovementToSupabase');
     return mov;
   }
 
@@ -2096,6 +2163,7 @@ class DatabaseService {
     );
 
     this.saveDatabase();
+    this.triggerSupabaseSync('cash_registers', active, 'mapCashRegisterToSupabase');
     return active;
   }
 
@@ -2129,9 +2197,11 @@ class DatabaseService {
       student.totalOpenDebt = Math.round((student.totalOpenDebt + cleanAmount) * 100) / 100;
     }
 
+    const nowIso = new Date().toISOString();
+    const accountMovId = `CAM-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     this.data.financialLedger.unshift({
       id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-      timestamp: new Date().toISOString(),
+      timestamp: nowIso,
       studentId: student.id,
       type: params.operation,
       category: params.operation === 'CREDITO' ? 'AJUSTE_CREDITO' : 'AJUSTE_DEBITO',
@@ -2151,30 +2221,54 @@ class DatabaseService {
 
     this.saveDatabase();
     this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+    this.triggerSupabaseSync(
+      'customer_account_movements',
+      {
+        id: accountMovId,
+        studentId: student.id,
+        operation: params.operation,
+        amount: cleanAmount,
+        reason: cleanReason,
+        performedByUserId: params.user.id,
+        performedByUserName: params.user.name,
+        createdAt: nowIso,
+      },
+      'mapCustomerAccountMovementToSupabase'
+    );
     return student;
   }
 
   // 5. Salvar / Editar produto (garante que preços de vendas passadas não se alteram)
   public saveProduct(productData: Partial<Product>, user: { id: string; name: string; role: any }) {
     const parsePriceFields = (rawPrice: any, rawStatus?: any): { price: number | null; priceStatus: 'DEFINED' | 'PENDING' } => {
+      const numeric = this.parseNumericPrice(rawPrice);
+
+      // If a valid positive price was provided, always mark as DEFINED (even if a stale PENDING status came along)
+      if (numeric !== null && numeric > 0) {
+        return { price: Math.round(numeric * 100) / 100, priceStatus: 'DEFINED' };
+      }
+
+      if (numeric !== null && numeric < 0) {
+        throw new Error('O preço do produto não pode ser negativo.');
+      }
+
       if (rawStatus === 'PENDING' || rawPrice === null || rawPrice === undefined || rawPrice === '') {
         return { price: null, priceStatus: 'PENDING' };
       }
-      const numeric = Number(rawPrice);
-      if (Number.isNaN(numeric) || numeric < 0) {
-        throw new Error('O preço do produto não pode ser negativo.');
-      }
+
       if (numeric === 0) {
         throw new Error('Informe um preço maior que R$ 0,00 ou marque o produto como "Preço não definido".');
       }
-      return { price: Math.round(numeric * 100) / 100, priceStatus: 'DEFINED' };
+
+      throw new Error('Informe um preço válido maior que R$ 0,00 ou marque o produto como "Preço não definido".');
     };
 
-    const formatPriceLabel = (val: number | null | undefined, status?: string) => {
-      if (status === 'PENDING' || val === null || val === undefined || Number.isNaN(Number(val)) || Number(val) <= 0) {
+    const formatPriceLabel = (val: number | null | undefined, _status?: string) => {
+      const num = this.parseNumericPrice(val);
+      if (num === null || num <= 0) {
         return 'Preço não definido';
       }
-      return `R$ ${Number(val).toFixed(2)}`;
+      return `R$ ${num.toFixed(2)}`;
     };
 
     if (productData.id) {
@@ -2226,8 +2320,9 @@ class DatabaseService {
         updatedAt: new Date().toISOString()
       };
 
+      let editStockMov: StockMovement | null = null;
       if (nextStock !== oldStock) {
-        this.data.stockMovements.unshift({
+        editStockMov = {
           id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           productId: existing.id,
           productName: this.data.products[idx].name,
@@ -2239,7 +2334,8 @@ class DatabaseService {
           performedByUserId: user.id,
           performedByUserName: user.name,
           timestamp: new Date().toISOString()
-        });
+        };
+        this.data.stockMovements.unshift(editStockMov);
       }
 
       this.logAudit(
@@ -2253,6 +2349,9 @@ class DatabaseService {
 
       this.saveDatabase();
       this.triggerSupabaseSync('products', this.data.products[idx], 'mapProductToSupabase');
+      if (editStockMov) {
+        this.triggerSupabaseSync('stock_movements', editStockMov, 'mapStockMovementToSupabase');
+      }
       return this.data.products[idx];
     } else {
       const resolvedPrice = parsePriceFields(productData.price, productData.priceStatus);
@@ -3738,6 +3837,7 @@ class DatabaseService {
           batch.status = 'CANCELADO';
         }
         batch.updatedAt = new Date().toISOString();
+        this.triggerSupabaseSync('billing_batches', batch, 'mapBillingBatchToSupabase');
       }
     }
 
@@ -3763,15 +3863,28 @@ class DatabaseService {
 
   // 7.2 Excluir todas as faturas antigas de todos os estudantes (Deixar a base limpa)
   public clearAllInvoices(user: { id: string; name: string; role: any }) {
-    const totalDeleted = this.data.invoices.length;
+    const deletedInvoiceIds = this.data.invoices.map(inv => inv.id);
+    const deletedBatchIds = (this.data.billingBatches || []).map(b => b.id);
+    const totalDeleted = deletedInvoiceIds.length;
     this.data.invoices = [];
     this.data.billingBatches = [];
 
     for (const sale of this.data.sales) {
+      const hadBillingLink = Boolean(sale.invoiceId || (sale.invoiceAllocations && sale.invoiceAllocations.length > 0));
       sale.invoiceId = undefined;
       sale.invoiceAllocations = undefined;
       sale.billedAmount = undefined;
       this.syncSaleBillingState(sale);
+      if (hadBillingLink) {
+        this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+      }
+    }
+
+    for (const invId of deletedInvoiceIds) {
+      this.triggerSupabaseDelete('invoices', invId);
+    }
+    for (const batchId of deletedBatchIds) {
+      this.triggerSupabaseDelete('billing_batches', batchId);
     }
 
     for (const student of this.data.students) {
@@ -3797,7 +3910,7 @@ class DatabaseService {
       this.scheduleInvoiceNotifications(invoice, student);
     } catch (err: any) {
       // Falha de notificação nunca bloqueia ou reverte emissão da fatura
-      this.data.whatsappNotifications.unshift({
+      const failNotif: WhatsAppNotification = {
         id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         type: 'NOVA_FATURA',
         recipientName: student.name,
@@ -3811,7 +3924,9 @@ class DatabaseService {
         scheduledFor: new Date().toISOString(),
         attemptsCount: 1,
         lastErrorMessage: err?.message || 'Erro ao agendar notificação'
-      });
+      };
+      this.data.whatsappNotifications.unshift(failNotif);
+      this.triggerSupabaseSync('whatsapp_notifications', failNotif, 'mapNotificationToSupabase');
     }
   }
 
@@ -3870,6 +3985,7 @@ class DatabaseService {
     );
 
     this.saveDatabase();
+    this.triggerSupabaseSync('invoices', invoice, 'mapInvoiceToSupabase');
     return { invoiceId: invoice.id, notifications: processed };
   }
 
@@ -3885,7 +4001,7 @@ class DatabaseService {
       : `(Consumo Lojinha Iceves: R$ ${invoice.canteenConsumptionTotal.toFixed(2)})`;
 
     if (sendToStudent && student.phone) {
-      this.data.whatsappNotifications.unshift({
+      const studentNotif: WhatsAppNotification = {
         id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         type: 'NOVA_FATURA',
         recipientName: student.name,
@@ -3899,14 +4015,16 @@ class DatabaseService {
         scheduledFor: new Date().toISOString(),
         sentAt: new Date().toISOString(),
         attemptsCount: 1
-      });
+      };
+      this.data.whatsappNotifications.unshift(studentNotif);
+      this.triggerSupabaseSync('whatsapp_notifications', studentNotif, 'mapNotificationToSupabase');
     }
 
     if (sendToGuardian) {
       for (const link of student.guardians) {
         const guardian = this.data.guardians.find(g => g.id === link.guardianId);
         if (guardian && guardian.phone) {
-          this.data.whatsappNotifications.unshift({
+          const guardianNotif: WhatsAppNotification = {
             id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             type: 'NOVA_FATURA',
             recipientName: guardian.name,
@@ -3920,7 +4038,9 @@ class DatabaseService {
             scheduledFor: new Date().toISOString(),
             sentAt: new Date().toISOString(),
             attemptsCount: 1
-          });
+          };
+          this.data.whatsappNotifications.unshift(guardianNotif);
+          this.triggerSupabaseSync('whatsapp_notifications', guardianNotif, 'mapNotificationToSupabase');
         }
       }
     }
@@ -4031,6 +4151,7 @@ class DatabaseService {
       const student = this.data.students.find(s => s.id === invoice.studentId);
       if (student) {
         student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - payment.amount) * 100) / 100);
+        this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
       }
 
       // Registro no livro financeiro
@@ -4049,11 +4170,11 @@ class DatabaseService {
 
       // Programar confirmação WhatsApp
       if (this.data.settings.whatsappAutoEnabled) {
-        this.data.whatsappNotifications.unshift({
+        const confirmNotif: WhatsAppNotification = {
           id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           type: 'CONFIRMACAO_PAGAMENTO',
           recipientName: payment.payerName,
-          recipientPhone: '(11) 98111-2233',
+          recipientPhone: student?.phone || '(11) 98111-2233',
           recipientRole: payment.payerRole,
           studentName: invoice.studentName,
           studentId: invoice.studentId,
@@ -4063,7 +4184,9 @@ class DatabaseService {
           scheduledFor: new Date().toISOString(),
           sentAt: new Date().toISOString(),
           attemptsCount: 1
-        });
+        };
+        this.data.whatsappNotifications.unshift(confirmNotif);
+        this.triggerSupabaseSync('whatsapp_notifications', confirmNotif, 'mapNotificationToSupabase');
       }
 
       this.logAudit(
@@ -4139,9 +4262,13 @@ class DatabaseService {
     // Sincronizar nome e avatar caso exista usuário vinculado ao aluno
     for (const u of this.data.users) {
       if (u.studentId === student.id) {
-        if (updates.name) u.name = updates.name;
-        if (updates.avatar) u.avatar = updates.avatar;
-        if (updates.email) u.email = updates.email;
+        let userChanged = false;
+        if (updates.name && u.name !== updates.name) { u.name = updates.name; userChanged = true; }
+        if (updates.avatar && u.avatar !== updates.avatar) { u.avatar = updates.avatar; userChanged = true; }
+        if (updates.email && u.email !== updates.email) { u.email = updates.email; userChanged = true; }
+        if (userChanged) {
+          this.triggerSupabaseSync('users', u, 'mapUserToSupabase');
+        }
       }
     }
 
@@ -4395,6 +4522,7 @@ class DatabaseService {
         notif.status = 'CANCELADO_FATURA_QUITADA';
         notif.lastErrorMessage = 'Envio cancelado: fatura já se encontra quitada no sistema.';
         this.saveDatabase();
+        this.triggerSupabaseSync('whatsapp_notifications', notif, 'mapNotificationToSupabase');
         return notif;
       }
     }
@@ -4405,6 +4533,7 @@ class DatabaseService {
     notif.lastErrorMessage = undefined;
 
     this.saveDatabase();
+    this.triggerSupabaseSync('whatsapp_notifications', notif, 'mapNotificationToSupabase');
     return notif;
   }
 
@@ -4690,6 +4819,7 @@ class DatabaseService {
       );
 
       this.saveDatabase();
+      this.triggerSupabaseSync('trip_operations', existing, 'mapTripOperationToSupabase');
       return existing;
     }
 
@@ -4739,6 +4869,7 @@ class DatabaseService {
     );
 
     this.saveDatabase();
+    this.triggerSupabaseSync('trip_operations', newOp, 'mapTripOperationToSupabase');
     return newOp;
   }
 
@@ -4770,6 +4901,7 @@ class DatabaseService {
     );
 
     this.saveDatabase();
+    this.triggerSupabaseDelete('trip_operations', operationId);
     return { success: true, deletedId: operationId };
   }
 
@@ -4917,6 +5049,7 @@ class DatabaseService {
         };
         this.data.stockMovements.unshift(movement);
         this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+        this.triggerSupabaseSync('stock_movements', movement, 'mapStockMovementToSupabase');
       }
     }
 
@@ -5026,7 +5159,7 @@ class DatabaseService {
       updatedStudents.push(student);
 
       this.triggerSupabaseSync('sales', newSale, 'mapSaleToSupabase');
-      this.triggerSupabaseSync('receipts', tripReceipt, 'mapReceiptToSupabase');
+      this.triggerSupabaseSync('sales_receipts', tripReceipt, 'mapReceiptToSupabase');
       this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
     });
 
@@ -5056,6 +5189,7 @@ class DatabaseService {
     );
 
     this.saveDatabase();
+    this.triggerSupabaseSync('trip_operations', draftOp, 'mapTripOperationToSupabase');
     return {
       operation: draftOp,
       salesCreated,
@@ -5176,7 +5310,7 @@ class DatabaseService {
         reversedAmount: sale.total,
       });
       if (tripRevReceipt) {
-        this.triggerSupabaseSync('receipts', tripRevReceipt, 'mapReceiptToSupabase');
+        this.triggerSupabaseSync('sales_receipts', tripRevReceipt, 'mapReceiptToSupabase');
       }
     }
 
@@ -5217,6 +5351,7 @@ class DatabaseService {
     );
 
     this.saveDatabase();
+    this.triggerSupabaseSync('trip_operations', op, 'mapTripOperationToSupabase');
     return { operation: op, reversedSale: sale, updatedStudent: student };
   }
 
@@ -5262,7 +5397,7 @@ class DatabaseService {
           const prevStock = product.currentStock;
           product.currentStock += item.quantity;
           product.updatedAt = now;
-          this.data.stockMovements.unshift({
+          const reversalMovement: StockMovement = {
             id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             productId: product.id,
             productName: product.name,
@@ -5275,8 +5410,10 @@ class DatabaseService {
             performedByUserName: user.name,
             referenceId: op.id,
             timestamp: now,
-          });
+          };
+          this.data.stockMovements.unshift(reversalMovement);
           this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
+          this.triggerSupabaseSync('stock_movements', reversalMovement, 'mapStockMovementToSupabase');
         }
       }
     }
@@ -5296,6 +5433,7 @@ class DatabaseService {
     });
 
     this.saveDatabase();
+    this.triggerSupabaseSync('trip_operations', op, 'mapTripOperationToSupabase');
     return op;
   }
 

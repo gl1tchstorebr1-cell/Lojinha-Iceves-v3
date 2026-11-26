@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useTransition, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Sidebar } from './components/layout/Sidebar';
@@ -45,9 +45,17 @@ const ReportsCenter = lazy(() => import('./components/reports/ReportsCenter').th
 const IcevesAiAssistant = lazy(() => import('./components/ai/IcevesAiAssistant').then(m => ({ default: m.IcevesAiAssistant })));
 
 const ViewFallback = () => (
-  <div className="py-20 flex flex-col items-center justify-center space-y-3">
-    <div className="w-7 h-7 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-    <p className="text-xs font-medium text-zinc-400">Carregando módulo...</p>
+  <div className="space-y-6 animate-blur-in" aria-busy="true" aria-label="Carregando módulo">
+    <div className="h-20 rounded-xl skeleton-shimmer border border-white/[0.06]" />
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="h-32 rounded-xl skeleton-shimmer border border-white/[0.06]" />
+      ))}
+    </div>
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="lg:col-span-7 h-72 rounded-xl skeleton-shimmer border border-white/[0.06]" />
+      <div className="lg:col-span-5 h-72 rounded-xl skeleton-shimmer border border-white/[0.06]" />
+    </div>
   </div>
 );
 
@@ -75,9 +83,11 @@ function AppContent() {
 
   // Layout & Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [isPending, startTransition] = useTransition();
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [showTestChecklist, setShowTestChecklist] = useState(false);
+  const hasMountedTabRef = useRef(false);
 
   // Auto switch tab when user role changes
   useEffect(() => {
@@ -185,12 +195,49 @@ function AppContent() {
   }, [canManage, isStockist, isViewer, user]);
 
   const wasOfflineRef = useRef(false);
+  const silentSyncTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (user) {
       loadData(false);
     }
   }, [user, loadData]);
+
+  // Idle prefetch of core lazy modules after login for near-instant tab switching
+  useEffect(() => {
+    if (!user) return;
+    const prefetchCoreModules = () => {
+      void import('./components/dashboard/Dashboard');
+      void import('./components/pdv/PointOfSale');
+      void import('./components/products/ProductsAndStock');
+      void import('./components/receipts/SalesReceiptsManagement');
+      void import('./components/invoices/InvoicesAndClosing');
+    };
+    if (typeof window === 'undefined') return;
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof win.requestIdleCallback === 'function') {
+      const idleId = win.requestIdleCallback(prefetchCoreModules, { timeout: 2500 });
+      return () => {
+        win.cancelIdleCallback?.(idleId);
+      };
+    }
+    const timer = window.setTimeout(prefetchCoreModules, 1200);
+    return () => window.clearTimeout(timer);
+  }, [user]);
+
+  // Smoothly return viewport to top when switching views
+  useEffect(() => {
+    if (!hasMountedTabRef.current) {
+      hasMountedTabRef.current = true;
+      return;
+    }
+    if (typeof window !== 'undefined' && window.scrollY > 120) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [activeTab]);
 
   // Auto-sync only when transitioning back online after being offline
   useEffect(() => {
@@ -204,11 +251,26 @@ function AppContent() {
     }
   }, [isOnline, user, loadData]);
 
+  // Coalesce rapid silent background refreshes to avoid redundant multi-endpoint bursts
   const refreshSilent = useCallback(() => {
-    loadData(true);
+    if (silentSyncTimerRef.current !== null) {
+      window.clearTimeout(silentSyncTimerRef.current);
+    }
+    silentSyncTimerRef.current = window.setTimeout(() => {
+      silentSyncTimerRef.current = null;
+      loadData(true);
+    }, 220);
   }, [loadData]);
 
-  // Safe navigation handler enforcing RBAC roles
+  useEffect(() => {
+    return () => {
+      if (silentSyncTimerRef.current !== null) {
+        window.clearTimeout(silentSyncTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Safe navigation handler enforcing RBAC roles with non-blocking transitions
   const handleSafeNavigate = useCallback(
     (tab: string) => {
       const adminOnlyTabs = ['whatsapp', 'audit', 'settings'];
@@ -225,6 +287,12 @@ function AppContent() {
         return 'dashboard';
       };
 
+      const switchTo = (nextTab: string) => {
+        startTransition(() => {
+          setActiveTab(nextTab);
+        });
+      };
+
       if (tab === 'pdv_passeios') {
         const cashierPermitted =
           isCashier &&
@@ -235,41 +303,41 @@ function AppContent() {
               settings?.pdvPasseiosPermissions?.cashierCanAddExpenses
           );
         if (!canManage && !cashierPermitted) {
-          setActiveTab(fallbackHome());
+          switchTo(fallbackHome());
           return;
         }
-        setActiveTab(tab);
+        switchTo(tab);
         return;
       }
 
       if (adminOnlyTabs.includes(tab) && !isAdmin) {
-        setActiveTab(fallbackHome());
+        switchTo(fallbackHome());
         return;
       }
 
       if (managerOrAdminTabs.includes(tab) && !canManage && !(isViewer && tab === 'reports')) {
-        setActiveTab(fallbackHome());
+        switchTo(fallbackHome());
         return;
       }
 
       if (cashTabs.includes(tab) && !(canManage || isCashier || isViewer)) {
-        setActiveTab(fallbackHome());
+        switchTo(fallbackHome());
         return;
       }
 
       if (pdvTabs.includes(tab) && !(canManage || isCashier)) {
-        setActiveTab(fallbackHome());
+        switchTo(fallbackHome());
         return;
       }
 
       if (stockTabs.includes(tab) && !(canManage || isCashier || isStockist || isViewer)) {
-        setActiveTab(fallbackHome());
+        switchTo(fallbackHome());
         return;
       }
 
-      setActiveTab(tab);
+      switchTo(tab);
     },
-    [isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian, role, settings]
+    [isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian, role, settings, startTransition]
   );
 
   // Handlers for POS and Sales
@@ -405,8 +473,27 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-[#fafafa] flex font-sans antialiased selection:bg-white selection:text-black">
-      
+    <div className="min-h-screen bg-[#070709] text-[#f4f4f6] flex font-sans antialiased selection:bg-emerald-500/30 selection:text-emerald-100 relative">
+      {/* Subtle Top Ambient Radial Illumination */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-x-0 top-0 h-[420px] z-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 65% 55% at 55% -10%, rgba(16, 185, 129, 0.085), rgba(20, 184, 166, 0.025) 45%, transparent 75%)',
+        }}
+      />
+
+      {/* Ultra-crisp Non-Blocking Route Transition Hairline */}
+      {isPending && (
+        <div
+          aria-hidden="true"
+          className="fixed top-0 left-0 right-0 h-[2px] z-[80] overflow-hidden bg-emerald-500/15"
+        >
+          <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-emerald-400 to-teal-300 animate-pulse" />
+        </div>
+      )}
+
       {/* Vertical Sticky Collapsible Sidebar */}
       <Sidebar 
         activeTab={activeTab} 
@@ -422,12 +509,14 @@ function AppContent() {
       />
 
       {/* Main Content Column */}
-      <div className="flex-1 flex flex-col min-h-screen min-w-0">
+      <div className="flex-1 flex flex-col min-h-screen min-w-0 relative z-10">
         
-        {/* TopBar with Search (⌘K), Notifications & Profile */}
+        {/* TopBar with Contextual Breadcrumb, Search (⌘K), Notifications & Profile */}
         <TopBar 
+          activeTab={activeTab}
           settings={settings}
           products={products}
+          students={students}
           pixPayments={pixPayments}
           isCollapsed={isCollapsed}
           setIsCollapsed={setIsCollapsed}
@@ -440,10 +529,7 @@ function AppContent() {
           <OfflineBanner lastSyncedAt={lastSyncedAt} onSyncNow={() => loadData(false)} />
 
           {isLoading && products.length === 0 ? (
-            <div className="py-24 flex flex-col items-center justify-center space-y-3">
-              <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-xs font-medium text-zinc-400">Sincronizando dados com o servidor...</p>
-            </div>
+            <ViewFallback />
           ) : (
             <div key={activeTab} className="blur-fade-stage">
               <Suspense fallback={<ViewFallback />}>
@@ -637,32 +723,33 @@ function AppContent() {
           )}
         </main>
 
-        {/* Minimal Dark Footer */}
-        <footer className="border-t border-white/[0.08] bg-[#0a0a0a] py-4 px-4 sm:px-6 lg:px-8 mt-auto text-xs text-zinc-500 animate-blur-in">
+        {/* Quiet Executive Footer */}
+        <footer className="border-t border-white/[0.06] bg-[#070709]/80 py-4 px-4 sm:px-6 lg:px-8 mt-auto text-xs text-zinc-500">
           <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <img
                 src="/assets/aistudio/image_e4461e45.png"
                 alt="Logo ICEVES"
                 decoding="async"
-                className="w-5 h-5 rounded-full object-cover bg-white ring-1 ring-emerald-500/40 shrink-0"
+                className="w-5 h-5 rounded-full object-cover bg-white ring-1 ring-emerald-500/35 shrink-0"
               />
               <span className="font-semibold text-zinc-300">{settings?.storeName || 'Lojinha Iceves'}</span>
-              <span>•</span>
-              <span className="text-zinc-400">Escola de Cristo - ICEVES • 10ª Turma (Formatura: 27 a 30)</span>
+              <span className="text-zinc-600" aria-hidden="true">·</span>
+              <span className="text-zinc-400">Escola de Cristo — ICEVES · 10ª Turma</span>
             </div>
 
             <div className="flex items-center gap-3">
               {isAdmin && (
                 <>
                   <button
+                    type="button"
                     onClick={() => setShowTestChecklist(true)}
-                    className="text-zinc-300 hover:text-white font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                    className="text-zinc-400 hover:text-white font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    12 Cenários de Teste Obrigatórios
+                    <span>Validação Operacional</span>
                   </button>
-                  <span>•</span>
+                  <span className="text-zinc-700" aria-hidden="true">·</span>
                 </>
               )}
               <span className="text-zinc-500">LGPD & Compliance Fiscal</span>

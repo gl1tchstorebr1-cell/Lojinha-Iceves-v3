@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo, useDeferredValue } from 'react';
 import { 
   Package, 
   Plus, 
@@ -27,7 +27,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { Product, StockMovement, ProductCategory } from '../../types';
-import { formatCurrency, formatDateTime, formatProductPrice, isProductPricePending } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, formatProductPrice, isProductPricePending, parsePriceValue } from '../../utils/formatters';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { 
@@ -55,6 +55,7 @@ export function ProductsAndStock({
 
   // Search & filter
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
   const [selectedCategory, setSelectedCategory] = useState<string>('TODAS');
   const [filterStockStatus, setFilterStockStatus] = useState<'ALL' | 'OK' | 'LOW' | 'OUT' | 'PENDING_PRICE' | 'ARCHIVED'>('ALL');
   const [activeTab, setActiveTab] = useState<'catalog' | 'movements'>('catalog');
@@ -88,6 +89,9 @@ export function ProductsAndStock({
   const [isCompressingSlot, setIsCompressingSlot] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [priceInput, setPriceInput] = useState<string>('');
+  const [costPriceInput, setCostPriceInput] = useState<string>('');
+  const priceInputRef = useRef<HTMLInputElement | null>(null);
 
   // Form states for Stock Adjust
   const [adjustType, setAdjustType] = useState<'ENTRADA' | 'AJUSTE_MANUAL' | 'PERDA_AVARIA'>('ENTRADA');
@@ -97,47 +101,79 @@ export function ProductsAndStock({
   const [adjustError, setAdjustError] = useState<string | null>(null);
 
   // 6 categorias oficiais do catálogo
-  const categories: (ProductCategory | 'TODAS')[] = [
-    'TODAS',
-    ...OFFICIAL_PRODUCT_CATEGORIES
-  ];
+  const categories = useMemo<(ProductCategory | 'TODAS')[]>(
+    () => ['TODAS', ...OFFICIAL_PRODUCT_CATEGORIES],
+    []
+  );
 
-  const activeProducts = products.filter(p => p.status === 'ACTIVE' && !p.archived);
-  const archivedProducts = products.filter(p => p.archived || p.status === 'INACTIVE');
+  const activeProducts = useMemo(
+    () => products.filter(p => p.status === 'ACTIVE' && !p.archived),
+    [products]
+  );
+  const archivedProducts = useMemo(
+    () => products.filter(p => p.archived || p.status === 'INACTIVE'),
+    [products]
+  );
 
   // Métricas de Estoque (ETAPA 6) sobre produtos ativos
-  const totalActiveProducts = activeProducts.length;
-  const totalUnitsInStock = activeProducts.reduce((acc, p) => acc + (Number(p.currentStock) || 0), 0);
-  const lowStockCount = activeProducts.filter(p => p.currentStock > 0 && p.currentStock <= p.minStock).length;
-  const outOfStockCount = activeProducts.filter(p => p.currentStock === 0).length;
-  const pendingPriceCount = activeProducts.filter(p => isProductPricePending(p)).length;
-  const estimatedStockValue = activeProducts.reduce((acc, p) => {
-    if (isProductPricePending(p)) return acc;
-    return acc + Number(p.price) * (Number(p.currentStock) || 0);
-  }, 0);
+  const {
+    totalActiveProducts,
+    totalUnitsInStock,
+    lowStockCount,
+    outOfStockCount,
+    pendingPriceCount,
+    estimatedStockValue,
+  } = useMemo(() => {
+    let units = 0;
+    let low = 0;
+    let out = 0;
+    let pendingPrice = 0;
+    let stockVal = 0;
+    for (const p of activeProducts) {
+      const stock = Number(p.currentStock) || 0;
+      units += stock;
+      if (stock === 0) out += 1;
+      else if (stock <= p.minStock) low += 1;
+      if (isProductPricePending(p)) {
+        pendingPrice += 1;
+      } else {
+        stockVal += Number(p.price) * stock;
+      }
+    }
+    return {
+      totalActiveProducts: activeProducts.length,
+      totalUnitsInStock: units,
+      lowStockCount: low,
+      outOfStockCount: out,
+      pendingPriceCount: pendingPrice,
+      estimatedStockValue: stockVal,
+    };
+  }, [activeProducts]);
 
   // Filtered products
-  const sourceProducts = filterStockStatus === 'ARCHIVED' ? archivedProducts : activeProducts;
-  const filteredProducts = sourceProducts.filter(p => {
-    const matchesCat = filterStockStatus === 'ARCHIVED' || selectedCategory === 'TODAS' || p.category === selectedCategory;
-    const q = searchTerm.toLowerCase();
-    const matchesSearch = !q || (
-      p.name.toLowerCase().includes(q) ||
-      p.internalCode.toLowerCase().includes(q) ||
-      (p.barcode && p.barcode.toLowerCase().includes(q))
-    );
-    let matchesStock = true;
-    if (filterStockStatus === 'OK') {
-      matchesStock = p.currentStock > p.minStock;
-    } else if (filterStockStatus === 'LOW') {
-      matchesStock = p.currentStock > 0 && p.currentStock <= p.minStock;
-    } else if (filterStockStatus === 'OUT') {
-      matchesStock = p.currentStock === 0;
-    } else if (filterStockStatus === 'PENDING_PRICE') {
-      matchesStock = isProductPricePending(p);
-    }
-    return matchesCat && matchesSearch && matchesStock;
-  });
+  const filteredProducts = useMemo(() => {
+    const sourceProducts = filterStockStatus === 'ARCHIVED' ? archivedProducts : activeProducts;
+    const q = deferredSearchTerm.trim().toLowerCase();
+    return sourceProducts.filter(p => {
+      const matchesCat = filterStockStatus === 'ARCHIVED' || selectedCategory === 'TODAS' || p.category === selectedCategory;
+      const matchesSearch = !q || (
+        p.name.toLowerCase().includes(q) ||
+        p.internalCode.toLowerCase().includes(q) ||
+        (p.barcode && p.barcode.toLowerCase().includes(q))
+      );
+      let matchesStock = true;
+      if (filterStockStatus === 'OK') {
+        matchesStock = p.currentStock > p.minStock;
+      } else if (filterStockStatus === 'LOW') {
+        matchesStock = p.currentStock > 0 && p.currentStock <= p.minStock;
+      } else if (filterStockStatus === 'OUT') {
+        matchesStock = p.currentStock === 0;
+      } else if (filterStockStatus === 'PENDING_PRICE') {
+        matchesStock = isProductPricePending(p);
+      }
+      return matchesCat && matchesSearch && matchesStock;
+    });
+  }, [activeProducts, archivedProducts, filterStockStatus, selectedCategory, deferredSearchTerm]);
 
   const openNewProductModal = () => {
     setEditingProduct(null);
@@ -156,13 +192,15 @@ export function ProductsAndStock({
       status: 'ACTIVE',
       images: ['', '', '']
     });
+    setPriceInput('');
+    setCostPriceInput('');
     setFormError(null);
     setUrlInputSlot(null);
     setUrlInputValue('');
     setIsProductModalOpen(true);
   };
 
-  const openEditProductModal = (product: Product) => {
+  const openEditProductModal = (product: Product, options?: { focusPrice?: boolean }) => {
     setEditingProduct(product);
     const existingImgs = getProductImages(product);
     const paddedImgs = [
@@ -171,19 +209,31 @@ export function ProductsAndStock({
       existingImgs[2] || ''
     ];
     const pending = isProductPricePending(product);
+    const shouldFocusPrice = Boolean(options?.focusPrice);
     setFormData({
       ...product,
       description: product.description || '',
       costPrice: product.costPrice ?? undefined,
       category: (product.category as ProductCategory) || 'Alimentos e Snacks',
       price: pending ? null : product.price,
-      priceStatus: pending ? 'PENDING' : 'DEFINED',
+      priceStatus: pending && !shouldFocusPrice ? 'PENDING' : 'DEFINED',
       images: paddedImgs
     });
+    setPriceInput(pending || product.price == null ? '' : String(product.price).replace('.', ','));
+    setCostPriceInput(
+      product.costPrice !== undefined && product.costPrice !== null
+        ? String(product.costPrice).replace('.', ',')
+        : ''
+    );
     setFormError(null);
     setUrlInputSlot(null);
     setUrlInputValue('');
     setIsProductModalOpen(true);
+    if (shouldFocusPrice) {
+      setTimeout(() => {
+        priceInputRef.current?.focus();
+      }, 60);
+    }
   };
 
   const handleSlotImageUpload = async (slotIdx: number, file: File) => {
@@ -230,13 +280,20 @@ export function ProductsAndStock({
       setFormError('O nome do produto é obrigatório.');
       return;
     }
-    const isPending = formData.priceStatus === 'PENDING';
-    if (!isPending) {
-      const numericPrice = Number(formData.price);
-      if (Number.isNaN(numericPrice) || numericPrice <= 0) {
-        setFormError('Informe um preço válido maior que R$ 0,00 ou marque como "Preço não definido".');
-        return;
-      }
+
+    const parsedSalePrice = parsePriceValue(priceInput);
+    const hasPositiveSalePrice = parsedSalePrice !== null && parsedSalePrice > 0;
+    const isPending = !hasPositiveSalePrice && formData.priceStatus === 'PENDING';
+
+    if (parsedSalePrice !== null && parsedSalePrice < 0) {
+      setFormError('O preço de venda não pode ser negativo.');
+      return;
+    }
+
+    if (!isPending && !hasPositiveSalePrice) {
+      setFormError('Informe um Preço de Venda válido maior que R$ 0,00 ou marque a opção "Pendente".');
+      priceInputRef.current?.focus();
+      return;
     }
     if ((Number(formData.currentStock) || 0) < 0) {
       setFormError('O estoque não pode ser negativo.');
@@ -248,15 +305,18 @@ export function ProductsAndStock({
 
     try {
       const finalImages = formData.images.filter(img => Boolean(img && img.trim()));
-      const parsedCost = formData.costPrice !== undefined && formData.costPrice !== null && !Number.isNaN(Number(formData.costPrice))
-        ? Math.max(0, Number(formData.costPrice))
-        : undefined;
+      const parsedCostRaw = parsePriceValue(costPriceInput);
+      const parsedCost =
+        parsedCostRaw !== null && parsedCostRaw >= 0
+          ? Math.round(parsedCostRaw * 100) / 100
+          : undefined;
+      const finalPrice = hasPositiveSalePrice ? Math.round(parsedSalePrice! * 100) / 100 : null;
       const payload: Partial<Product> = {
         ...formData,
         description: formData.description?.trim() || undefined,
-        price: isPending ? null : Number(formData.price),
+        price: finalPrice,
         costPrice: parsedCost,
-        priceStatus: isPending ? 'PENDING' : 'DEFINED',
+        priceStatus: finalPrice !== null ? 'DEFINED' : 'PENDING',
         currentStock: Math.max(0, Number(formData.currentStock) || 0),
         minStock: Math.max(1, Number(formData.minStock) || 1),
         images: finalImages,
@@ -266,6 +326,9 @@ export function ProductsAndStock({
       if (editingProduct) {
         const updated = await api.updateProduct(editingProduct.id, payload);
         onProductSaved(updated);
+        if (galleryProduct && galleryProduct.id === updated.id) {
+          setGalleryProduct(updated);
+        }
       } else {
         const created = await api.createProduct(payload);
         onProductSaved(created);
@@ -633,7 +696,7 @@ export function ProductsAndStock({
                             {canEditInventory && !product.archived && (
                               <button
                                 type="button"
-                                onClick={() => openEditProductModal(product)}
+                                onClick={() => openEditProductModal(product, { focusPrice: true })}
                                 className="text-[10px] text-emerald-400 hover:underline font-semibold cursor-pointer"
                               >
                                 Definir preço
@@ -1003,58 +1066,85 @@ export function ProductsAndStock({
                       <input
                         type="checkbox"
                         checked={formData.priceStatus === 'PENDING'}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            priceStatus: e.target.checked ? 'PENDING' : 'DEFINED',
-                            price: e.target.checked ? null : (formData.price && formData.price > 0 ? formData.price : 0)
-                          })
-                        }
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          if (checked) {
+                            setPriceInput('');
+                            setFormData({
+                              ...formData,
+                              priceStatus: 'PENDING',
+                              price: null
+                            });
+                          } else {
+                            setFormData({
+                              ...formData,
+                              priceStatus: 'DEFINED',
+                              price: parsePriceValue(priceInput)
+                            });
+                            setTimeout(() => priceInputRef.current?.focus(), 20);
+                          }
+                        }}
                         className="rounded border-zinc-600 text-amber-500 focus:ring-amber-500"
                       />
                       <span>Pendente</span>
                     </label>
                   </div>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    disabled={formData.priceStatus === 'PENDING'}
-                    placeholder={formData.priceStatus === 'PENDING' ? 'Preço pendente' : 'Ex: 15.00'}
-                    value={formData.priceStatus === 'PENDING' ? '' : (formData.price ?? '')}
+                    ref={priceInputRef}
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={formData.priceStatus === 'PENDING' ? 'Digite o preço (ex: 25,00)' : 'Ex: 15,00'}
+                    value={priceInput}
                     onChange={(e) => {
                       const val = e.target.value;
+                      setPriceInput(val);
+                      const parsed = parsePriceValue(val);
+                      const hasValue = val.trim().length > 0;
                       setFormData({
                         ...formData,
-                        priceStatus: 'DEFINED',
-                        price: val === '' ? 0 : parseFloat(val)
+                        priceStatus: hasValue ? 'DEFINED' : formData.priceStatus,
+                        price: parsed
                       });
                     }}
-                    className="w-full p-2 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-mono font-bold disabled:opacity-50"
-                    required={formData.priceStatus !== 'PENDING'}
+                    className={`w-full p-2 bg-[#141414] border rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-mono font-bold ${
+                      formData.priceStatus === 'PENDING' ? 'border-amber-500/60' : 'border-[#282828]'
+                    }`}
                   />
+                  {formData.priceStatus === 'PENDING' && (
+                    <p className="text-[10px] text-amber-300/90 mt-1">
+                      Digite o valor de venda acima para remover o aviso &ldquo;Preço não definido&rdquo;.
+                    </p>
+                  )}
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block font-bold text-[#D4D4D8]">Preço Custo (R$)</label>
-                    {formData.priceStatus !== 'PENDING' && Number(formData.price) > 0 && Number(formData.costPrice) > 0 && (
-                      <span className="text-[10px] font-mono text-emerald-400">
-                        Margem {(((Number(formData.price) - Number(formData.costPrice)) / Number(formData.price)) * 100).toFixed(0)}%
-                      </span>
-                    )}
+                    {(() => {
+                      const pSale = parsePriceValue(priceInput);
+                      const pCost = parsePriceValue(costPriceInput);
+                      if (pSale && pSale > 0 && pCost && pCost > 0) {
+                        return (
+                          <span className="text-[10px] font-mono text-emerald-400">
+                            Margem {(((pSale - pCost) / pSale) * 100).toFixed(0)}%
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
+                    inputMode="decimal"
                     placeholder="Opcional"
-                    value={formData.costPrice ?? ''}
+                    value={costPriceInput}
                     onChange={(e) => {
                       const val = e.target.value;
+                      setCostPriceInput(val);
+                      const parsed = parsePriceValue(val);
                       setFormData({
                         ...formData,
-                        costPrice: val === '' ? undefined : parseFloat(val)
+                        costPrice: parsed === null ? undefined : parsed
                       });
                     }}
                     className="w-full p-2 bg-[#141414] border border-[#282828] rounded-xl text-[#F5F5F5] focus:border-emerald-500 focus:outline-none font-mono"

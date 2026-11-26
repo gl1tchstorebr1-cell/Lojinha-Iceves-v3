@@ -128,10 +128,11 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     if (pathname === '/api/auth/register' && method === 'POST') {
       const { name, email, password, role, phone } = req.body || {};
       const newUser = db.registerUser({ name, email, password, role, phone });
+      const { password: _removedPassword, ...safeNewUser } = newUser;
       return {
         status: 201,
         data: {
-          user: newUser,
+          user: safeNewUser,
           token: `token_${newUser.id}_${Date.now()}`
         }
       };
@@ -611,6 +612,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         return { status: 403, data: { error: 'Você não possui permissão para criar ou editar operações no PDV de Passeios.' } };
       }
       const savedDraft = db.saveTripOperationDraft(req.body || {}, currentUser);
+      await db.flushSupabaseSync();
       return { status: 200, data: savedDraft };
     }
 
@@ -619,6 +621,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         return { status: 403, data: { error: 'Você não possui autorização para confirmar lançamentos financeiros no PDV de Passeios.' } };
       }
       const launched = db.confirmAndLaunchTripOperation(req.body || {}, currentUser);
+      await db.flushSupabaseSync();
       return { status: 201, data: launched };
     }
 
@@ -637,6 +640,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
           },
           currentUser
         );
+        await db.flushSupabaseSync();
         return { status: 200, data: reversed };
       }
 
@@ -652,6 +656,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
           },
           currentUser
         );
+        await db.flushSupabaseSync();
         return { status: 200, data: reversedOp };
       }
 
@@ -660,6 +665,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
           return { status: 403, data: { error: 'Sem permissão para descartar rascunho de passeio.' } };
         }
         const deleted = db.deleteTripOperationDraft(subPath, currentUser);
+        await db.flushSupabaseSync();
         return { status: 200, data: deleted };
       }
     }
@@ -1063,6 +1069,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     if (pathname === '/api/mercadopago/webhook' && (method === 'POST' || method === 'GET')) {
       const queryParams = Object.fromEntries(url.searchParams.entries());
       const webhookResult = await handleMercadoPagoWebhookEvent(req.body, queryParams, req.headers);
+      await db.flushSupabaseSync();
       return { status: 200, data: webhookResult };
     }
 

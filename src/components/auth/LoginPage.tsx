@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Lock, 
   Mail, 
@@ -110,18 +111,29 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-[#fafafa] flex flex-col justify-center items-center p-4 sm:p-6 selection:bg-emerald-500 selection:text-black">
+    <div className="min-h-screen bg-[#070709] text-[#f4f4f6] flex flex-col justify-center items-center p-4 sm:p-6 selection:bg-emerald-500/30 selection:text-emerald-100 relative overflow-hidden">
       
-      {/* Background ambient glow */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[650px] h-[380px] bg-gradient-to-tr from-emerald-500/15 via-teal-500/10 to-transparent blur-[130px] rounded-full" />
+      {/* Atmospheric Radial Spotlight Backdrop */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[480px]"
+          style={{
+            background:
+              'radial-gradient(ellipse 60% 55% at 50% 10%, rgba(16, 185, 129, 0.14), rgba(20, 184, 166, 0.04) 45%, transparent 75%)',
+          }}
+        />
       </div>
 
-      <div className="w-full max-w-md relative z-10 space-y-6">
+      <div className="w-full max-w-[440px] relative z-10 space-y-6">
         
         {/* Brand Header */}
-        <div className="text-center space-y-2.5 animate-blur-in">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/40 shadow-xl shadow-emerald-500/20 mb-1 overflow-hidden">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
+          className="text-center space-y-3"
+        >
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white p-0.5 ring-2 ring-emerald-500/35 shadow-[0_12px_40px_-8px_rgba(16,185,129,0.4)] mb-1 overflow-hidden">
             <img
               src="/assets/aistudio/image_e4461e45.png"
               alt="Logo ICEVES"
@@ -131,19 +143,21 @@ export function LoginPage() {
           <h1 className="text-2xl font-bold tracking-tight text-white">
             Lojinha Iceves — Escola de Cristo
           </h1>
-          <p className="text-xs text-zinc-400 max-w-sm mx-auto">
-            10ª Turma (Formatura: 27 a 30) • Ponto de Venda, Estoque, Passeios & Faturamento
+          <p className="text-xs text-zinc-400 max-w-sm mx-auto leading-relaxed">
+            10ª Turma · Ponto de Venda, Estoque, Recibos & Gestão Financeira
           </p>
-        </div>
+        </motion.div>
 
         {/* Main Authentication Card */}
-        <div
-          className="rounded-2xl bg-[#111111] border border-white/[0.08] p-6 sm:p-7 shadow-2xl relative overflow-hidden animate-blur-in"
-          style={{ animationDelay: '75ms' }}
+        <motion.div
+          initial={{ opacity: 0, y: 14, scale: 0.99 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.4, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+          className="executive-surface rounded-2xl p-6 sm:p-7 shadow-[0_28px_80px_-20px_rgba(0,0,0,0.9)] relative overflow-hidden"
         >
           
-          {/* Navigation Tabs between Login & Register */}
-          <div className="flex items-center gap-1 bg-[#18181b] p-1 rounded-xl mb-6 border border-white/[0.06]">
+          {/* Sliding Spring Segmented Control between Login & Register */}
+          <div className="grid grid-cols-2 gap-1 bg-black/40 p-1 rounded-xl mb-6 border border-white/[0.06] relative">
             <button
               type="button"
               onClick={() => {
@@ -151,14 +165,19 @@ export function LoginPage() {
                 setError(null);
                 setSuccessMessage(null);
               }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                activeTab === 'LOGIN'
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md'
-                  : 'text-zinc-400 hover:text-white'
+              className={`relative flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'LOGIN' ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Entrar com Senha</span>
+              {activeTab === 'LOGIN' && (
+                <motion.span
+                  layoutId="loginAuthTabIndicator"
+                  transition={{ type: 'spring', stiffness: 480, damping: 36 }}
+                  className="absolute inset-0 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 shadow-md shadow-emerald-950/50"
+                />
+              )}
+              <LogIn className="w-3.5 h-3.5 relative z-10" />
+              <span className="relative z-10">Entrar com Senha</span>
             </button>
             <button
               type="button"
@@ -167,14 +186,19 @@ export function LoginPage() {
                 setError(null);
                 setSuccessMessage(null);
               }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                activeTab === 'REGISTER'
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md'
-                  : 'text-zinc-400 hover:text-white'
+              className={`relative flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'REGISTER' ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Criar Conta</span>
+              {activeTab === 'REGISTER' && (
+                <motion.span
+                  layoutId="loginAuthTabIndicator"
+                  transition={{ type: 'spring', stiffness: 480, damping: 36 }}
+                  className="absolute inset-0 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 shadow-md shadow-emerald-950/50"
+                />
+              )}
+              <UserPlus className="w-3.5 h-3.5 relative z-10" />
+              <span className="relative z-10">Criar Conta</span>
             </button>
           </div>
 
@@ -191,8 +215,17 @@ export function LoginPage() {
             </div>
           )}
 
+          <AnimatePresence mode="wait" initial={false}>
           {activeTab === 'LOGIN' ? (
-            <form onSubmit={handleSubmitLogin} className="space-y-4">
+            <motion.form
+              key="login-form"
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 8 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              onSubmit={handleSubmitLogin}
+              className="space-y-4"
+            >
               
               {/* Email / Matrícula */}
               <div className="space-y-1.5">
@@ -318,10 +351,18 @@ export function LoginPage() {
                   </button>
                 </p>
               </div>
-            </form>
+            </motion.form>
           ) : (
             /* Register / Create Account Form */
-            <form onSubmit={handleSubmitRegister} className="space-y-3.5">
+            <motion.form
+              key="register-form"
+              initial={{ opacity: 0, x: 8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              onSubmit={handleSubmitRegister}
+              className="space-y-3.5"
+            >
               <div className="space-y-1">
                 <label className="block text-xs font-medium text-zinc-300">Nome Completo</label>
                 <div className="relative">
@@ -452,10 +493,11 @@ export function LoginPage() {
                   </button>
                 </p>
               </div>
-            </form>
+            </motion.form>
           )}
+          </AnimatePresence>
 
-        </div>
+        </motion.div>
 
         {/* Footer info & Optional PWA Install */}
         <div className="flex flex-col items-center justify-center gap-2.5 text-center text-[11px] text-zinc-500">
@@ -466,16 +508,29 @@ export function LoginPage() {
               alt="ICEVES"
               className="w-4 h-4 rounded-full object-cover bg-white ring-1 ring-emerald-500/30"
             />
-            <span>Escola de Cristo — ICEVES • Lojinha 10ª Turma</span>
+            <span>Escola de Cristo — ICEVES · Lojinha 10ª Turma</span>
           </div>
         </div>
 
       </div>
 
       {/* Recover Password Modal */}
+      <AnimatePresence>
       {showForgotModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-xl bg-[#141414] border border-white/[0.12] p-5 shadow-2xl space-y-4">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full max-w-md rounded-2xl bg-[#111116] border border-white/[0.12] p-5 shadow-2xl space-y-4"
+          >
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-4 h-4 text-emerald-400" />
@@ -548,9 +603,10 @@ export function LoginPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
     </div>
   );

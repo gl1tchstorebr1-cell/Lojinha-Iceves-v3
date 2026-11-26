@@ -305,7 +305,8 @@ export function CashRegisterAndFinance({ sales, onCashUpdated }: CashRegisterAnd
       {activeSession ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Active Summary (7 cols) */}
-          <div className="lg:col-span-7 bg-[#1B1B1B] rounded-2xl border border-emerald-500/30 p-5 space-y-5">
+          <div className="lg:col-span-7 card-borda-conica">
+            <div className="conteudo bg-[#1B1B1B] border border-emerald-500/30 p-5 space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#262626] pb-3.5">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
@@ -395,6 +396,7 @@ export function CashRegisterAndFinance({ sales, onCashUpdated }: CashRegisterAnd
                   </div>
                 ))}
               </div>
+            </div>
             </div>
           </div>
 
@@ -489,7 +491,8 @@ export function CashRegisterAndFinance({ sales, onCashUpdated }: CashRegisterAnd
         </div>
       ) : (
         /* Open Cash Panel */
-        <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-6 max-w-xl">
+        <div className="card-borda-conica max-w-xl">
+          <div className="conteudo bg-[#1B1B1B] border border-[#282828] p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
               <Lock className="w-5 h-5" />
@@ -537,6 +540,7 @@ export function CashRegisterAndFinance({ sales, onCashUpdated }: CashRegisterAnd
               <span>{isOpening ? 'Abrindo Caixa...' : 'Abrir Caixa Agora'}</span>
             </button>
           </form>
+          </div>
         </div>
       )}
 

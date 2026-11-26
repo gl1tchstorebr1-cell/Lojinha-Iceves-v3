@@ -257,7 +257,6 @@ export function PixConference({
               ))}
             </div>
           )}
-
         </div>
       ) : activeTab === 'history' ? (
         /* History Tab */

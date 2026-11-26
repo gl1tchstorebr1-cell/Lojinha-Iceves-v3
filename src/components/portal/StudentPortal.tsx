@@ -33,6 +33,7 @@ import { useAuth } from '../../context/AuthContext';
 import { MercadoPagoCheckoutModal } from '../payment/MercadoPagoCheckoutModal';
 import { ReceiptPreviewModal } from '../receipts/ReceiptPreviewModal';
 import { downloadReceiptPdf } from '../../utils/receiptPdf';
+import { getInitialsAvatar } from '../../utils/avatar';
 
 const STUDENT_CATEGORIES: ProductCategory[] = OFFICIAL_PRODUCT_CATEGORIES;
 
@@ -251,8 +252,9 @@ export function StudentPortal({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative z-10">
           <div className="flex items-center gap-4">
             <img 
-              src={student.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120'} 
+              src={student.avatar || getInitialsAvatar(student.name)} 
               alt={student.name}
+              referrerPolicy="no-referrer"
               className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500/40 shadow-lg"
             />
             <div>
@@ -277,17 +279,23 @@ export function StudentPortal({
 
           {/* Quick Balance Indicators */}
           <div className="flex flex-wrap gap-3 text-xs">
-            <div className="bg-[#151515] px-4 py-3 rounded-xl border border-[#282828] min-w-[140px]">
-              <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Consumo Aberto</span>
-              <span className="text-lg font-bold text-emerald-400">{formatCurrency(student.currentConsumptionBalance)}</span>
+            <div className="card-borda-conica card-borda-compact min-w-[146px]">
+              <div className="conteudo bg-[#151515] px-4 py-3 border border-[#282828]">
+                <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Consumo Aberto</span>
+                <span className="text-lg font-bold text-emerald-400">{formatCurrency(student.currentConsumptionBalance)}</span>
+              </div>
             </div>
-            <div className="bg-[#151515] px-4 py-3 rounded-xl border border-[#282828] min-w-[140px]">
-              <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Passeios Disponíveis</span>
-              <span className="text-lg font-bold text-emerald-400">{activePasseios.length} passeio(s)</span>
+            <div className="card-borda-conica card-borda-compact min-w-[146px]">
+              <div className="conteudo bg-[#151515] px-4 py-3 border border-[#282828]">
+                <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Passeios Disponíveis</span>
+                <span className="text-lg font-bold text-emerald-400">{activePasseios.length} passeio(s)</span>
+              </div>
             </div>
-            <div className="bg-[#151515] px-4 py-3 rounded-xl border border-[#282828] min-w-[140px]">
-              <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Saldo Devedor Total</span>
-              <span className="text-lg font-bold text-[#F5F5F5]">{formatCurrency(student.totalOpenDebt)}</span>
+            <div className="card-borda-conica card-borda-compact min-w-[146px]">
+              <div className="conteudo bg-[#151515] px-4 py-3 border border-[#282828]">
+                <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-semibold mb-0.5">Saldo Devedor Total</span>
+                <span className="text-lg font-bold text-[#F5F5F5]">{formatCurrency(student.totalOpenDebt)}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -508,7 +516,7 @@ export function StudentPortal({
                     onClick={() => setSelectedCategory(isSelected ? 'ALL' : cat)}
                     className={`text-left p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
                       isSelected
-                        ? 'bg-emerald-950/35 border-emerald-500 ring-1 ring-emerald-500/40'
+                        ? 'bg-emerald-950/60 border-emerald-500 ring-1 ring-emerald-500/40'
                         : 'bg-[#151515] border-[#282828] hover:border-emerald-500/40'
                     }`}
                   >

@@ -97,20 +97,33 @@ export async function checkSupabaseConnection(): Promise<SupabaseStatus> {
       };
     }
 
-    const testQueries = await Promise.allSettled([
-      client.from('settings').select('id', { count: 'exact', head: true }),
-      client.from('products').select('id', { count: 'exact', head: true }),
-      client.from('students').select('id', { count: 'exact', head: true }),
-      client.from('invoices').select('id', { count: 'exact', head: true }),
-      client.from('sales').select('id', { count: 'exact', head: true }),
-      client.from('sales_receipts').select('id', { count: 'exact', head: true }),
-      client.from('passeios').select('id', { count: 'exact', head: true }),
-    ]);
+    const tableNames = [
+      'settings',
+      'users',
+      'guardians',
+      'products',
+      'students',
+      'stock_movements',
+      'invoices',
+      'billing_batches',
+      'sales',
+      'sales_receipts',
+      'pix_payments',
+      'whatsapp_notifications',
+      'audit_logs',
+      'passeios',
+      'trip_operations',
+      'cash_registers',
+      'cash_movements',
+    ];
+
+    const testQueries = await Promise.allSettled(
+      tableNames.map(tbl => client.from(tbl).select('id', { count: 'exact', head: true }))
+    );
 
     const tablesFound: string[] = [];
     const recordsCount: Record<string, number> = {};
 
-    const tableNames = ['settings', 'products', 'students', 'invoices', 'sales', 'sales_receipts', 'passeios'];
     testQueries.forEach((res, idx) => {
       const tbl = tableNames[idx];
       if (res.status === 'fulfilled' && !res.value.error) {
@@ -169,6 +182,21 @@ export function mapSettingsToSupabase(s: any) {
   };
 }
 
+function toPostgresDate(val?: string | null): string | null {
+  if (!val) return null;
+  const trimmed = String(val).trim();
+  if (!trimmed) return null;
+  const isoMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const brMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
+  const dt = new Date(trimmed);
+  if (!Number.isNaN(dt.getTime())) {
+    return dt.toISOString().substring(0, 10);
+  }
+  return null;
+}
+
 export function mapUserToSupabase(u: any) {
   return {
     id: u.id,
@@ -184,16 +212,47 @@ export function mapUserToSupabase(u: any) {
   };
 }
 
+export function mapUserFromSupabase(row: any) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    phone: row.phone || undefined,
+    avatar: row.avatar || undefined,
+    studentId: row.student_id || undefined,
+    guardianId: row.guardian_id || undefined,
+    createdAt: row.created_at || new Date().toISOString(),
+    lastLogin: row.last_login || undefined,
+  };
+}
+
 export function mapGuardianToSupabase(g: any) {
+  const rawCpf = String(g.cpf || '').trim();
+  const isMissingCpf = !rawCpf || rawCpf.toLowerCase() === 'não informado' || rawCpf.toLowerCase() === 'nao informado';
   return {
     id: g.id,
     name: g.name,
-    cpf: g.cpf,
-    email: g.email,
-    phone: g.phone,
+    cpf: isMissingCpf ? `NI-${g.id}` : rawCpf,
+    email: g.email || `${g.id}@iceves.local`,
+    phone: g.phone || '',
     relationship_default: g.relationshipDefault || 'Responsável',
     student_ids: g.studentIds || [],
     created_at: g.createdAt || new Date().toISOString(),
+  };
+}
+
+export function mapGuardianFromSupabase(row: any) {
+  const rawCpf = String(row.cpf || '').trim();
+  return {
+    id: row.id,
+    name: row.name,
+    cpf: !rawCpf || rawCpf.startsWith('NI-') ? 'Não informado' : rawCpf,
+    email: row.email || '',
+    phone: row.phone || '',
+    relationshipDefault: row.relationship_default || 'Responsável',
+    studentIds: Array.isArray(row.student_ids) ? row.student_ids : [],
+    createdAt: row.created_at || new Date().toISOString(),
   };
 }
 
@@ -210,6 +269,11 @@ export function mapStudentToSupabase(st: any) {
     default_tuition: Number(st.defaultTuition) || 0,
     current_consumption_balance: Number(st.currentConsumptionBalance) || 0,
     total_open_debt: Number(st.totalOpenDebt) || 0,
+    cpf: st.cpf || null,
+    consumption_limit: st.consumptionLimit !== undefined && st.consumptionLimit !== null ? Number(st.consumptionLimit) : null,
+    credit_balance: Number(st.creditBalance) || 0,
+    consumption_blocked: Boolean(st.consumptionBlocked),
+    consumption_blocked_reason: st.consumptionBlockedReason || null,
     payer_rule: st.payerRule || 'GUARDIAN',
     report_recipient_rule: st.reportRecipientRule || 'GUARDIAN',
     due_reminder_recipient_rule: st.dueReminderRecipientRule || 'BOTH',
@@ -222,16 +286,24 @@ export function mapStudentToSupabase(st: any) {
 }
 
 export function mapProductToSupabase(p: any) {
+  const parsedPrice = p.price === null || p.price === undefined || p.price === '' ? NaN : Number(p.price);
+  const hasValidPrice = !Number.isNaN(parsedPrice) && parsedPrice > 0;
   return {
     id: p.id,
     name: p.name,
+    description: p.description || null,
     category: p.category,
-    price: p.price === null || p.price === undefined ? 0 : Number(p.price),
+    cost_price: p.costPrice !== undefined && p.costPrice !== null ? Number(p.costPrice) : null,
+    price: hasValidPrice ? Math.round(parsedPrice * 100) / 100 : 0,
+    price_status: p.priceStatus || (hasValidPrice ? 'DEFINED' : 'PENDING'),
     internal_code: p.internalCode,
     barcode: p.barcode || null,
     current_stock: Number(p.currentStock) || 0,
     min_stock: Number(p.minStock) || 0,
     status: p.status || 'ACTIVE',
+    archived: Boolean(p.archived),
+    archived_at: p.archivedAt || null,
+    archived_reason: p.archivedReason || null,
     image_url: p.imageUrl || (Array.isArray(p.images) ? p.images[0] : null) || null,
     images: Array.isArray(p.images) ? p.images : [],
     unit: p.unit || 'un',
@@ -264,6 +336,8 @@ export function mapSaleToSupabase(sa: any) {
     student_name: sa.studentName,
     registration_number: sa.registrationNumber,
     items: sa.items || [],
+    subtotal: sa.subtotalBeforeDiscount !== undefined ? Number(sa.subtotalBeforeDiscount) : Number(sa.total) || 0,
+    discount_amount: sa.discountAmount !== undefined ? Number(sa.discountAmount) : 0,
     total: Number(sa.total) || 0,
     operator_user_id: sa.operatorUserId,
     operator_user_name: sa.operatorUserName,
@@ -282,11 +356,61 @@ export function mapSaleToSupabase(sa: any) {
     amount_paid: sa.amountPaid !== undefined ? Number(sa.amountPaid) : 0,
     change_amount: sa.changeAmount !== undefined ? Number(sa.changeAmount) : 0,
     credit_used: sa.creditUsed !== undefined ? Number(sa.creditUsed) : 0,
+    cash_session_id: sa.cashSessionId || null,
+    notes: sa.notes || null,
     terminal_id: sa.terminalId || null,
     receipt_id: sa.receiptId || null,
     receipt_code: sa.receiptCode || null,
+    origin: sa.origin || (String(sa.id || '').startsWith('PAS-') ? 'PDV_PASSEIOS' : 'LOJINHA'),
+    trip_operation_id: sa.tripOperationId || null,
+    trip_name: sa.tripName || null,
+    trip_date: toPostgresDate(sa.tripDate),
+    trip_destination: sa.tripDestination || null,
     idempotency_key: sa.idempotencyKey || null,
     created_at: sa.createdAt || new Date().toISOString(),
+  };
+}
+
+export function mapSaleFromSupabase(row: any) {
+  const isTrip = row.origin === 'PDV_PASSEIOS' || String(row.id || '').startsWith('PAS-');
+  return {
+    id: row.id,
+    studentId: row.student_id,
+    studentName: row.student_name,
+    registrationNumber: row.registration_number,
+    items: Array.isArray(row.items) ? row.items : [],
+    subtotalBeforeDiscount: row.subtotal !== null && row.subtotal !== undefined ? Number(row.subtotal) : undefined,
+    discountAmount: row.discount_amount !== null && row.discount_amount !== undefined ? Number(row.discount_amount) : undefined,
+    total: Number(row.total) || 0,
+    operatorUserId: row.operator_user_id,
+    operatorUserName: row.operator_user_name,
+    status: row.status || 'COMPLETED',
+    reversedReason: row.reversed_reason || undefined,
+    reversedByUserName: row.reversed_by_user_name || undefined,
+    reversedAt: row.reversed_at || undefined,
+    reversedAmount: row.reversed_amount !== null && row.reversed_amount !== undefined ? Number(row.reversed_amount) : undefined,
+    billingPeriod: row.billing_period,
+    invoiceId: row.invoice_id || undefined,
+    billingStatus: row.billing_status || undefined,
+    billedAmount: row.billed_amount !== null && row.billed_amount !== undefined ? Number(row.billed_amount) : undefined,
+    invoiceAllocations: Array.isArray(row.invoice_allocations) ? row.invoice_allocations : undefined,
+    paymentMethod: row.payment_method || undefined,
+    payments: Array.isArray(row.payments) ? row.payments : undefined,
+    amountPaid: row.amount_paid !== null && row.amount_paid !== undefined ? Number(row.amount_paid) : undefined,
+    changeAmount: row.change_amount !== null && row.change_amount !== undefined ? Number(row.change_amount) : undefined,
+    creditUsed: row.credit_used !== null && row.credit_used !== undefined ? Number(row.credit_used) : undefined,
+    cashSessionId: row.cash_session_id || undefined,
+    notes: row.notes || undefined,
+    terminalId: row.terminal_id || undefined,
+    receiptId: row.receipt_id || undefined,
+    receiptCode: row.receipt_code || undefined,
+    origin: (isTrip ? 'PDV_PASSEIOS' : 'LOJINHA') as 'LOJINHA' | 'PDV_PASSEIOS',
+    tripOperationId: row.trip_operation_id || undefined,
+    tripName: row.trip_name || undefined,
+    tripDate: row.trip_date || undefined,
+    tripDestination: row.trip_destination || undefined,
+    idempotencyKey: row.idempotency_key || undefined,
+    createdAt: row.created_at || new Date().toISOString(),
   };
 }
 
@@ -316,6 +440,7 @@ export function mapReceiptToSupabase(rec: any) {
 }
 
 export function mapInvoiceToSupabase(inv: any) {
+  const fallbackDate = new Date().toISOString().substring(0, 10);
   return {
     id: inv.id,
     student_id: inv.studentId,
@@ -324,8 +449,8 @@ export function mapInvoiceToSupabase(inv: any) {
     billing_period: inv.billingPeriod,
     billing_type: inv.billingType || 'FECHAMENTO_MENSAL',
     batch_id: inv.batchId || null,
-    period_start: inv.periodStart || null,
-    period_end: inv.periodEnd || null,
+    period_start: toPostgresDate(inv.periodStart),
+    period_end: toPostgresDate(inv.periodEnd),
     billing_label: inv.billingLabel || null,
     tuition_amount: Number(inv.tuitionAmount) || 0,
     canteen_consumption_total: Number(inv.canteenConsumptionTotal) || 0,
@@ -336,8 +461,8 @@ export function mapInvoiceToSupabase(inv: any) {
     gross_total: Number(inv.grossTotal) || 0,
     paid_total: Number(inv.paidTotal) || 0,
     remaining_balance: Number(inv.remainingBalance) || 0,
-    closing_date: inv.closingDate,
-    due_date: inv.dueDate,
+    closing_date: toPostgresDate(inv.closingDate) || fallbackDate,
+    due_date: toPostgresDate(inv.dueDate) || fallbackDate,
     status: inv.status || 'PUBLICADA',
     sales_ids: inv.salesIds || [],
     sale_item_links: inv.saleItemLinks || [],
@@ -359,14 +484,15 @@ export function mapInvoiceToSupabase(inv: any) {
 }
 
 export function mapBillingBatchToSupabase(b: any) {
+  const fallbackDate = new Date().toISOString().substring(0, 10);
   return {
     id: b.id,
     type: b.type,
     billing_period: b.billingPeriod,
-    period_start: b.periodStart || null,
-    period_end: b.periodEnd || null,
+    period_start: toPostgresDate(b.periodStart),
+    period_end: toPostgresDate(b.periodEnd),
     billing_label: b.billingLabel || null,
-    due_date: b.dueDate,
+    due_date: toPostgresDate(b.dueDate) || fallbackDate,
     scope: b.scope || 'ALL_STUDENTS',
     class_group_filter: b.classGroupFilter || null,
     students_count: Number(b.studentsCount) || 0,
@@ -449,7 +575,7 @@ export function mapPasseioToSupabase(p: any) {
     nome: p.nome,
     valor: Number(p.valor) || 0,
     descricao: p.descricao || null,
-    data_passeio: p.dataPasseio || p.data_passeio || null,
+    data_passeio: toPostgresDate(p.dataPasseio || p.data_passeio),
     ativo: p.ativo !== undefined ? Boolean(p.ativo) : true,
     created_at: p.createdAt || p.created_at || new Date().toISOString(),
     updated_at: p.updatedAt || p.updated_at || new Date().toISOString(),
@@ -469,15 +595,284 @@ export function mapPasseioFromSupabase(row: any) {
   };
 }
 
+export function mapTripOperationToSupabase(op: any) {
+  return {
+    id: op.id,
+    catalog_passeio_id: op.catalogPasseioId || null,
+    name: op.name,
+    description: op.description || '',
+    trip_date: toPostgresDate(op.tripDate) || new Date().toISOString().substring(0, 10),
+    destination: op.destination,
+    notes: op.notes || null,
+    responsible_user_id: op.responsibleUserId,
+    responsible_user_name: op.responsibleUserName,
+    status: op.status || 'RASCUNHO',
+    selection_mode: op.selectionMode || 'ALL_STUDENTS',
+    distribution_method: op.distributionMethod || 'IGUALITARIA',
+    fixed_value_per_student: op.fixedValuePerStudent !== undefined && op.fixedValuePerStudent !== null ? Number(op.fixedValuePerStudent) : null,
+    items: op.items || [],
+    participants: op.participants || [],
+    total_expenses: Number(op.totalExpenses) || 0,
+    total_distributed: Number(op.totalDistributed) || 0,
+    idempotency_key: op.idempotencyKey || null,
+    launched_at: op.launchedAt || null,
+    launched_by_user_name: op.launchedByUserName || null,
+    history: op.history || [],
+    created_at: op.createdAt || new Date().toISOString(),
+    updated_at: op.updatedAt || new Date().toISOString(),
+  };
+}
+
+export function mapTripOperationFromSupabase(row: any) {
+  return {
+    id: row.id,
+    catalogPasseioId: row.catalog_passeio_id || undefined,
+    name: row.name,
+    description: row.description || '',
+    tripDate: row.trip_date,
+    destination: row.destination,
+    notes: row.notes || undefined,
+    responsibleUserId: row.responsible_user_id,
+    responsibleUserName: row.responsible_user_name,
+    status: row.status || 'RASCUNHO',
+    selectionMode: row.selection_mode || 'ALL_STUDENTS',
+    distributionMethod: row.distribution_method || 'IGUALITARIA',
+    fixedValuePerStudent: row.fixed_value_per_student !== null && row.fixed_value_per_student !== undefined ? Number(row.fixed_value_per_student) : undefined,
+    items: Array.isArray(row.items) ? row.items : [],
+    participants: Array.isArray(row.participants) ? row.participants : [],
+    totalExpenses: Number(row.total_expenses) || 0,
+    totalDistributed: Number(row.total_distributed) || 0,
+    idempotencyKey: row.idempotency_key || undefined,
+    launchedAt: row.launched_at || undefined,
+    launchedByUserName: row.launched_by_user_name || undefined,
+    history: Array.isArray(row.history) ? row.history : [],
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+export function mapCashRegisterToSupabase(s: any) {
+  return {
+    id: s.id,
+    opened_by_user_id: s.openedByUserId,
+    opened_by_name: s.openedByUserName,
+    closed_by_user_id: s.closedByUserId || null,
+    closed_by_name: s.closedByUserName || null,
+    opened_at: s.openedAt || new Date().toISOString(),
+    closed_at: s.closedAt || null,
+    opening_balance: Number(s.openingBalance) || 0,
+    expected_balance: s.expectedBalance !== undefined && s.expectedBalance !== null ? Number(s.expectedBalance) : null,
+    counted_balance: s.countedBalance !== undefined && s.countedBalance !== null ? Number(s.countedBalance) : null,
+    difference_amount: s.difference !== undefined && s.difference !== null ? Number(s.difference) : null,
+    status: s.status || 'ABERTO',
+    notes: s.notes || null,
+    payment_totals: s.paymentTotals || {},
+  };
+}
+
+export function mapCashRegisterFromSupabase(row: any) {
+  return {
+    id: row.id,
+    status: row.status || 'ABERTO',
+    openedAt: row.opened_at,
+    openedByUserId: row.opened_by_user_id,
+    openedByUserName: row.opened_by_name,
+    openingBalance: Number(row.opening_balance) || 0,
+    closedAt: row.closed_at || undefined,
+    closedByUserId: row.closed_by_user_id || undefined,
+    closedByUserName: row.closed_by_name || undefined,
+    expectedBalance: row.expected_balance !== null && row.expected_balance !== undefined ? Number(row.expected_balance) : undefined,
+    countedBalance: row.counted_balance !== null && row.counted_balance !== undefined ? Number(row.counted_balance) : undefined,
+    difference: row.difference_amount !== null && row.difference_amount !== undefined ? Number(row.difference_amount) : undefined,
+    notes: row.notes || undefined,
+  };
+}
+
+export function mapCashMovementToSupabase(m: any) {
+  return {
+    id: m.id,
+    cash_register_id: m.sessionId,
+    type: m.type,
+    amount: Number(m.amount) || 0,
+    payment_method: m.paymentMethod || 'DINHEIRO',
+    description: m.description,
+    reference_id: m.referenceId || null,
+    performed_by_user_id: m.performedByUserId,
+    performed_by_name: m.performedByUserName,
+    timestamp: m.timestamp || new Date().toISOString(),
+  };
+}
+
+export function mapCashMovementFromSupabase(row: any) {
+  return {
+    id: row.id,
+    sessionId: row.cash_register_id,
+    type: row.type,
+    paymentMethod: row.payment_method || 'DINHEIRO',
+    amount: Number(row.amount) || 0,
+    description: row.description,
+    referenceId: row.reference_id || undefined,
+    performedByUserId: row.performed_by_user_id,
+    performedByUserName: row.performed_by_name,
+    timestamp: row.timestamp || new Date().toISOString(),
+  };
+}
+
+export function mapCustomerAccountMovementToSupabase(m: any) {
+  return {
+    id: m.id,
+    student_id: m.studentId,
+    operation: m.operation,
+    amount: Number(m.amount) || 0,
+    reason: m.reason,
+    performed_by_user_id: m.performedByUserId,
+    performed_by_name: m.performedByUserName,
+    created_at: m.createdAt || new Date().toISOString(),
+  };
+}
+
+export function mapStockMovementFromSupabase(row: any) {
+  return {
+    id: row.id,
+    productId: row.product_id,
+    productName: row.product_name,
+    type: row.type,
+    quantity: Number(row.quantity) || 0,
+    previousStock: Number(row.previous_stock) || 0,
+    newStock: Number(row.new_stock) || 0,
+    reason: row.reason,
+    performedByUserId: row.performed_by_user_id,
+    performedByUserName: row.performed_by_user_name,
+    referenceId: row.reference_id || undefined,
+    timestamp: row.timestamp || new Date().toISOString(),
+  };
+}
+
+export function mapPixPaymentFromSupabase(row: any) {
+  return {
+    id: row.id,
+    invoiceId: row.invoice_id,
+    invoiceCode: row.invoice_code || row.invoice_id,
+    studentId: row.student_id,
+    studentName: row.student_name,
+    payerName: row.payer_name,
+    payerRole: row.payer_role || 'RESPONSAVEL',
+    amount: Number(row.amount) || 0,
+    transactionReference: row.transaction_reference,
+    receiptAttachment: row.receipt_attachment || undefined,
+    receiptNotes: row.receipt_notes || undefined,
+    status: row.status || 'AGUARDANDO_CONFERENCIA',
+    registeredByUserId: row.registered_by_user_id,
+    registeredByUserName: row.registered_by_user_name,
+    registeredAt: row.registered_at || new Date().toISOString(),
+    reviewedByUserId: row.reviewed_by_user_id || undefined,
+    reviewedByUserName: row.reviewed_by_user_name || undefined,
+    reviewedAt: row.reviewed_at || undefined,
+    reviewDecisionReason: row.review_decision_reason || undefined,
+  };
+}
+
+export function mapNotificationFromSupabase(row: any) {
+  return {
+    id: row.id,
+    type: row.type,
+    recipientName: row.recipient_name,
+    recipientPhone: row.recipient_phone,
+    recipientRole: row.recipient_role,
+    studentName: row.student_name,
+    studentId: row.student_id || undefined,
+    invoiceId: row.invoice_id || undefined,
+    messageText: row.message_text,
+    status: row.status || 'PROGRAMADO',
+    scheduledFor: row.scheduled_for || new Date().toISOString(),
+    sentAt: row.sent_at || undefined,
+    attemptsCount: Number(row.attempts_count) || 0,
+    lastErrorMessage: row.last_error_message || undefined,
+    metadata: row.metadata || undefined,
+  };
+}
+
+export function mapBillingBatchFromSupabase(row: any) {
+  return {
+    id: row.id,
+    type: row.type,
+    billingPeriod: row.billing_period,
+    periodStart: row.period_start || undefined,
+    periodEnd: row.period_end || undefined,
+    billingLabel: row.billing_label || undefined,
+    dueDate: row.due_date,
+    scope: row.scope || 'ALL_STUDENTS',
+    classGroupFilter: row.class_group_filter || undefined,
+    studentsCount: Number(row.students_count) || 0,
+    invoicesCount: Number(row.invoices_count) || 0,
+    salesCount: Number(row.sales_count) || 0,
+    totalAmount: Number(row.total_amount) || 0,
+    invoiceIds: Array.isArray(row.invoice_ids) ? row.invoice_ids : [],
+    createdByUserId: row.created_by_user_id,
+    createdByUserName: row.created_by_user_name,
+    status: row.status || 'CONCLUIDO',
+    idempotencyKey: row.idempotency_key || undefined,
+    notes: row.notes || undefined,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+export function mapReceiptFromSupabase(row: any) {
+  return {
+    id: row.id,
+    receiptCode: row.receipt_code,
+    saleId: row.sale_id,
+    version: Number(row.version) || 1,
+    status: row.status || 'ATIVO',
+    institution: row.institution || {},
+    saleSnapshot: row.sale_snapshot || {},
+    studentSnapshot: row.student_snapshot || {},
+    items: Array.isArray(row.items) ? row.items : [],
+    financialSummary: row.financial_summary || {},
+    payments: Array.isArray(row.payments) ? row.payments : [],
+    operational: row.operational || {},
+    reversals: Array.isArray(row.reversals) ? row.reversals : [],
+    reprintCount: Number(row.reprint_count) || 0,
+    lastReprintedAt: row.last_reprinted_at || undefined,
+    lastReprintedByUserName: row.last_reprinted_by_user_name || undefined,
+    customHeaderSnapshot: row.custom_header_snapshot || undefined,
+    customFooterSnapshot: row.custom_footer_snapshot || undefined,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
 // ============================================================================
 // SINGLE RECORD ASYNC SYNC HELPER (Auto-Sync)
 // ============================================================================
 
 const permissionDeniedBackoff = new Map<string, number>();
+const missingColumnsCache = new Map<string, Set<string>>();
 
 function stripExtendedColumns(table: string, row: Record<string, any>): Record<string, any> | null {
-  if (table === 'products' && 'images' in row) {
-    const { images, ...rest } = row;
+  if (table === 'products') {
+    const {
+      images,
+      description,
+      cost_price,
+      price_status,
+      archived,
+      archived_at,
+      archived_reason,
+      ...rest
+    } = row;
+    return rest;
+  }
+  if (table === 'students') {
+    const {
+      cpf,
+      consumption_limit,
+      credit_balance,
+      consumption_blocked,
+      consumption_blocked_reason,
+      ...rest
+    } = row;
     return rest;
   }
   if (table === 'settings' && 'receipt_settings' in row) {
@@ -486,6 +881,11 @@ function stripExtendedColumns(table: string, row: Record<string, any>): Record<s
   }
   if (table === 'sales') {
     const {
+      subtotal,
+      discount_amount,
+      payment_method,
+      cash_session_id,
+      notes,
       reversed_amount,
       billing_status,
       billed_amount,
@@ -497,6 +897,11 @@ function stripExtendedColumns(table: string, row: Record<string, any>): Record<s
       terminal_id,
       receipt_id,
       receipt_code,
+      origin,
+      trip_operation_id,
+      trip_name,
+      trip_date,
+      trip_destination,
       ...rest
     } = row;
     return rest;
@@ -522,6 +927,123 @@ function stripExtendedColumns(table: string, row: Record<string, any>): Record<s
   return null;
 }
 
+function extractMissingColumn(errorMessage?: string): string | null {
+  if (!errorMessage) return null;
+  const schemaCacheMatch = errorMessage.match(/Could not find the '([^']+)' column of '[^']+' in the schema cache/i);
+  if (schemaCacheMatch) return schemaCacheMatch[1];
+  const pgColumnMatch = errorMessage.match(/column "([^"]+)" of relation "[^"]+" does not exist/i);
+  if (pgColumnMatch) return pgColumnMatch[1];
+  return null;
+}
+
+function omitKeys(row: Record<string, any>, keysToOmit: Set<string>): Record<string, any> {
+  if (keysToOmit.size === 0) return row;
+  const next: Record<string, any> = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (!keysToOmit.has(k)) {
+      next[k] = v;
+    }
+  }
+  return next;
+}
+
+function applyLegacyConstraintFallback(
+  table: string,
+  rows: Record<string, any>[],
+  errorMessage?: string
+): boolean {
+  const msg = String(errorMessage || '');
+  if (table === 'stock_movements' && msg.includes('stock_movements_type_check')) {
+    let changed = false;
+    for (const row of rows) {
+      if (row.type === 'PERDA_AVARIA') {
+        row.type = 'AJUSTE_MANUAL';
+        if (typeof row.reason === 'string' && !row.reason.startsWith('[PERDA/AVARIA]')) {
+          row.reason = `[PERDA/AVARIA] ${row.reason}`;
+        }
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  if (table === 'users' && msg.includes('users_role_check')) {
+    let changed = false;
+    for (const row of rows) {
+      if (row.role === 'MANAGER') {
+        row.role = 'ADMIN';
+        changed = true;
+      } else if (row.role === 'STOCKIST' || row.role === 'VIEWER') {
+        row.role = 'CASHIER';
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  return false;
+}
+
+async function upsertWithSchemaFallback(
+  client: SupabaseClient,
+  table: string,
+  payload: Record<string, any> | Record<string, any>[]
+): Promise<{ error: any }> {
+  const isArray = Array.isArray(payload);
+  let rows: Record<string, any>[] = isArray
+    ? payload.map(r => ({ ...r }))
+    : [{ ...payload }];
+
+  const knownMissing = missingColumnsCache.get(table);
+  if (knownMissing && knownMissing.size > 0) {
+    rows = rows.map(r => omitKeys(r, knownMissing));
+  }
+
+  let appliedBulkStrip = false;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const body = isArray ? rows : rows[0];
+    const { error } = await client.from(table).upsert(body, { onConflict: 'id' });
+    if (!error) {
+      return { error: null };
+    }
+
+    if (applyLegacyConstraintFallback(table, rows, error.message)) {
+      continue;
+    }
+
+    const missingCol = extractMissingColumn(error.message);
+    if (!missingCol) {
+      return { error };
+    }
+
+    let colSet = missingColumnsCache.get(table);
+    if (!colSet) {
+      colSet = new Set<string>();
+      missingColumnsCache.set(table, colSet);
+    }
+    colSet.add(missingCol);
+
+    if (!appliedBulkStrip) {
+      appliedBulkStrip = true;
+      const sampleStripped = stripExtendedColumns(table, rows[0]);
+      if (sampleStripped) {
+        for (const key of Object.keys(rows[0])) {
+          if (!(key in sampleStripped)) {
+            colSet.add(key);
+          }
+        }
+      }
+    }
+
+    const prevKeyCount = Object.keys(rows[0] || {}).length;
+    rows = rows.map(r => omitKeys(r, colSet!));
+    const nextKeyCount = Object.keys(rows[0] || {}).length;
+    if (nextKeyCount === prevKeyCount || nextKeyCount === 0) {
+      return { error };
+    }
+  }
+
+  return { error: { message: `Excedido o limite de tentativas de compatibilidade de schema na tabela "${table}".` } };
+}
+
 export async function syncRecordToSupabase(
   table: string,
   record: any,
@@ -532,7 +1054,7 @@ export async function syncRecordToSupabase(
     return false;
   }
 
-  // Evita spam no console caso o usuário ainda não tenha executado o GRANT ALL no Supabase SQL Editor
+  // Evita spam no console caso o usuário ainda não tenha executado o SQL/GRANT no Supabase SQL Editor
   const blockedUntil = permissionDeniedBackoff.get(table);
   if (blockedUntil && Date.now() < blockedUntil) {
     return false;
@@ -545,22 +1067,22 @@ export async function syncRecordToSupabase(
 
   try {
     const payload = mapper ? mapper(record) : record;
-    let { error } = await client.from(table).upsert(payload, { onConflict: 'id' });
-    if (error && error.message?.includes('schema cache') && payload && typeof payload === 'object') {
-      const fallbackPayload = stripExtendedColumns(table, payload);
-      if (fallbackPayload) {
-        const retry = await client.from(table).upsert(fallbackPayload, { onConflict: 'id' });
-        error = retry.error;
-      }
-    }
+    const { error } = await upsertWithSchemaFallback(client, table, payload);
     if (error) {
-      if (error.message?.toLowerCase().includes('permission denied')) {
+      const msg = String(error.message || '');
+      const msgLower = msg.toLowerCase();
+      if (msgLower.includes('permission denied')) {
         permissionDeniedBackoff.set(table, Date.now() + 5 * 60 * 1000);
         console.warn(
-          `[Supabase Auto-Sync] Permissão pendente na tabela "${table}" (${error.message}). Execute no SQL Editor do Supabase: GRANT ALL PRIVILEGES ON TABLE public.${table} TO anon, authenticated, service_role;`
+          `[Supabase Auto-Sync] Permissão pendente na tabela "${table}" (${msg}). Execute no SQL Editor do Supabase: GRANT ALL PRIVILEGES ON TABLE public.${table} TO anon, authenticated, service_role;`
+        );
+      } else if (msgLower.includes('could not find the table') || msgLower.includes('does not exist')) {
+        permissionDeniedBackoff.set(table, Date.now() + 5 * 60 * 1000);
+        console.warn(
+          `[Supabase Auto-Sync] Tabela "${table}" ainda não criada no Supabase (${msg}). Execute o script supabase_schema.sql no SQL Editor do Supabase.`
         );
       } else {
-        console.warn(`[Supabase Auto-Sync] Erro ao sincronizar ${table}:`, error.message);
+        console.warn(`[Supabase Auto-Sync] Erro ao sincronizar ${table}:`, msg);
       }
       return false;
     }
@@ -612,8 +1134,9 @@ export interface FullSyncResult {
 }
 
 export async function syncAllToSupabase(): Promise<FullSyncResult> {
-  // Limpa backoff para re-testar todas as tabelas imediatamente após o usuário rodar o SQL
+  // Limpa backoff e cache de colunas para re-testar todas as tabelas imediatamente após o usuário rodar o SQL
   permissionDeniedBackoff.clear();
+  missingColumnsCache.clear();
 
   const client = getSupabaseClient();
   if (!client) {
@@ -626,14 +1149,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   // 1. Settings
   try {
     const settingsRow = mapSettingsToSupabase(db.getSettings());
-    let { error } = await client.from('settings').upsert([settingsRow], { onConflict: 'id' });
-    if (error && error.message?.includes('schema cache')) {
-      const fallbackRow = stripExtendedColumns('settings', settingsRow);
-      if (fallbackRow) {
-        const retry = await client.from('settings').upsert([fallbackRow], { onConflict: 'id' });
-        error = retry.error;
-      }
-    }
+    const { error } = await upsertWithSchemaFallback(client, 'settings', [settingsRow]);
     if (error) throw error;
     results['settings'] = { count: 1, status: 'OK' };
     totalCount += 1;
@@ -645,7 +1161,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const usersRows = db.getUsers().map(mapUserToSupabase);
     if (usersRows.length > 0) {
-      const { error } = await client.from('users').upsert(usersRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'users', usersRows);
       if (error) throw error;
     }
     results['users'] = { count: usersRows.length, status: 'OK' };
@@ -658,7 +1174,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const guardiansRows = db.getGuardians().map(mapGuardianToSupabase);
     if (guardiansRows.length > 0) {
-      const { error } = await client.from('guardians').upsert(guardiansRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'guardians', guardiansRows);
       if (error) throw error;
     }
     results['guardians'] = { count: guardiansRows.length, status: 'OK' };
@@ -671,7 +1187,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const studentsRows = db.getStudents().map(mapStudentToSupabase);
     if (studentsRows.length > 0) {
-      const { error } = await client.from('students').upsert(studentsRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'students', studentsRows);
       if (error) throw error;
     }
     results['students'] = { count: studentsRows.length, status: 'OK' };
@@ -684,12 +1200,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const productsRows = db.getProducts().map(mapProductToSupabase);
     if (productsRows.length > 0) {
-      let { error } = await client.from('products').upsert(productsRows, { onConflict: 'id' });
-      if (error && error.message?.includes("'images' column")) {
-        const fallbackRows = productsRows.map(({ images, ...rest }) => rest);
-        const retry = await client.from('products').upsert(fallbackRows, { onConflict: 'id' });
-        error = retry.error;
-      }
+      const { error } = await upsertWithSchemaFallback(client, 'products', productsRows);
       if (error) throw error;
     }
     results['products'] = { count: productsRows.length, status: 'OK' };
@@ -702,7 +1213,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const movementsRows = db.getStockMovements().map(mapStockMovementToSupabase);
     if (movementsRows.length > 0) {
-      const { error } = await client.from('stock_movements').upsert(movementsRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'stock_movements', movementsRows);
       if (error) throw error;
     }
     results['stock_movements'] = { count: movementsRows.length, status: 'OK' };
@@ -715,12 +1226,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const salesRows = db.getSales().map(mapSaleToSupabase);
     if (salesRows.length > 0) {
-      let { error } = await client.from('sales').upsert(salesRows, { onConflict: 'id' });
-      if (error && error.message?.includes('schema cache')) {
-        const fallbackRows = salesRows.map(r => stripExtendedColumns('sales', r) || r);
-        const retry = await client.from('sales').upsert(fallbackRows, { onConflict: 'id' });
-        error = retry.error;
-      }
+      const { error } = await upsertWithSchemaFallback(client, 'sales', salesRows);
       if (error) throw error;
     }
     results['sales'] = { count: salesRows.length, status: 'OK' };
@@ -733,12 +1239,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const invoicesRows = db.getInvoices().map(mapInvoiceToSupabase);
     if (invoicesRows.length > 0) {
-      let { error } = await client.from('invoices').upsert(invoicesRows, { onConflict: 'id' });
-      if (error && error.message?.includes('schema cache')) {
-        const fallbackRows = invoicesRows.map(r => stripExtendedColumns('invoices', r) || r);
-        const retry = await client.from('invoices').upsert(fallbackRows, { onConflict: 'id' });
-        error = retry.error;
-      }
+      const { error } = await upsertWithSchemaFallback(client, 'invoices', invoicesRows);
       if (error) throw error;
     }
     results['invoices'] = { count: invoicesRows.length, status: 'OK' };
@@ -751,7 +1252,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const paymentsRows = db.getPixPayments().map(mapPixPaymentToSupabase);
     if (paymentsRows.length > 0) {
-      const { error } = await client.from('pix_payments').upsert(paymentsRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'pix_payments', paymentsRows);
       if (error) throw error;
     }
     results['pix_payments'] = { count: paymentsRows.length, status: 'OK' };
@@ -764,7 +1265,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const notifRows = db.getWhatsAppNotifications().map(mapNotificationToSupabase);
     if (notifRows.length > 0) {
-      const { error } = await client.from('whatsapp_notifications').upsert(notifRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'whatsapp_notifications', notifRows);
       if (error) throw error;
     }
     results['whatsapp_notifications'] = { count: notifRows.length, status: 'OK' };
@@ -777,7 +1278,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const logsRows = db.getAuditLogs().map(mapAuditLogToSupabase);
     if (logsRows.length > 0) {
-      const { error } = await client.from('audit_logs').upsert(logsRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'audit_logs', logsRows);
       if (error) throw error;
     }
     results['audit_logs'] = { count: logsRows.length, status: 'OK' };
@@ -790,7 +1291,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const passeiosRows = db.getPasseios().map(mapPasseioToSupabase);
     if (passeiosRows.length > 0) {
-      const { error } = await client.from('passeios').upsert(passeiosRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'passeios', passeiosRows);
       if (error) throw error;
     }
     results['passeios'] = { count: passeiosRows.length, status: 'OK' };
@@ -803,7 +1304,7 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const batchesRows = db.getBillingBatches().map(mapBillingBatchToSupabase);
     if (batchesRows.length > 0) {
-      const { error } = await client.from('billing_batches').upsert(batchesRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'billing_batches', batchesRows);
       if (error) throw error;
     }
     results['billing_batches'] = { count: batchesRows.length, status: 'OK' };
@@ -816,13 +1317,52 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
   try {
     const receiptsRows = db.getReceipts().map(mapReceiptToSupabase);
     if (receiptsRows.length > 0) {
-      const { error } = await client.from('sales_receipts').upsert(receiptsRows, { onConflict: 'id' });
+      const { error } = await upsertWithSchemaFallback(client, 'sales_receipts', receiptsRows);
       if (error) throw error;
     }
     results['sales_receipts'] = { count: receiptsRows.length, status: 'OK' };
     totalCount += receiptsRows.length;
   } catch (e: any) {
     results['sales_receipts'] = { count: 0, status: 'ERROR', error: e.message };
+  }
+
+  // 15. Trip Operations (PDV de Passeios)
+  try {
+    const tripOpsRows = db.getTripOperations().map(mapTripOperationToSupabase);
+    if (tripOpsRows.length > 0) {
+      const { error } = await upsertWithSchemaFallback(client, 'trip_operations', tripOpsRows);
+      if (error) throw error;
+    }
+    results['trip_operations'] = { count: tripOpsRows.length, status: 'OK' };
+    totalCount += tripOpsRows.length;
+  } catch (e: any) {
+    results['trip_operations'] = { count: 0, status: 'ERROR', error: e.message };
+  }
+
+  // 16. Cash Registers (Sessões de Caixa)
+  try {
+    const cashSessionsRows = db.getCashSessions().map(mapCashRegisterToSupabase);
+    if (cashSessionsRows.length > 0) {
+      const { error } = await upsertWithSchemaFallback(client, 'cash_registers', cashSessionsRows);
+      if (error) throw error;
+    }
+    results['cash_registers'] = { count: cashSessionsRows.length, status: 'OK' };
+    totalCount += cashSessionsRows.length;
+  } catch (e: any) {
+    results['cash_registers'] = { count: 0, status: 'ERROR', error: e.message };
+  }
+
+  // 17. Cash Movements (Movimentações de Caixa)
+  try {
+    const cashMovsRows = db.getCashMovements().map(mapCashMovementToSupabase);
+    if (cashMovsRows.length > 0) {
+      const { error } = await upsertWithSchemaFallback(client, 'cash_movements', cashMovsRows);
+      if (error) throw error;
+    }
+    results['cash_movements'] = { count: cashMovsRows.length, status: 'OK' };
+    totalCount += cashMovsRows.length;
+  } catch (e: any) {
+    results['cash_movements'] = { count: 0, status: 'ERROR', error: e.message };
   }
 
   const hasErrors = Object.values(results).some(r => r.status === 'ERROR');
@@ -841,6 +1381,17 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
 // ============================================================================
 // COMPLETE PULL SYNC: Puxa todos os dados do Supabase para o banco local
 // ============================================================================
+
+function mergePreservingLocal<T extends Record<string, any>>(existing: T | null, incoming: Partial<T>): T {
+  if (!existing) return incoming as T;
+  const merged: Record<string, any> = { ...existing };
+  for (const [k, v] of Object.entries(incoming)) {
+    if (v !== undefined) {
+      merged[k] = v;
+    }
+  }
+  return merged as T;
+}
 
 export async function syncFromSupabase(): Promise<{
   success: boolean;
@@ -863,48 +1414,68 @@ export async function syncFromSupabase(): Promise<{
     for (const row of prodData) {
       const idx = localProds.findIndex(p => p.id === row.id);
       const existingLocal = idx >= 0 ? localProds[idx] : null;
-      const isPending =
-        row.price === null ||
-        row.price === undefined ||
-        Number(row.price) <= 0 ||
-        existingLocal?.priceStatus === 'PENDING';
-      const mapped = {
+      const parsedPrice =
+        row.price === null || row.price === undefined ? NaN : Number(row.price);
+      const hasValidPrice = !Number.isNaN(parsedPrice) && parsedPrice > 0;
+      const mapped: Record<string, any> = {
         id: row.id,
         name: row.name,
         category: row.category,
-        price: isPending && (row.price === null || row.price === undefined || Number(row.price) <= 0) ? null : Number(row.price),
-        priceStatus: (isPending && (row.price === null || row.price === undefined || Number(row.price) <= 0) ? 'PENDING' : 'DEFINED') as 'PENDING' | 'DEFINED',
+        price: hasValidPrice ? Math.round(parsedPrice * 100) / 100 : null,
+        priceStatus: (row.price_status || (hasValidPrice ? 'DEFINED' : 'PENDING')) as 'PENDING' | 'DEFINED',
         internalCode: row.internal_code,
-        barcode: row.barcode,
+        barcode: row.barcode || undefined,
         currentStock: Number(row.current_stock),
         minStock: Number(row.min_stock),
         status: row.status,
-        imageUrl: row.image_url,
+        imageUrl: row.image_url || undefined,
         unit: row.unit || 'un',
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
-      if (idx >= 0) localProds[idx] = { ...existingLocal, ...mapped };
-      else localProds.push(mapped);
+      if (row.description !== undefined) mapped.description = row.description || undefined;
+      if (row.cost_price !== undefined && row.cost_price !== null) mapped.costPrice = Number(row.cost_price);
+      if (Array.isArray(row.images)) mapped.images = row.images;
+      if (row.archived !== undefined) mapped.archived = Boolean(row.archived);
+      if (row.archived_at !== undefined) mapped.archivedAt = row.archived_at || undefined;
+      if (row.archived_reason !== undefined) mapped.archivedReason = row.archived_reason || undefined;
+
+      if (idx >= 0) localProds[idx] = mergePreservingLocal(existingLocal as any, mapped) as any;
+      else localProds.push(mapped as any);
     }
     counts['products'] = prodData.length;
     total += prodData.length;
   }
 
-  // 2. Students
+  // 2. Guardians
+  const { data: guardData } = await client.from('guardians').select('*');
+  if (guardData && guardData.length > 0) {
+    const localGuardians = db.getGuardians();
+    for (const row of guardData) {
+      const idx = localGuardians.findIndex(g => g.id === row.id);
+      const mapped = mapGuardianFromSupabase(row);
+      if (idx >= 0) localGuardians[idx] = mergePreservingLocal(localGuardians[idx] as any, mapped) as any;
+      else localGuardians.push(mapped as any);
+    }
+    counts['guardians'] = guardData.length;
+    total += guardData.length;
+  }
+
+  // 3. Students
   const { data: stuData } = await client.from('students').select('*');
   if (stuData && stuData.length > 0) {
     const localStudents = db.getStudents();
     for (const row of stuData) {
       const idx = localStudents.findIndex(s => s.id === row.id);
-      const mapped = {
+      const existingLocal = idx >= 0 ? localStudents[idx] : null;
+      const mapped: Record<string, any> = {
         id: row.id,
         name: row.name,
         registrationNumber: row.registration_number,
         classGroup: row.class_group,
         email: row.email,
         phone: row.phone,
-        avatar: row.avatar,
+        avatar: row.avatar || undefined,
         status: row.status,
         defaultTuition: Number(row.default_tuition),
         currentConsumptionBalance: Number(row.current_consumption_balance),
@@ -915,23 +1486,30 @@ export async function syncFromSupabase(): Promise<{
         paymentConfirmationRecipientRule: row.payment_confirmation_recipient_rule,
         allowedChannels: row.allowed_channels || ['WHATSAPP', 'EMAIL'],
         guardians: row.guardians || [],
-        notes: row.notes,
+        notes: row.notes || undefined,
         createdAt: row.created_at,
       };
-      if (idx >= 0) localStudents[idx] = mapped as any;
+      if (row.cpf !== undefined) mapped.cpf = row.cpf || undefined;
+      if (row.consumption_limit !== undefined) mapped.consumptionLimit = row.consumption_limit !== null ? Number(row.consumption_limit) : undefined;
+      if (row.credit_balance !== undefined) mapped.creditBalance = Number(row.credit_balance) || 0;
+      if (row.consumption_blocked !== undefined) mapped.consumptionBlocked = Boolean(row.consumption_blocked);
+      if (row.consumption_blocked_reason !== undefined) mapped.consumptionBlockedReason = row.consumption_blocked_reason || undefined;
+
+      if (idx >= 0) localStudents[idx] = mergePreservingLocal(existingLocal as any, mapped) as any;
       else localStudents.push(mapped as any);
     }
     counts['students'] = stuData.length;
     total += stuData.length;
   }
 
-  // 3. Invoices
+  // 4. Invoices
   const { data: invData } = await client.from('invoices').select('*');
   if (invData && invData.length > 0) {
     const localInvoices = db.getInvoices();
     for (const row of invData) {
       const idx = localInvoices.findIndex(i => i.id === row.id);
-      const mapped = {
+      const existingLocal = idx >= 0 ? localInvoices[idx] : null;
+      const mapped: Record<string, any> = {
         id: row.id,
         studentId: row.student_id,
         studentName: row.student_name,
@@ -950,23 +1528,36 @@ export async function syncFromSupabase(): Promise<{
         salesIds: row.sales_ids || [],
         consumptionItems: row.consumption_items || [],
         paymentAllocations: row.payment_allocations || [],
-        pixCopyPasteCode: row.pix_copy_paste_code,
-        pixQrCodePayload: row.pix_qr_code_payload,
-        approvedByUserName: row.approved_by_user_name,
-        approvedAt: row.approved_at,
-        publishedAt: row.published_at,
-        notes: row.notes,
+        pixCopyPasteCode: row.pix_copy_paste_code || undefined,
+        pixQrCodePayload: row.pix_qr_code_payload || undefined,
+        approvedByUserName: row.approved_by_user_name || undefined,
+        approvedAt: row.approved_at || undefined,
+        publishedAt: row.published_at || undefined,
+        notes: row.notes || undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
-      if (idx >= 0) localInvoices[idx] = mapped as any;
+      if (row.billing_type !== undefined) mapped.billingType = row.billing_type;
+      if (row.batch_id !== undefined) mapped.batchId = row.batch_id || undefined;
+      if (row.period_start !== undefined) mapped.periodStart = row.period_start || undefined;
+      if (row.period_end !== undefined) mapped.periodEnd = row.period_end || undefined;
+      if (row.billing_label !== undefined) mapped.billingLabel = row.billing_label || undefined;
+      if (row.credit_applied !== undefined) mapped.creditApplied = Number(row.credit_applied) || 0;
+      if (row.discount_reason !== undefined) mapped.discountReason = row.discount_reason || undefined;
+      if (Array.isArray(row.sale_item_links)) mapped.saleItemLinks = row.sale_item_links;
+      if (row.canceled_at !== undefined) mapped.canceledAt = row.canceled_at || undefined;
+      if (row.canceled_by_user_name !== undefined) mapped.canceledByUserName = row.canceled_by_user_name || undefined;
+      if (row.canceled_reason !== undefined) mapped.canceledReason = row.canceled_reason || undefined;
+      if (Array.isArray(row.history)) mapped.history = row.history;
+
+      if (idx >= 0) localInvoices[idx] = mergePreservingLocal(existingLocal as any, mapped) as any;
       else localInvoices.push(mapped as any);
     }
     counts['invoices'] = invData.length;
     total += invData.length;
   }
 
-  // 4. Passeios
+  // 5. Passeios
   const { data: passData } = await client.from('passeios').select('*').order('created_at', { ascending: false });
   if (passData && passData.length > 0) {
     const localPasseios = db.getPasseios();
@@ -978,6 +1569,147 @@ export async function syncFromSupabase(): Promise<{
     }
     counts['passeios'] = passData.length;
     total += passData.length;
+  }
+
+  // 6. Sales (including PDV de Passeios launches)
+  const { data: salesData } = await client.from('sales').select('*').order('created_at', { ascending: false });
+  if (salesData && salesData.length > 0) {
+    const localSales = db.getSales();
+    for (const row of salesData) {
+      const idx = localSales.findIndex(s => s.id === row.id);
+      const mapped = mapSaleFromSupabase(row);
+      if (idx >= 0) localSales[idx] = mergePreservingLocal(localSales[idx] as any, mapped) as any;
+      else localSales.push(mapped as any);
+    }
+    counts['sales'] = salesData.length;
+    total += salesData.length;
+  }
+
+  // 7. Stock Movements
+  const { data: movData } = await client.from('stock_movements').select('*').order('timestamp', { ascending: false }).limit(500);
+  if (movData && movData.length > 0) {
+    const localMovs = db.getStockMovements();
+    for (const row of movData) {
+      const idx = localMovs.findIndex(m => m.id === row.id);
+      const mapped = mapStockMovementFromSupabase(row);
+      if (idx >= 0) localMovs[idx] = mergePreservingLocal(localMovs[idx] as any, mapped) as any;
+      else localMovs.push(mapped as any);
+    }
+    counts['stock_movements'] = movData.length;
+    total += movData.length;
+  }
+
+  // 8. Pix Payments
+  const { data: pixData } = await client.from('pix_payments').select('*').order('registered_at', { ascending: false });
+  if (pixData && pixData.length > 0) {
+    const localPix = db.getPixPayments();
+    for (const row of pixData) {
+      const idx = localPix.findIndex(p => p.id === row.id);
+      const mapped = mapPixPaymentFromSupabase(row);
+      if (idx >= 0) localPix[idx] = mergePreservingLocal(localPix[idx] as any, mapped) as any;
+      else localPix.push(mapped as any);
+    }
+    counts['pix_payments'] = pixData.length;
+    total += pixData.length;
+  }
+
+  // 9. WhatsApp Notifications
+  const { data: notifData } = await client.from('whatsapp_notifications').select('*').order('scheduled_for', { ascending: false }).limit(300);
+  if (notifData && notifData.length > 0) {
+    const localNotifs = db.getWhatsAppNotifications();
+    for (const row of notifData) {
+      const idx = localNotifs.findIndex(n => n.id === row.id);
+      const mapped = mapNotificationFromSupabase(row);
+      if (idx >= 0) localNotifs[idx] = mergePreservingLocal(localNotifs[idx] as any, mapped) as any;
+      else localNotifs.push(mapped as any);
+    }
+    counts['whatsapp_notifications'] = notifData.length;
+    total += notifData.length;
+  }
+
+  // 10. Trip Operations (PDV de Passeios)
+  const { data: tripOpsData, error: tripOpsError } = await client
+    .from('trip_operations')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (!tripOpsError && tripOpsData && tripOpsData.length > 0) {
+    const localTripOps = db.getTripOperations();
+    for (const row of tripOpsData) {
+      const idx = localTripOps.findIndex(op => op.id === row.id);
+      const mapped = mapTripOperationFromSupabase(row);
+      if (idx >= 0) localTripOps[idx] = mapped as any;
+      else localTripOps.push(mapped as any);
+    }
+    counts['trip_operations'] = tripOpsData.length;
+    total += tripOpsData.length;
+  }
+
+  // 11. Sales Receipts (when table exists)
+  const { data: receiptsData, error: receiptsError } = await client
+    .from('sales_receipts')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (!receiptsError && receiptsData && receiptsData.length > 0) {
+    const localReceipts = db.getReceipts();
+    for (const row of receiptsData) {
+      const idx = localReceipts.findIndex(r => r.id === row.id);
+      const mapped = mapReceiptFromSupabase(row);
+      if (idx >= 0) localReceipts[idx] = mergePreservingLocal(localReceipts[idx] as any, mapped) as any;
+      else localReceipts.push(mapped as any);
+    }
+    counts['sales_receipts'] = receiptsData.length;
+    total += receiptsData.length;
+  }
+
+  // 12. Billing Batches (when table exists)
+  const { data: batchesData, error: batchesError } = await client
+    .from('billing_batches')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (!batchesError && batchesData && batchesData.length > 0) {
+    const localBatches = db.getBillingBatches();
+    for (const row of batchesData) {
+      const idx = localBatches.findIndex(b => b.id === row.id);
+      const mapped = mapBillingBatchFromSupabase(row);
+      if (idx >= 0) localBatches[idx] = mergePreservingLocal(localBatches[idx] as any, mapped) as any;
+      else localBatches.push(mapped as any);
+    }
+    counts['billing_batches'] = batchesData.length;
+    total += batchesData.length;
+  }
+
+  // 13. Cash Registers & Movements (when tables exist)
+  const { data: cashRegData, error: cashRegError } = await client
+    .from('cash_registers')
+    .select('*')
+    .order('opened_at', { ascending: false });
+  if (!cashRegError && cashRegData && cashRegData.length > 0) {
+    const localSessions = db.getCashSessions();
+    for (const row of cashRegData) {
+      const idx = localSessions.findIndex(s => s.id === row.id);
+      const mapped = mapCashRegisterFromSupabase(row);
+      if (idx >= 0) localSessions[idx] = mergePreservingLocal(localSessions[idx] as any, mapped) as any;
+      else localSessions.push(mapped as any);
+    }
+    counts['cash_registers'] = cashRegData.length;
+    total += cashRegData.length;
+  }
+
+  const { data: cashMovData, error: cashMovError } = await client
+    .from('cash_movements')
+    .select('*')
+    .order('timestamp', { ascending: false })
+    .limit(500);
+  if (!cashMovError && cashMovData && cashMovData.length > 0) {
+    const localMovs = db.getCashMovements();
+    for (const row of cashMovData) {
+      const idx = localMovs.findIndex(m => m.id === row.id);
+      const mapped = mapCashMovementFromSupabase(row);
+      if (idx >= 0) localMovs[idx] = mergePreservingLocal(localMovs[idx] as any, mapped) as any;
+      else localMovs.push(mapped as any);
+    }
+    counts['cash_movements'] = cashMovData.length;
+    total += cashMovData.length;
   }
 
   // Persist locally

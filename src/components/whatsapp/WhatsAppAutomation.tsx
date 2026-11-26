@@ -198,7 +198,7 @@ export function WhatsAppAutomation({
       </div>
 
       {/* Rules Notice */}
-      <div className="p-4 bg-[#1E1E1E] border border-[#282828] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-[#D4D4D8]">
+      <div className="p-4 rounded-xl bg-[#1E1E1E] border border-[#282828] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-[#D4D4D8]">
         <div className="flex items-center gap-2.5">
           <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
           <span>

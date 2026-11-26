@@ -436,35 +436,41 @@ export function StudentsAndGuardians({
 
         {/* Destaques da 10ª Turma */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#262626] text-xs">
-          <div className="p-3 rounded-xl bg-[#141414] border border-[#262626] flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
-              <Award className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Edição Vigente</span>
-              <span className="text-[#F5F5F5] font-bold">10ª Turma — Escola de Cristo</span>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-[#141414] border border-[#262626] flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
-              <UserCheck className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Associação Completa (Etapas 1 & 2)</span>
-              <span className="text-[#F5F5F5] font-bold">
-                {linkedStudentsCount}/{students.length} Alunos • {guardians.length} Responsáveis Únicos
-              </span>
+          <div className="card-borda-conica card-borda-compact">
+            <div className="conteudo p-3 bg-[#141414] border border-[#262626] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
+                <Award className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Edição Vigente</span>
+                <span className="text-[#F5F5F5] font-bold">10ª Turma — Escola de Cristo</span>
+              </div>
             </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-[#141414] border border-[#262626] flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
-              <Calendar className="w-4 h-4" />
+          <div className="card-borda-conica card-borda-compact">
+            <div className="conteudo p-3 bg-[#141414] border border-[#262626] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
+                <UserCheck className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Associação Completa (Etapas 1 & 2)</span>
+                <span className="text-[#F5F5F5] font-bold">
+                  {linkedStudentsCount}/{students.length} Alunos • {guardians.length} Responsáveis Únicos
+                </span>
+              </div>
             </div>
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Calendário de Formatura</span>
-              <span className="text-emerald-400 font-bold">Início dia 27 • Término dia 30</span>
+          </div>
+
+          <div className="card-borda-conica card-borda-compact">
+            <div className="conteudo p-3 bg-[#141414] border border-[#262626] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">Calendário de Formatura</span>
+                <span className="text-emerald-400 font-bold">Início dia 27 • Término dia 30</span>
+              </div>
             </div>
           </div>
         </div>

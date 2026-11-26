@@ -197,7 +197,7 @@ function buildRoleScopedContext(user: AiAssistantParams['user']): string {
     catalogSummary: {
       totalActiveProducts: allProducts.length,
       totalUnitsInStock: allProducts.reduce((acc, p) => acc + p.currentStock, 0),
-      pendingPriceCount: allProducts.filter(p => p.priceStatus === 'PENDING' || p.price == null).length,
+      pendingPriceCount: allProducts.filter(p => !(p.price != null && Number(p.price) > 0)).length,
       lowStockCount: lowStockProducts.length,
       outOfStockCount: outOfStockProducts.length,
     },

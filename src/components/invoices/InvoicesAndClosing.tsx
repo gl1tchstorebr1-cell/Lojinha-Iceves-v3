@@ -440,53 +440,61 @@ export function InvoicesAndClosing({
         <div className="space-y-5">
           {/* KPIs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <div className="p-4 rounded-2xl bg-[#1B1B1B] border border-[#282828]">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] block">
-                Consumo Aguardando Faturamento
-              </span>
-              <span className="text-2xl font-black text-amber-400 font-mono tabular-nums mt-1 block">
-                {formatCurrency(unbilledOverview?.totalUnbilledAmount || 0)}
-              </span>
-              <span className="text-[11px] text-[#71717A] mt-1 block">
-                {(unbilledOverview?.unbilledSalesCount || 0) + (unbilledOverview?.partiallyBilledSalesCount || 0)} venda(s) •{' '}
-                {unbilledOverview?.studentsWithUnbilledCount || 0} aluno(s)
-              </span>
+            <div className="card-borda-conica">
+              <div className="conteudo p-4 bg-[#1B1B1B] border border-[#282828]">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] block">
+                  Consumo Aguardando Faturamento
+                </span>
+                <span className="text-2xl font-black text-amber-400 font-mono tabular-nums mt-1 block">
+                  {formatCurrency(unbilledOverview?.totalUnbilledAmount || 0)}
+                </span>
+                <span className="text-[11px] text-[#71717A] mt-1 block">
+                  {(unbilledOverview?.unbilledSalesCount || 0) + (unbilledOverview?.partiallyBilledSalesCount || 0)} venda(s) •{' '}
+                  {unbilledOverview?.studentsWithUnbilledCount || 0} aluno(s)
+                </span>
+              </div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-[#1B1B1B] border border-[#282828]">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] block">
-                Total Faturado Ativo
-              </span>
-              <span className="text-2xl font-black text-[#F5F5F5] font-mono tabular-nums mt-1 block">
-                {formatCurrency(summaryMetrics.totalBilled)}
-              </span>
-              <span className="text-[11px] text-[#71717A] mt-1 block">
-                {summaryMetrics.activeCount} fatura(s) emitida(s)
-              </span>
+            <div className="card-borda-conica">
+              <div className="conteudo p-4 bg-[#1B1B1B] border border-[#282828]">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] block">
+                  Total Faturado Ativo
+                </span>
+                <span className="text-2xl font-black text-[#F5F5F5] font-mono tabular-nums mt-1 block">
+                  {formatCurrency(summaryMetrics.totalBilled)}
+                </span>
+                <span className="text-[11px] text-[#71717A] mt-1 block">
+                  {summaryMetrics.activeCount} fatura(s) emitida(s)
+                </span>
+              </div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-[#1B1B1B] border border-[#282828]">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] block">
-                Recebido / Liquidado
-              </span>
-              <span className="text-2xl font-black text-emerald-400 font-mono tabular-nums mt-1 block">
-                {formatCurrency(summaryMetrics.totalPaid)}
-              </span>
-              <span className="text-[11px] text-[#71717A] mt-1 block">
-                Saldo em aberto: {formatCurrency(summaryMetrics.totalOpen)}
-              </span>
+            <div className="card-borda-conica">
+              <div className="conteudo p-4 bg-[#1B1B1B] border border-[#282828]">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] block">
+                  Recebido / Liquidado
+                </span>
+                <span className="text-2xl font-black text-emerald-400 font-mono tabular-nums mt-1 block">
+                  {formatCurrency(summaryMetrics.totalPaid)}
+                </span>
+                <span className="text-[11px] text-[#71717A] mt-1 block">
+                  Saldo em aberto: {formatCurrency(summaryMetrics.totalOpen)}
+                </span>
+              </div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-[#1B1B1B] border border-[#282828]">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] block">
-                Lotes & Fechamentos Executados
-              </span>
-              <span className="text-2xl font-black text-[#F5F5F5] font-mono tabular-nums mt-1 block">
-                {batches.length}
-              </span>
-              <span className="text-[11px] text-[#71717A] mt-1 block">
-                {unbilledOverview?.billedSalesCount || 0} vendas faturadas • {unbilledOverview?.reversedOrCanceledSalesCount || 0} estornadas
-              </span>
+            <div className="card-borda-conica">
+              <div className="conteudo p-4 bg-[#1B1B1B] border border-[#282828]">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] block">
+                  Lotes & Fechamentos Executados
+                </span>
+                <span className="text-2xl font-black text-[#F5F5F5] font-mono tabular-nums mt-1 block">
+                  {batches.length}
+                </span>
+                <span className="text-[11px] text-[#71717A] mt-1 block">
+                  {unbilledOverview?.billedSalesCount || 0} vendas faturadas • {unbilledOverview?.reversedOrCanceledSalesCount || 0} estornadas
+                </span>
+              </div>
             </div>
           </div>
 

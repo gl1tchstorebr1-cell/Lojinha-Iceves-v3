@@ -258,48 +258,54 @@ export function PasseiosManagement({
 
         {/* Summary KPI Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#262626] text-xs">
-          <div className="p-3.5 rounded-xl bg-[#141414] border border-[#262626] flex items-center justify-between">
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">
-                Passeios Ativos para os Alunos
-              </span>
-              <span className="text-lg font-extrabold text-emerald-400 mt-0.5 block">
-                {activePasseios.length} de {passeios.length} cadastrado(s)
-              </span>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
-              <Bus className="w-4 h-4" />
-            </div>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-[#141414] border border-[#262626] flex items-center justify-between">
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">
-                Soma dos Passeios Ativos
-              </span>
-              <span className="text-lg font-extrabold text-[#F5F5F5] mt-0.5 block font-mono">
-                {formatCurrency(totalActiveValue)}
-              </span>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
-              <DollarSign className="w-4 h-4" />
+          <div className="card-borda-conica card-borda-compact">
+            <div className="conteudo p-3.5 bg-[#141414] border border-[#262626] flex items-center justify-between">
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">
+                  Passeios Ativos para os Alunos
+                </span>
+                <span className="text-lg font-extrabold text-emerald-400 mt-0.5 block">
+                  {activePasseios.length} de {passeios.length} cadastrado(s)
+                </span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                <Bus className="w-4 h-4" />
+              </div>
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-[#141414] border border-[#262626] flex items-center justify-between">
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">
-                Alcance & Sincronização
-              </span>
-              <span className="text-sm font-bold text-[#F5F5F5] mt-0.5 block">
-                {activeStudentsCount} Alunos Ativos • Fonte Única
-              </span>
-              <span className="text-[10px] text-emerald-400 font-medium">
-                Tabela Supabase: public.passeios
-              </span>
+          <div className="card-borda-conica card-borda-compact">
+            <div className="conteudo p-3.5 bg-[#141414] border border-[#262626] flex items-center justify-between">
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">
+                  Soma dos Passeios Ativos
+                </span>
+                <span className="text-lg font-extrabold text-[#F5F5F5] mt-0.5 block font-mono">
+                  {formatCurrency(totalActiveValue)}
+                </span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                <DollarSign className="w-4 h-4" />
+              </div>
             </div>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
-              <Users className="w-4 h-4" />
+          </div>
+
+          <div className="card-borda-conica card-borda-compact">
+            <div className="conteudo p-3.5 bg-[#141414] border border-[#262626] flex items-center justify-between">
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-[#71717A] font-bold block">
+                  Alcance & Sincronização
+                </span>
+                <span className="text-sm font-bold text-[#F5F5F5] mt-0.5 block">
+                  {activeStudentsCount} Alunos Ativos • Fonte Única
+                </span>
+                <span className="text-[10px] text-emerald-400 font-medium">
+                  Tabela Supabase: public.passeios
+                </span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                <Users className="w-4 h-4" />
+              </div>
             </div>
           </div>
         </div>

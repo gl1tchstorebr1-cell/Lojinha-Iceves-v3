@@ -48,7 +48,7 @@ interface SidebarProps {
   onOpenQuickSale: () => void;
 }
 
-export function Sidebar({
+export const Sidebar = React.memo(function Sidebar({
   activeTab,
   setActiveTab,
   settings,
@@ -275,10 +275,10 @@ export function Sidebar({
         hideMobileTrigger
         mobileOpen={isMobileOpen}
         setMobileOpen={setIsMobileOpen}
-        className="justify-between gap-4 bg-[#121215]"
+        className="justify-between gap-4 bg-[#0c0c0f]/95"
       >
         {/* Top Area: Brand Logo + Quick Actions + Navigation */}
-        <div className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden no-scrollbar animate-blur-in">
+        <div className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden no-scrollbar">
           {/* Logo Header */}
           <button
             type="button"
@@ -464,4 +464,4 @@ export function Sidebar({
       </SidebarBody>
     </UiSidebar>
   );
-}
+});

@@ -4,6 +4,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -26,74 +28,175 @@
 }
 
 :root {
-  --background: #141414;
-  --foreground: #f5f5f5;
-  --card: #1f1f23;
-  --card-foreground: #f5f5f5;
-  --popover: #1b1b1f;
-  --popover-foreground: #f5f5f5;
-  --primary: #f5f5f5;
-  --primary-foreground: #141414;
-  --secondary: #26262b;
-  --secondary-foreground: #f5f5f5;
-  --muted: #26262a;
-  --muted-foreground: #a1a1aa;
-  --accent: #2e2e34;
-  --accent-foreground: #f5f5f5;
+  --background: #070709;
+  --foreground: #f4f4f6;
+  --card: #111115;
+  --card-foreground: #f4f4f6;
+  --popover: #141418;
+  --popover-foreground: #f4f4f6;
+  --primary: #10b981;
+  --primary-foreground: #04130d;
+  --secondary: #1b1b21;
+  --secondary-foreground: #f4f4f6;
+  --muted: #18181d;
+  --muted-foreground: #9ca3af;
+  --accent: #222229;
+  --accent-foreground: #f4f4f6;
   --destructive: #e11d48;
   --destructive-foreground: hsl(0 0% 100%);
-  --border: #323238;
-  --input: #2c2c32;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: #1a1a20;
   --ring: #10b981;
 }
 
 .dark {
-  --background: #141414;
-  --foreground: #f5f5f5;
-  --card: #1f1f23;
-  --card-foreground: #f5f5f5;
-  --popover: #1b1b1f;
-  --popover-foreground: #f5f5f5;
-  --primary: #f5f5f5;
-  --primary-foreground: #141414;
-  --secondary: #26262b;
-  --secondary-foreground: #f5f5f5;
-  --muted: #26262a;
-  --muted-foreground: #a1a1aa;
-  --accent: #2e2e34;
-  --accent-foreground: #f5f5f5;
+  --background: #070709;
+  --foreground: #f4f4f6;
+  --card: #111115;
+  --card-foreground: #f4f4f6;
+  --popover: #141418;
+  --popover-foreground: #f4f4f6;
+  --primary: #10b981;
+  --primary-foreground: #04130d;
+  --secondary: #1b1b21;
+  --secondary-foreground: #f4f4f6;
+  --muted: #18181d;
+  --muted-foreground: #9ca3af;
+  --accent: #222229;
+  --accent-foreground: #f4f4f6;
   --destructive: #e11d48;
   --destructive-foreground: hsl(0 0% 0%);
-  --border: #323238;
-  --input: #2c2c32;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: #1a1a20;
   --ring: #10b981;
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+    color-scheme: dark;
+  }
+
   body {
-    background-color: #101010;
-    color: #F5F5F5;
+    background-color: #070709;
+    color: #f4f4f6;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    letter-spacing: -0.02em;
+  }
+
+  /* Precision tabular figures across all data tables and monospace numbers */
+  table td,
+  table th,
+  .font-mono,
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  button,
+  a,
+  select,
+  input,
+  textarea {
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.45);
+  }
+
+  button:not(:disabled):active {
+    transform: scale(0.985);
   }
 }
 
-/* Custom sleek dark scrollbar */
+/* Executive Obsidian Surface Helpers */
+@layer components {
+  .executive-surface {
+    background: linear-gradient(180deg, rgba(22, 22, 27, 0.92) 0%, rgba(15, 15, 19, 0.96) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 12px 32px -18px rgba(0, 0, 0, 0.75);
+  }
+
+  .executive-surface-interactive {
+    background: linear-gradient(180deg, rgba(22, 22, 27, 0.9) 0%, rgba(15, 15, 19, 0.96) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    transition: border-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .executive-surface-interactive:hover {
+    border-color: rgba(16, 185, 129, 0.28);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 14px 30px -16px rgba(16, 185, 129, 0.16);
+  }
+
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .skeleton-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.06) 50%,
+      transparent 100%
+    );
+    animation: icevesShimmer 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+}
+
+@keyframes icevesShimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Ultra-clean minimal dark scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #141414;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a3a;
+  background: rgba(255, 255, 255, 0.24);
 }
 
 /* Hide scrollbar visually while keeping scroll active */
@@ -153,88 +256,203 @@ html.theme-light svg.recharts-surface {
 }
 
 /* ============================================================
-   Global Smooth Fade-In + Gentle Motion Blur System
+   Global Pure-Compositor Motion Choreography (120fps Locked)
+   - Animates strictly transform + opacity (zero filter:blur
+     re-rasterization cost on cards or tables).
    - Uses animation-fill-mode: backwards so hover transforms,
      tilt3D, and position: fixed overlays are never blocked.
    ============================================================ */
-@keyframes icevesBlurFadeIn {
+@keyframes icevesStageEnter {
   0% {
     opacity: 0;
-    filter: blur(8px);
-    transform: translateY(10px);
+    transform: translate3d(0, 8px, 0) scale(0.996);
   }
   100% {
     opacity: 1;
-    filter: none;
     transform: none;
   }
 }
 
-@keyframes icevesModalBlurIn {
+@keyframes icevesRowFadeIn {
   0% {
     opacity: 0;
-    filter: blur(7px);
-    transform: scale(0.985) translateY(6px);
+    transform: translate3d(0, 4px, 0);
   }
   100% {
     opacity: 1;
-    filter: none;
+    transform: none;
+  }
+}
+
+@keyframes icevesModalSpringIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.972) translate3d(0, 8px, 0);
+  }
+  100% {
+    opacity: 1;
     transform: none;
   }
 }
 
 .animate-blur-in {
-  animation: icevesBlurFadeIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: icevesStageEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 .animate-modal-blur-in {
-  animation: icevesModalBlurIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: icevesModalSpringIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
-/* Cascade all sections, panels, grid cards, and table rows inside active view without double-blurring */
+/* Cascade sections and grid cards with zero-blur GPU-composited spring ease */
 .blur-fade-stage > * > *:not(.grid):not(.fixed):not([role="dialog"]):not(:has(> .grid)),
-.blur-fade-stage .grid > *:not(.fixed):not([role="dialog"]):not(:has(> .grid)),
-.blur-fade-stage table tbody tr {
-  animation: icevesBlurFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+.blur-fade-stage .grid > *:not(.fixed):not([role="dialog"]):not(:has(> .grid)) {
+  animation: icevesStageEnter 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
-/* Organic staggered timing across sections and grid items */
+/* High-density table rows use ultra-light compositor opacity/transform */
+.blur-fade-stage table tbody tr {
+  animation: icevesRowFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+/* Crisp, tight staggered cadence across sections and grid items */
 .blur-fade-stage > * > *:nth-child(1),
 .blur-fade-stage .grid > *:nth-child(1) { animation-delay: 0ms; }
 .blur-fade-stage > * > *:nth-child(2),
-.blur-fade-stage .grid > *:nth-child(2) { animation-delay: 40ms; }
+.blur-fade-stage .grid > *:nth-child(2) { animation-delay: 22ms; }
 .blur-fade-stage > * > *:nth-child(3),
-.blur-fade-stage .grid > *:nth-child(3) { animation-delay: 80ms; }
+.blur-fade-stage .grid > *:nth-child(3) { animation-delay: 44ms; }
 .blur-fade-stage > * > *:nth-child(4),
-.blur-fade-stage .grid > *:nth-child(4) { animation-delay: 120ms; }
+.blur-fade-stage .grid > *:nth-child(4) { animation-delay: 66ms; }
 .blur-fade-stage > * > *:nth-child(5),
-.blur-fade-stage .grid > *:nth-child(5) { animation-delay: 160ms; }
+.blur-fade-stage .grid > *:nth-child(5) { animation-delay: 88ms; }
 .blur-fade-stage > * > *:nth-child(6),
-.blur-fade-stage .grid > *:nth-child(6) { animation-delay: 200ms; }
+.blur-fade-stage .grid > *:nth-child(6) { animation-delay: 108ms; }
 .blur-fade-stage > * > *:nth-child(7),
-.blur-fade-stage .grid > *:nth-child(7) { animation-delay: 240ms; }
+.blur-fade-stage .grid > *:nth-child(7) { animation-delay: 124ms; }
 .blur-fade-stage > * > *:nth-child(n+8),
-.blur-fade-stage .grid > *:nth-child(n+8) { animation-delay: 270ms; }
+.blur-fade-stage .grid > *:nth-child(n+8) { animation-delay: 136ms; }
 
-/* Subtle table row cascade capped for long tables */
-.blur-fade-stage table tbody tr {
-  animation-duration: 0.42s;
-}
-.blur-fade-stage table tbody tr:nth-child(1) { animation-delay: 20ms; }
-.blur-fade-stage table tbody tr:nth-child(2) { animation-delay: 45ms; }
-.blur-fade-stage table tbody tr:nth-child(3) { animation-delay: 70ms; }
-.blur-fade-stage table tbody tr:nth-child(4) { animation-delay: 95ms; }
-.blur-fade-stage table tbody tr:nth-child(5) { animation-delay: 120ms; }
-.blur-fade-stage table tbody tr:nth-child(6) { animation-delay: 145ms; }
-.blur-fade-stage table tbody tr:nth-child(n+7) { animation-delay: 170ms; }
+/* Subtle table row cascade tightly capped for long tables */
+.blur-fade-stage table tbody tr:nth-child(1) { animation-delay: 8ms; }
+.blur-fade-stage table tbody tr:nth-child(2) { animation-delay: 20ms; }
+.blur-fade-stage table tbody tr:nth-child(3) { animation-delay: 32ms; }
+.blur-fade-stage table tbody tr:nth-child(4) { animation-delay: 44ms; }
+.blur-fade-stage table tbody tr:nth-child(5) { animation-delay: 56ms; }
+.blur-fade-stage table tbody tr:nth-child(6) { animation-delay: 68ms; }
+.blur-fade-stage table tbody tr:nth-child(n+7) { animation-delay: 80ms; }
 
 /* Respect user reduced motion preferences */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
   .animate-blur-in,
   .animate-modal-blur-in,
   .blur-fade-stage > * > *,
   .blur-fade-stage .grid > *,
-  .blur-fade-stage table tbody tr {
+  .blur-fade-stage table tbody tr,
+  .skeleton-shimmer::after,
+  .card-borda-conica::before {
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+   Card Rotating Conic Border Animation
+   - Refined emerald specular cadence on focal KPI & panel cards.
+   ============================================================ */
+@layer components {
+  .card-borda-conica {
+    position: relative;
+    overflow: hidden;
+    border-radius: 14px;
+    padding: 1.5px;
+    background: rgba(255, 255, 255, 0.055);
+    contain: layout paint;
+  }
+
+  .card-borda-conica::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(180%, 540px);
+    aspect-ratio: 1 / 1;
+    translate: -50% -50%;
+    background: conic-gradient(from 0deg, transparent 70%, #10b981 90%, #34d399 100%);
+    animation: cadencia-spin 16000ms linear infinite;
+    will-change: transform;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .card-borda-conica:nth-child(7n+1)::before {
+    animation-duration: 14500ms;
+    animation-delay: -1800ms;
+  }
+  .card-borda-conica:nth-child(7n+2)::before {
+    animation-duration: 17500ms;
+    animation-delay: -5400ms;
+  }
+  .card-borda-conica:nth-child(7n+3)::before {
+    animation-duration: 20500ms;
+    animation-delay: -11200ms;
+  }
+  .card-borda-conica:nth-child(7n+4)::before {
+    animation-duration: 15800ms;
+    animation-delay: -7900ms;
+  }
+  .card-borda-conica:nth-child(7n+5)::before {
+    animation-duration: 19200ms;
+    animation-delay: -14300ms;
+  }
+  .card-borda-conica:nth-child(7n+6)::before {
+    animation-duration: 22000ms;
+    animation-delay: -9600ms;
+  }
+  .card-borda-conica:nth-child(7n+7)::before {
+    animation-duration: 16800ms;
+    animation-delay: -3700ms;
+  }
+  :nth-child(even) > .card-borda-conica:only-child::before {
+    animation-duration: 19800ms;
+    animation-delay: -10400ms;
+  }
+
+  .card-borda-conica .conteudo {
+    position: relative;
+    z-index: 1;
+    border-radius: 12.5px;
+    background: linear-gradient(180deg, #131318 0%, #0e0e12 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+    padding: 20px;
+    width: 100%;
+    height: 100%;
+  }
+
+  .card-borda-conica.card-borda-compact {
+    padding: 1.5px;
+    border-radius: 13px;
+  }
+
+  .card-borda-conica.card-borda-compact .conteudo {
+    border-radius: 11.5px;
+  }
+}
+
+@keyframes cadencia-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media print {
+  .card-borda-conica {
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  .card-borda-conica::before {
+    display: none !important;
     animation: none !important;
   }
 }

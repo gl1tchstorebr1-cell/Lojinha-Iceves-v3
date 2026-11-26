@@ -48,6 +48,9 @@ export function base44ApiPlugin(): Plugin {
           };
 
           const response = await handleApiRoute(apiReq);
+          if (apiReq.method !== 'GET' && apiReq.method !== 'HEAD' && apiReq.method !== 'OPTIONS') {
+            await db.flushSupabaseSync(6000);
+          }
 
           res.statusCode = response.status;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');

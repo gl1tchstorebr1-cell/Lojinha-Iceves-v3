@@ -105,14 +105,14 @@ export const DesktopSidebar = ({
   return (
     <motion.aside
       className={cn(
-        "sticky top-0 h-screen px-3 py-4 hidden lg:flex lg:flex-col bg-[#141416] border-r border-white/[0.08] w-[272px] shrink-0 z-40 select-none",
+        "sticky top-0 h-screen px-3 py-4 hidden lg:flex lg:flex-col bg-[#0c0c0f]/95 backdrop-blur-xl border-r border-white/[0.07] shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] w-[268px] shrink-0 z-40 select-none will-change-[width] [contain:layout_style]",
         className
       )}
       initial={false}
       animate={{
         width: animate ? (open ? 268 : 68) : 268,
       }}
-      transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ type: "spring", stiffness: 420, damping: 36, mass: 0.78 }}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
       {...(props as any)}
@@ -146,7 +146,7 @@ export const MobileSidebar = ({
       {!hideMobileTrigger && (
         <div
           className={cn(
-            "h-12 px-4 py-3 flex flex-row lg:hidden items-center justify-between bg-[#141416] border-b border-white/[0.08] w-full"
+            "h-12 px-4 py-3 flex flex-row lg:hidden items-center justify-between bg-[#0c0c0f] border-b border-white/[0.07] w-full"
           )}
           {...props}
         >
@@ -154,7 +154,7 @@ export const MobileSidebar = ({
             <button
               type="button"
               onClick={() => setDrawerOpen(!isDrawerOpen)}
-              className="text-zinc-200 cursor-pointer p-1"
+              className="text-zinc-200 cursor-pointer p-1.5 rounded-lg hover:bg-white/[0.06]"
               aria-label="Abrir menu"
             >
               <Menu className="w-5 h-5" />
@@ -170,25 +170,28 @@ export const MobileSidebar = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
               onClick={() => setDrawerOpen(false)}
-              className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[90] lg:hidden"
+              className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[90] lg:hidden"
             />
             <motion.div
-              initial={{ x: "-100%", opacity: 0 }}
+              initial={{ x: "-100%", opacity: 0.6 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "-100%", opacity: 0 }}
+              exit={{ x: "-100%", opacity: 0.6 }}
               transition={{
-                duration: 0.28,
-                ease: "easeInOut",
+                type: "spring",
+                stiffness: 390,
+                damping: 36,
+                mass: 0.85,
               }}
               className={cn(
-                "fixed inset-y-0 left-0 w-[85vw] max-w-[320px] bg-[#141416] border-r border-white/[0.1] p-5 z-[100] flex flex-col justify-between lg:hidden overflow-y-auto no-scrollbar",
+                "fixed inset-y-0 left-0 w-[85vw] max-w-[312px] bg-[#0c0c0f]/98 backdrop-blur-2xl border-r border-white/[0.1] p-5 z-[100] flex flex-col justify-between lg:hidden overflow-y-auto no-scrollbar shadow-2xl",
                 className
               )}
             >
               <button
                 type="button"
-                className="absolute right-4 top-4 z-50 text-zinc-300 hover:text-white p-1.5 rounded-lg hover:bg-white/[0.08] cursor-pointer"
+                className="absolute right-4 top-4 z-50 text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-white/[0.08] cursor-pointer transition-colors"
                 onClick={() => setDrawerOpen(false)}
                 aria-label="Fechar menu"
               >
@@ -213,10 +216,10 @@ export const SidebarLink = ({
   const { open, animate } = useSidebar();
   const badgeClasses =
     link.badgeTone === "blue"
-      ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+      ? "bg-sky-500/15 text-sky-300 border-sky-500/25"
       : link.badgeTone === "emerald"
-        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25"
-        : "bg-amber-500/15 text-amber-400 border-amber-500/25";
+        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
+        : "bg-amber-500/15 text-amber-300 border-amber-500/25";
 
   return (
     <button
@@ -224,31 +227,43 @@ export const SidebarLink = ({
       onClick={link.onClick}
       title={!open ? link.label : undefined}
       className={cn(
-        "relative w-full flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl group/sidebar transition-colors cursor-pointer text-left",
+        "relative w-full flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl group/sidebar transition-colors duration-150 cursor-pointer text-left overflow-hidden",
         link.isActive
-          ? "text-white"
-          : "text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05]",
+          ? "text-white font-semibold"
+          : "text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.045]",
         className
       )}
     >
       {link.isActive && (
         <motion.div
           layoutId="activeSidebarTabPill"
-          className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-600/10 border border-emerald-500/30 rounded-xl"
-          transition={{ type: "spring", stiffness: 480, damping: 36 }}
-        />
+          className="absolute inset-0 bg-gradient-to-r from-emerald-500/[0.18] via-emerald-500/[0.08] to-transparent border border-emerald-500/25 rounded-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+          transition={{ type: "spring", stiffness: 520, damping: 38 }}
+        >
+          <span className="absolute left-0 top-2 bottom-2 w-[2.5px] rounded-r-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.7)]" />
+        </motion.div>
       )}
 
       <div className="flex items-center gap-3 min-w-0 z-10">
-        <span className="shrink-0 flex items-center justify-center">{link.icon}</span>
+        <span
+          className={cn(
+            "shrink-0 flex items-center justify-center transition-colors duration-150",
+            link.isActive ? "text-emerald-400" : "text-zinc-400 group-hover/sidebar:text-zinc-200"
+          )}
+        >
+          {link.icon}
+        </span>
         <motion.span
           initial={false}
           animate={{
-            display: animate ? (open ? "inline-block" : "none") : "inline-block",
             opacity: animate ? (open ? 1 : 0) : 1,
+            x: animate ? (open ? 0 : -6) : 0,
           }}
-          transition={{ duration: 0.16 }}
-          className="text-xs font-medium group-hover/sidebar:translate-x-1 transition duration-150 whitespace-nowrap truncate"
+          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+          className={cn(
+            "text-xs font-medium group-hover/sidebar:translate-x-0.5 transition-transform duration-150 whitespace-nowrap truncate",
+            !open && animate ? "pointer-events-none" : ""
+          )}
         >
           {link.label}
         </motion.span>
@@ -257,7 +272,7 @@ export const SidebarLink = ({
       {open && link.badge !== undefined && Number(link.badge) > 0 && (
         <span
           className={cn(
-            "z-10 text-[10px] px-1.5 py-0.5 rounded-full font-mono border shrink-0",
+            "z-10 text-[10px] px-1.5 py-0.5 rounded-md font-mono tabular-nums font-semibold border shrink-0",
             badgeClasses
           )}
         >

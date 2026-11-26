@@ -54,13 +54,18 @@ ALTER TABLE public.users ADD CONSTRAINT users_role_check CHECK (role IN ('ADMIN'
 CREATE TABLE IF NOT EXISTS guardians (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  cpf TEXT NOT NULL UNIQUE,
+  cpf TEXT NOT NULL,
   email TEXT NOT NULL,
   phone TEXT NOT NULL,
   relationship_default TEXT DEFAULT 'Mãe/Pai',
   student_ids JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.guardians DROP CONSTRAINT IF EXISTS guardians_cpf_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_guardians_cpf_unique
+  ON public.guardians (cpf)
+  WHERE cpf IS NOT NULL AND cpf <> '' AND cpf <> 'Não informado' AND cpf NOT LIKE 'NI-%';
 
 -- 5. Tabela de Alunos (Students)
 CREATE TABLE IF NOT EXISTS students (
@@ -120,12 +125,14 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE public.products ALTER COLUMN price DROP NOT NULL;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10,2);
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price_status TEXT NOT NULL DEFAULT 'DEFINED';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS archived_reason TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
 
 -- 7. Tabela de Movimentações de Estoque
 CREATE TABLE IF NOT EXISTS stock_movements (
@@ -187,6 +194,11 @@ ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS credit_used NUMERIC(10,2) DEFA
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS terminal_id TEXT;
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS receipt_id TEXT;
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS receipt_code TEXT;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'LOJINHA';
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS trip_operation_id TEXT;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS trip_name TEXT;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS trip_date DATE;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS trip_destination TEXT;
 
 -- 8.1 Tabela de Recibos e Comprovantes Imutáveis de Vendas
 CREATE TABLE IF NOT EXISTS sales_receipts (
@@ -372,6 +384,33 @@ CREATE TABLE IF NOT EXISTS passeios (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 13.1 Tabela de Operações do PDV de Passeios (Lançamentos Coletivos)
+CREATE TABLE IF NOT EXISTS trip_operations (
+  id TEXT PRIMARY KEY,
+  catalog_passeio_id TEXT,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  trip_date DATE NOT NULL,
+  destination TEXT NOT NULL,
+  notes TEXT,
+  responsible_user_id TEXT NOT NULL,
+  responsible_user_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'RASCUNHO' CHECK (status IN ('RASCUNHO', 'LANCADO', 'PARCIALMENTE_ESTORNADO', 'ESTORNADO')),
+  selection_mode TEXT NOT NULL DEFAULT 'ALL_STUDENTS',
+  distribution_method TEXT NOT NULL DEFAULT 'IGUALITARIA',
+  fixed_value_per_student NUMERIC(10,2),
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  participants JSONB NOT NULL DEFAULT '[]'::jsonb,
+  total_expenses NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  total_distributed NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  idempotency_key TEXT,
+  launched_at TIMESTAMPTZ,
+  launched_by_user_name TEXT,
+  history JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 14. Tabelas de Caixa & Financeiro (Sessões de Caixa e Movimentações)
 CREATE TABLE IF NOT EXISTS cash_registers (
   id TEXT PRIMARY KEY,
@@ -418,6 +457,8 @@ CREATE TABLE IF NOT EXISTS customer_account_movements (
 CREATE INDEX IF NOT EXISTS idx_sales_created_at ON public.sales (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_student_id ON public.sales (student_id);
 CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON public.sales (payment_method);
+CREATE INDEX IF NOT EXISTS idx_sales_trip_operation_id ON public.sales (trip_operation_id);
+CREATE INDEX IF NOT EXISTS idx_trip_operations_created_at ON public.trip_operations (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_receipts_sale_id ON public.sales_receipts (sale_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON public.stock_movements (product_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_timestamp ON public.stock_movements (timestamp DESC);
@@ -479,6 +520,7 @@ DECLARE
     'whatsapp_notifications',
     'audit_logs',
     'passeios',
+    'trip_operations',
     'cash_registers',
     'cash_movements',
     'customer_account_movements'

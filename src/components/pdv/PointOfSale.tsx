@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
 import { 
   Search, 
   ShoppingCart, 
@@ -32,6 +32,7 @@ import { getProductImages, getCategoryBadgeColor, OFFICIAL_PRODUCT_CATEGORIES } 
 import { ReceiptPreviewModal, triggerScopedReceiptPrint } from '../receipts/ReceiptPreviewModal';
 import { ReceiptDocumentView } from '../receipts/ReceiptDocumentView';
 import { downloadReceiptPdf, resolveEffectiveReceiptSettings } from '../../utils/receiptPdf';
+import { getInitialsAvatar } from '../../utils/avatar';
 import { createPortal } from 'react-dom';
 
 interface PointOfSaleProps {
@@ -104,38 +105,42 @@ export function PointOfSale({
   // Active view tab in PDV: 'terminal' or 'history'
   const [pdvTab, setPdvTab] = useState<'terminal' | 'history'>('terminal');
 
+  const deferredStudentSearch = useDeferredValue(studentSearch);
+  const deferredProductSearch = useDeferredValue(productSearch);
+
   // Filter students (mostra todos os 17 alunos da 10ª Turma)
   const filteredStudents = useMemo(() => {
-    if (!studentSearch.trim()) return students.filter(s => s.status === 'ACTIVE');
-    const q = studentSearch.toLowerCase();
+    const q = deferredStudentSearch.trim().toLowerCase();
+    if (!q) return students.filter(s => s.status === 'ACTIVE');
     return students.filter(
       s => s.status === 'ACTIVE' && (
         s.name.toLowerCase().includes(q) || 
         s.registrationNumber.toLowerCase().includes(q)
       )
     );
-  }, [students, studentSearch]);
+  }, [students, deferredStudentSearch]);
 
   // 6 Categorias oficiais da Lojinha
-  const categories: (ProductCategory | 'TODAS')[] = [
-    'TODAS',
-    ...OFFICIAL_PRODUCT_CATEGORIES
-  ];
+  const categories = useMemo<(ProductCategory | 'TODAS')[]>(
+    () => ['TODAS', ...OFFICIAL_PRODUCT_CATEGORIES],
+    []
+  );
 
   // Filter products (somente ativos e não arquivados)
   const filteredProducts = useMemo(() => {
+    const q = deferredProductSearch.trim().toLowerCase();
     return products.filter(p => {
       if (p.archived || p.status !== 'ACTIVE') return false;
       const matchesCat = selectedCategory === 'TODAS' || p.category === selectedCategory;
-      const q = productSearch.toLowerCase();
-      const matchesSearch = !q || (
+      if (!matchesCat) return false;
+      if (!q) return true;
+      return (
         p.name.toLowerCase().includes(q) || 
         p.internalCode.toLowerCase().includes(q) || 
         (p.barcode && p.barcode.toLowerCase().includes(q))
       );
-      return matchesCat && matchesSearch;
     });
-  }, [products, selectedCategory, productSearch]);
+  }, [products, selectedCategory, deferredProductSearch]);
 
   // Cart operations
   const addToCart = (product: Product) => {
@@ -443,10 +448,11 @@ export function PointOfSale({
                         className="p-3 text-left bg-[#151515] hover:bg-[#202020] border border-[#262626] hover:border-[#383838] rounded-xl flex items-center gap-3 transition cursor-pointer"
                       >
                         <img 
-                          src={student.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
+                          src={student.avatar || getInitialsAvatar(student.name)} 
                           alt={student.name}
                           loading="lazy"
                           decoding="async"
+                          referrerPolicy="no-referrer"
                           className="w-9 h-9 rounded-full object-cover border border-[#303030]" 
                         />
                         <div className="flex-1 min-w-0">
@@ -464,9 +470,10 @@ export function PointOfSale({
                 <div className="p-3.5 bg-[#171717] border border-[#2E2E2E] rounded-xl flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <img 
-                      src={selectedStudent.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'} 
+                      src={selectedStudent.avatar || getInitialsAvatar(selectedStudent.name)} 
                       alt={selectedStudent.name}
                       decoding="async"
+                      referrerPolicy="no-referrer"
                       className="w-11 h-11 rounded-full object-cover border border-[#404040]" 
                     />
                     <div>
@@ -661,7 +668,8 @@ export function PointOfSale({
 
           {/* Right Column: Cart Panel (4 cols) */}
           <div className="lg:col-span-4">
-            <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] shadow-sm p-4 sticky top-20 space-y-4">
+            <div className="card-borda-conica sticky top-20 shadow-sm">
+              <div className="conteudo bg-[#1B1B1B] border border-[#282828] p-4 space-y-4">
               
               <div className="flex items-center justify-between border-b border-[#242424] pb-3">
                 <div className="flex items-center gap-2">
@@ -876,6 +884,7 @@ export function PointOfSale({
                 🔒 Proteção contra duplicidade ativa. Estoque atualizado no backend.
               </p>
 
+              </div>
             </div>
           </div>
 
