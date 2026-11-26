@@ -535,3 +535,7 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- 17. Recarregar o cache do PostgREST para reconhecer novas tabelas e colunas imediatamente
+NOTIFY pgrst, 'reload schema';
+
