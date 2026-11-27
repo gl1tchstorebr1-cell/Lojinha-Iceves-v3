@@ -65,6 +65,7 @@ export default defineConfig(() => {
               urlPattern: ({ url, request }) =>
                 request.method === 'GET' &&
                 url.pathname.startsWith('/api/') &&
+                !url.pathname.startsWith('/api/auth/') &&
                 !url.pathname.includes('/api/mercadopago/'),
               handler: 'NetworkFirst',
               options: {

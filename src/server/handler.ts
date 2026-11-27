@@ -69,22 +69,61 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     }
 
     if (pathname === '/api/auth/setup-admin' && method === 'POST') {
-      if (isAdminEnvPasswordConfigured() || db.hasAdminClaimedPassword()) {
+      if (isAdminEnvPasswordConfigured()) {
         return {
           status: 403,
-          data: { error: 'A configuração inicial do administrador já foi concluída.' },
+          data: {
+            error: 'A senha do administrador já está definida na variável de ambiente ADMIN_PASSWORD do servidor. Utilize a tela de login.',
+            alreadyConfigured: true,
+          },
+        };
+      }
+      if (db.hasAdminClaimedPassword()) {
+        return {
+          status: 403,
+          data: {
+            error: 'A configuração inicial do administrador já foi concluída. Utilize a tela de login.',
+            alreadyConfigured: true,
+          },
         };
       }
       const { password, confirmPassword, email } = req.body || {};
       const cleanPassword = String(password || '').trim();
-      const cleanConfirm = String(confirmPassword || '').trim();
+      const cleanConfirm = String(confirmPassword ?? '').trim();
       if (cleanPassword.length < 8) {
         return { status: 400, data: { error: 'A senha do administrador deve possuir no mínimo 8 caracteres.' } };
       }
-      if (cleanConfirm && cleanPassword !== cleanConfirm) {
+      if (confirmPassword !== undefined && cleanPassword !== cleanConfirm) {
         return { status: 400, data: { error: 'As senhas informadas não coincidem.' } };
       }
-      const admin = db.claimInitialAdminPassword(cleanPassword, email);
+
+      const preSetupSnapshot = db.takeSnapshot();
+      let admin;
+      try {
+        admin = db.claimInitialAdminPassword(cleanPassword, email);
+      } catch (err: any) {
+        const status = typeof err?.statusCode === 'number' ? err.statusCode : 400;
+        return {
+          status,
+          data: {
+            error: err?.message || 'Não foi possível configurar a senha inicial do administrador.',
+            ...(status === 403 ? { alreadyConfigured: true } : {}),
+          },
+        };
+      }
+
+      const syncResult = await db.flushSupabaseSyncStrict(12000, ['users']);
+      if (process.env.VERCEL === '1' && !syncResult.ok) {
+        db.restoreSnapshot(preSetupSnapshot);
+        return {
+          status: 503,
+          data: {
+            error:
+              'Não foi possível salvar a senha do administrador no banco remoto (Supabase). Verifique a conexão com o Supabase ou defina ADMIN_PASSWORD nas variáveis de ambiente da Vercel.',
+          },
+        };
+      }
+
       const { password: _removedPassword, ...safeAdmin } = admin;
       const session = issueSessionToken({ id: admin.id, role: admin.role, email: admin.email });
       return {
@@ -139,12 +178,20 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
           if (passwordValid && !isScryptHash(user.password)) {
             db.upgradeUserPasswordToScrypt(user.id, cleanPassword);
           }
-        } else {
+        } else if (!db.hasAdminClaimedPassword()) {
           return {
             status: 403,
             data: {
               error: 'A senha do administrador ainda não foi configurada. Defina a senha no primeiro acesso.',
               adminSetupRequired: true,
+            },
+          };
+        } else {
+          return {
+            status: 401,
+            data: {
+              error: `Esta conta administrativa ainda não possui senha definida. Entre com ${db.getPrimaryAdminEmail()} para configurar a senha desta conta.`,
+              adminSetupRequired: false,
             },
           };
         }
@@ -206,6 +253,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     if (pathname === '/api/auth/register' && method === 'POST') {
       const { name, email, password, role, phone } = req.body || {};
       const newUser = db.registerUser({ name, email, password, role, phone });
+      await db.flushSupabaseSync(12000);
       const { password: _removedPassword, ...safeNewUser } = newUser;
       const session = issueSessionToken({ id: newUser.id, role: newUser.role, email: newUser.email });
       return {
@@ -307,6 +355,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       }
 
       db.setUserPassword(targetId, cleanNew, currentUser);
+      await db.flushSupabaseSync(12000);
       return { status: 200, data: { ok: true, message: 'Senha atualizada com sucesso.' } };
     }
 

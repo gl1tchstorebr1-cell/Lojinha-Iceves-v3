@@ -25,18 +25,28 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.all('/api/*', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
+    const reqUrl = req.originalUrl || req.url || '/api';
+    const isSyncControlRoute =
+      reqUrl.startsWith('/api/supabase/status') || reqUrl.startsWith('/api/supabase/sync-all');
+    if (!isSyncControlRoute) {
+      await db.ensureHydratedFromSupabase();
+    }
+
     const tokenPayload = verifySessionToken(req.headers['authorization']);
     const currentUser = tokenPayload ? db.resolveUserById(tokenPayload.sub) : undefined;
 
     const apiReq: ApiRequest = {
       method: req.method,
-      url: req.originalUrl || req.url,
+      url: reqUrl,
       body: req.body,
       headers: req.headers as Record<string, string>,
       user: currentUser
     };
 
     const response = await handleApiRoute(apiReq);
+    if (apiReq.method !== 'GET' && apiReq.method !== 'HEAD' && apiReq.method !== 'OPTIONS') {
+      await db.flushSupabaseSync(12000);
+    }
     res.status(response.status).json(response.data);
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro interno no servidor' });

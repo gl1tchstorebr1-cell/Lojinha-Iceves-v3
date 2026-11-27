@@ -5335,31 +5335,71 @@ export class DatabaseService {
   }
 
   public getPrimaryAdminEmail(): string {
-    const admin = this.data.users.find(u => u.id === 'user-admin') || this.data.users.find(u => u.role === 'ADMIN');
+    const adminWithPassword = this.data.users.find(
+      u => u.role === 'ADMIN' && Boolean(u.password && u.password.trim())
+    );
+    const admin =
+      adminWithPassword ||
+      this.data.users.find(u => u.id === 'user-admin') ||
+      this.data.users.find(u => u.role === 'ADMIN');
     return admin?.email || 'admin.lojinha@gmail.com';
   }
 
   public claimInitialAdminPassword(plainPassword: string, email?: string): User {
     if (isAdminEnvPasswordConfigured()) {
-      throw new Error('A senha do administrador já está protegida por variável de ambiente no servidor.');
+      const err = new Error(
+        'A senha do administrador já está protegida pela variável de ambiente ADMIN_PASSWORD no servidor. Utilize a tela de login.'
+      ) as Error & { statusCode?: number };
+      err.statusCode = 403;
+      throw err;
     }
     if (this.hasAdminClaimedPassword()) {
-      throw new Error('A senha inicial do administrador já foi configurada. Utilize a tela de login.');
+      const err = new Error(
+        'A senha inicial do administrador já foi configurada. Utilize a tela de login.'
+      ) as Error & { statusCode?: number };
+      err.statusCode = 403;
+      throw err;
     }
     const cleanPassword = (plainPassword || '').trim();
     if (cleanPassword.length < 8) {
-      throw new Error('A senha do administrador deve possuir no mínimo 8 caracteres.');
+      const err = new Error('A senha do administrador deve possuir no mínimo 8 caracteres.') as Error & {
+        statusCode?: number;
+      };
+      err.statusCode = 400;
+      throw err;
     }
 
     let admin = this.data.users.find(u => u.id === 'user-admin') || this.data.users.find(u => u.role === 'ADMIN');
     if (!admin) {
-      throw new Error('Conta administrativa principal não encontrada.');
+      const err = new Error('Conta administrativa principal não encontrada.') as Error & { statusCode?: number };
+      err.statusCode = 500;
+      throw err;
     }
 
-    const cleanEmail = (email || '').trim().toLowerCase();
-    if (cleanEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      const conflict = this.data.users.find(u => u.id !== admin!.id && u.email.toLowerCase() === cleanEmail);
-      if (!conflict) {
+    const rawEmail = (email || '').trim();
+    if (rawEmail) {
+      const cleanEmail = rawEmail.toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        const err = new Error('Informe um endereço de e-mail válido para o administrador.') as Error & {
+          statusCode?: number;
+        };
+        err.statusCode = 400;
+        throw err;
+      }
+
+      const existingWithEmail = this.data.users.find(u => u.email.toLowerCase() === cleanEmail);
+      if (existingWithEmail && existingWithEmail.id !== admin.id) {
+        if (existingWithEmail.role === 'ADMIN') {
+          // Se o e-mail informado já pertence a uma conta administrativa existente, configura a senha diretamente nela
+          admin = existingWithEmail;
+        } else {
+          const err = new Error(
+            `O e-mail ${cleanEmail} já está em uso por outra conta (${existingWithEmail.role}). Informe outro e-mail ou utilize ${admin.email}.`
+          ) as Error & { statusCode?: number };
+          err.statusCode = 409;
+          throw err;
+        }
+      } else {
         admin.email = cleanEmail;
       }
     }
@@ -5386,6 +5426,7 @@ export class DatabaseService {
     if (isScryptHash(user.password)) return;
     user.password = hashPassword(plainPassword);
     this.writeDatabaseSync(this.data, true);
+    this.triggerSupabaseSync('users', user, 'mapUserToSupabase');
   }
 
   public setUserPassword(
@@ -5411,6 +5452,7 @@ export class DatabaseService {
       `Senha atualizada com hash seguro para ${target.email} (${target.role}).`
     );
     this.writeDatabaseSync(this.data, true);
+    this.triggerSupabaseSync('users', target, 'mapUserToSupabase');
     return target;
   }
 

@@ -87,20 +87,39 @@ export function LoginPage() {
     setError(null);
     setSuccessMessage(null);
 
-    if (setupPassword.trim().length < 8) {
+    const cleanEmail = setupEmail.trim().toLowerCase();
+    const cleanPass = setupPassword.trim();
+    const cleanConfirm = setupConfirmPassword.trim();
+
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setError('Informe um endereço de e-mail válido para o administrador.');
+      return;
+    }
+    if (cleanPass.length < 8) {
       setError('A senha do administrador deve ter no mínimo 8 caracteres.');
       return;
     }
-    if (setupPassword !== setupConfirmPassword) {
+    if (cleanPass !== cleanConfirm) {
       setError('As senhas digitadas não coincidem.');
       return;
     }
 
     setIsLoading(true);
     try {
-      await setupInitialAdmin(setupPassword, setupConfirmPassword, setupEmail);
+      await setupInitialAdmin(cleanPass, cleanConfirm, cleanEmail);
     } catch (err: any) {
-      setError(err.message || 'Não foi possível concluir a configuração inicial do administrador.');
+      if (err?.alreadyConfigured || err?.status === 403) {
+        setAdminSetupRequired(false);
+        setShowAdminSetupForm(false);
+        setActiveTab('LOGIN');
+        setEmail(cleanEmail);
+        setError(
+          err?.message ||
+            'A senha do administrador já foi configurada. Faça login abaixo com seu e-mail e senha.'
+        );
+      } else {
+        setError(err?.message || 'Não foi possível concluir a configuração inicial do administrador.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -116,10 +135,16 @@ export function LoginPage() {
       await login(email, password);
     } catch (err: any) {
       if (err?.adminSetupRequired) {
+        const trimmed = email.trim().toLowerCase();
+        if (trimmed && trimmed.includes('@')) {
+          setSetupEmail(trimmed);
+        }
         setAdminSetupRequired(true);
         setShowAdminSetupForm(true);
+        setError(null);
+      } else {
+        setError(err.message || 'Falha na autenticação. Verifique seu e-mail/matrícula e senha.');
       }
-      setError(err.message || 'Falha na autenticação. Verifique seu e-mail/matrícula e senha.');
     } finally {
       setIsLoading(false);
     }

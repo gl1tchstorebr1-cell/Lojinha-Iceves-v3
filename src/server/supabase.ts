@@ -1,5 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { db } from './db.ts';
+import { isScryptHash } from './auth.ts';
+
+export const AUTH_CREDENTIALS_ROW_ID = '__auth_credentials_v1';
 
 let cachedClient: SupabaseClient | null = null;
 let lastUsedUrl = '';
@@ -18,11 +21,12 @@ export function getSupabaseCredentials() {
   // Remove common accidental suffixes like /rest/v1 or trailing slashes
   const url = rawUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
 
+  // No backend, priorizar a chave de serviço (server-only) antes das chaves públicas/anon
   const key = (
     (settings as any)?.supabaseServiceRoleKey || 
+    process.env.SUPABASE_SERVICE_ROLE_KEY || 
     (settings as any)?.supabaseAnonKey || 
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY || 
     process.env.SUPABASE_ANON_KEY || 
     process.env.VITE_SUPABASE_ANON_KEY || 
     'sb_publishable_mEQzWNPKvTxqWvzZ8u6XQA_2wlGfyLR'
@@ -228,6 +232,7 @@ export function mapUserToSupabase(u: any) {
     name: u.name,
     email: u.email,
     role: u.role,
+    password_hash: u.password || null,
     phone: u.phone || null,
     avatar: u.avatar || null,
     student_id: u.studentId || null,
@@ -243,6 +248,7 @@ export function mapUserFromSupabase(row: any) {
     name: row.name,
     email: row.email,
     role: row.role,
+    password: row.password_hash || undefined,
     phone: row.phone || undefined,
     avatar: row.avatar || undefined,
     studentId: row.student_id || undefined,
@@ -250,6 +256,97 @@ export function mapUserFromSupabase(row: any) {
     createdAt: row.created_at || new Date().toISOString(),
     lastLogin: row.last_login || undefined,
   };
+}
+
+/**
+ * Persiste hashes scrypt de senhas no registro interno '__auth_credentials_v1' da tabela settings
+ * como camada de compatibilidade quando a coluna users.password_hash ainda não foi adicionada ao Supabase.
+ * Nunca armazena senhas em texto claro e nunca é retornado por GET /api/settings.
+ */
+export async function persistAuthCredentialsToSupabase(users: any[]): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const hashesByUserId: Record<string, string> = {};
+  const hashesByEmail: Record<string, string> = {};
+  for (const u of users || []) {
+    if (u && isScryptHash(u.password)) {
+      hashesByUserId[String(u.id)] = u.password;
+      if (u.email) {
+        hashesByEmail[String(u.email).toLowerCase().trim()] = u.password;
+      }
+    }
+  }
+
+  if (Object.keys(hashesByUserId).length === 0) {
+    return true;
+  }
+
+  // Preserva hashes já gravados no Supabase para outros usuários antes de atualizar
+  try {
+    const { data: existingRow } = await client
+      .from('settings')
+      .select('receipt_settings')
+      .eq('id', AUTH_CREDENTIALS_ROW_ID)
+      .maybeSingle();
+
+    const prevStore = existingRow?.receipt_settings;
+    if (prevStore && typeof prevStore === 'object') {
+      if (prevStore.hashesByUserId && typeof prevStore.hashesByUserId === 'object') {
+        for (const [uid, hash] of Object.entries(prevStore.hashesByUserId)) {
+          if (!hashesByUserId[uid] && isScryptHash(hash as string)) {
+            hashesByUserId[uid] = hash as string;
+          }
+        }
+      }
+      if (prevStore.hashesByEmail && typeof prevStore.hashesByEmail === 'object') {
+        for (const [em, hash] of Object.entries(prevStore.hashesByEmail)) {
+          if (!hashesByEmail[em] && isScryptHash(hash as string)) {
+            hashesByEmail[em] = hash as string;
+          }
+        }
+      }
+    }
+  } catch {
+    // Segue com o estado local mais recente se a leitura prévia falhar
+  }
+
+  const nowIso = new Date().toISOString();
+  const payload = {
+    id: AUTH_CREDENTIALS_ROW_ID,
+    institution_name: 'INTERNAL_AUTH_STORE',
+    cnpj: '00.000.000/0000-00',
+    store_name: 'INTERNAL_AUTH_STORE',
+    closing_day: 'LAST_DAY',
+    closing_hour: '23:59',
+    due_day_offset: 10,
+    allow_direct_cash_payment: false,
+    stock_control_active: true,
+    block_sale_without_stock: true,
+    pix_key: 'internal@local',
+    pix_key_type: 'EMAIL',
+    pix_receiver_name: 'INTERNAL',
+    pix_city: 'SAO PAULO',
+    whatsapp_auto_enabled: false,
+    whatsapp_provider_name: 'INTERNAL',
+    whatsapp_provider_status: 'DISCONNECTED',
+    receipt_settings: {
+      __internalAuthStore: true,
+      version: 1,
+      hashesByUserId,
+      hashesByEmail,
+      updatedAt: nowIso,
+    },
+    updated_at: nowIso,
+    updated_by_user_name: 'AuthSystem',
+  };
+
+  const { error } = await upsertWithSchemaFallback(client, 'settings', payload);
+  if (error) {
+    console.warn('[Supabase Auth Sync] Falha ao persistir hashes de autenticação:', error.message);
+    return false;
+  }
+  return true;
 }
 
 export function mapGuardianToSupabase(g: any) {
@@ -1137,6 +1234,12 @@ export async function syncRecordToSupabase(
       return false;
     }
     permissionDeniedBackoff.delete(table);
+    if (table === 'users' && isScryptHash(record?.password)) {
+      const credsOk = await persistAuthCredentialsToSupabase(db.getUsers());
+      if (!credsOk && missingColumnsCache.get('users')?.has('password_hash')) {
+        return false;
+      }
+    }
     return true;
   } catch (err: any) {
     console.warn(`[Supabase Auto-Sync] Falha ao enviar para ${table}:`, err.message);
@@ -1174,6 +1277,12 @@ export async function syncBatchToSupabase(
     const { error } = await upsertWithSchemaFallback(client, table, payloads);
     if (!error) {
       permissionDeniedBackoff.delete(table);
+      if (table === 'users' && records.some(r => isScryptHash(r?.password))) {
+        const credsOk = await persistAuthCredentialsToSupabase(db.getUsers());
+        if (!credsOk && missingColumnsCache.get('users')?.has('password_hash')) {
+          return false;
+        }
+      }
       return true;
     }
 
@@ -1199,6 +1308,9 @@ export async function syncBatchToSupabase(
         allOk = false;
         console.warn(`[Supabase Auto-Sync] Erro ao sincronizar registro em ${table}:`, rowErr.message);
       }
+    }
+    if (table === 'users' && records.some(r => isScryptHash(r?.password))) {
+      await persistAuthCredentialsToSupabase(db.getUsers());
     }
     return allOk;
   } catch (err: any) {
@@ -1284,11 +1396,13 @@ export async function syncAllToSupabase(): Promise<FullSyncResult> {
 
   // 2. Users
   try {
-    const usersRows = db.getUsers().map(mapUserToSupabase);
+    const allUsers = db.getUsers();
+    const usersRows = allUsers.map(mapUserToSupabase);
     if (usersRows.length > 0) {
       const { error } = await upsertWithSchemaFallback(client, 'users', usersRows);
       if (error) throw error;
     }
+    await persistAuthCredentialsToSupabase(allUsers);
     results['users'] = { count: usersRows.length, status: 'OK' };
     totalCount += usersRows.length;
   } catch (e: any) {
@@ -1560,7 +1674,7 @@ export async function syncFromSupabase(targetDb: typeof db = db): Promise<{
     cashMovRes,
     auditRes,
   ] = await Promise.all([
-    client.from('settings').select('*').limit(1),
+    client.from('settings').select('*'),
     client.from('users').select('*'),
     client.from('products').select('*'),
     client.from('guardians').select('*'),
@@ -1579,34 +1693,81 @@ export async function syncFromSupabase(targetDb: typeof db = db): Promise<{
     client.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(300),
   ]);
 
-  // 0. Settings
+  // 0. Settings (separa o registro de configurações públicas do registro interno de hashes scrypt)
+  const fallbackHashesByUserId: Record<string, string> = {};
+  const fallbackHashesByEmail: Record<string, string> = {};
   if (!settingsRes.error && settingsRes.data && settingsRes.data.length > 0) {
-    const mapped = mapSettingsFromSupabase(settingsRes.data[0]);
-    const currentSettings = targetDb.getSettings();
-    Object.assign(currentSettings, mergePreservingLocal(currentSettings as any, mapped));
-    counts['settings'] = 1;
-    total += 1;
+    const authCredsRow = settingsRes.data.find((r: any) => r.id === AUTH_CREDENTIALS_ROW_ID);
+    const authStore = authCredsRow?.receipt_settings;
+    if (authStore && typeof authStore === 'object') {
+      if (authStore.hashesByUserId && typeof authStore.hashesByUserId === 'object') {
+        for (const [uid, hash] of Object.entries(authStore.hashesByUserId)) {
+          if (isScryptHash(hash as string)) {
+            fallbackHashesByUserId[uid] = hash as string;
+          }
+        }
+      }
+      if (authStore.hashesByEmail && typeof authStore.hashesByEmail === 'object') {
+        for (const [em, hash] of Object.entries(authStore.hashesByEmail)) {
+          if (isScryptHash(hash as string)) {
+            fallbackHashesByEmail[em.toLowerCase().trim()] = hash as string;
+          }
+        }
+      }
+    }
+
+    const appSettingsRow =
+      settingsRes.data.find((r: any) => r.id === 'settings-default') ||
+      settingsRes.data.find((r: any) => r.id !== AUTH_CREDENTIALS_ROW_ID);
+
+    if (appSettingsRow) {
+      const mapped = mapSettingsFromSupabase(appSettingsRow);
+      const currentSettings = targetDb.getSettings();
+      Object.assign(currentSettings, mergePreservingLocal(currentSettings as any, mapped));
+      counts['settings'] = 1;
+      total += 1;
+    }
   }
 
-  // 0.5 Users (preserva senhas locais e matrículas)
+  // 0.5 Users (hidrata hashes scrypt do Supabase e preserva senhas locais e matrículas)
+  const localUsers = targetDb.getUsers();
   if (!usersRes.error && usersRes.data && usersRes.data.length > 0) {
-    const localUsers = targetDb.getUsers();
     for (const row of usersRes.data) {
-      const idx = localUsers.findIndex(u => u.id === row.id || u.email.toLowerCase() === String(row.email || '').toLowerCase());
+      const rowEmailLower = String(row.email || '').toLowerCase().trim();
+      const idx = localUsers.findIndex(u => u.id === row.id || u.email.toLowerCase() === rowEmailLower);
       const mapped = mapUserFromSupabase(row);
+      const remoteHash =
+        (isScryptHash(mapped.password) ? mapped.password : undefined) ||
+        fallbackHashesByUserId[row.id] ||
+        fallbackHashesByEmail[rowEmailLower];
+
       if (idx >= 0) {
         const existingLocal = localUsers[idx];
         localUsers[idx] = mergePreservingLocal(existingLocal as any, {
           ...mapped,
-          password: existingLocal.password,
+          password: remoteHash || existingLocal.password,
           registrationNumber: existingLocal.registrationNumber,
         }) as any;
       } else {
-        localUsers.push(mapped as any);
+        localUsers.push({
+          ...mapped,
+          password: remoteHash,
+        } as any);
       }
     }
     counts['users'] = usersRes.data.length;
     total += usersRes.data.length;
+  }
+
+  // Garante hidratação de hashes scrypt também para usuários já presentes localmente (ex.: user-admin)
+  for (const u of localUsers) {
+    if (!u.password) {
+      const emailLower = String(u.email || '').toLowerCase().trim();
+      const recovered = fallbackHashesByUserId[u.id] || fallbackHashesByEmail[emailLower];
+      if (recovered && isScryptHash(recovered)) {
+        u.password = recovered;
+      }
+    }
   }
 
   // 1. Products

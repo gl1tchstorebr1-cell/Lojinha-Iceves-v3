@@ -5,12 +5,29 @@ const SCRYPT_PREFIX = 'scrypt$';
 const SCRYPT_KEYLEN = 64;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 horas
 
-// Segredo de assinatura de sessão em memória quando não definido em variável de ambiente
+// Segredo de assinatura de sessão em memória quando nenhuma variável de ambiente do servidor está definida
 const RUNTIME_FALLBACK_SECRET = crypto.randomBytes(32).toString('hex');
 
 function getSessionSecret(): string {
   const configured = (process.env.SESSION_SECRET || process.env.AUTH_SESSION_SECRET || '').trim();
-  return configured || RUNTIME_FALLBACK_SECRET;
+  if (configured) return configured;
+
+  // Em ambientes serverless (ex.: Vercel), múltiplas instâncias concorrentes precisam validar o mesmo token.
+  // Se SESSION_SECRET não foi definido manualmente, deriva uma chave com separação de domínio a partir de
+  // segredos exclusivos de servidor (process.env), nunca expostos ao cliente.
+  const serverKeyMaterial = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.ADMIN_PASSWORD ||
+    ''
+  ).trim();
+  if (serverKeyMaterial) {
+    return crypto
+      .createHmac('sha256', serverKeyMaterial)
+      .update('iceves-session-signing-key-v1')
+      .digest('hex');
+  }
+
+  return RUNTIME_FALLBACK_SECRET;
 }
 
 // Controle de tokens revogados (logout explícito)

@@ -115,9 +115,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         const err = new Error(data.error || `Erro na requisição (${res.status})`) as Error & {
           status?: number;
           adminSetupRequired?: boolean;
+          alreadyConfigured?: boolean;
         };
         err.status = res.status;
         if (data.adminSetupRequired) err.adminSetupRequired = true;
+        if (data.alreadyConfigured) err.alreadyConfigured = true;
         throw err;
       }
 
@@ -142,12 +144,15 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 export const api = {
   // Auth
   async getAuthBootstrapStatus() {
-    return request<{ adminSetupRequired: boolean; adminEmail: string }>('/api/auth/bootstrap-status');
+    return request<{ adminSetupRequired: boolean; adminEmail: string }>('/api/auth/bootstrap-status', {
+      cache: 'no-store',
+    });
   },
 
   async setupInitialAdmin(password: string, confirmPassword: string, email?: string) {
     return request<{ user: User; token: string; expiresAt: string }>('/api/auth/setup-admin', {
       method: 'POST',
+      cache: 'no-store',
       body: JSON.stringify({ password, confirmPassword, email })
     });
   },
