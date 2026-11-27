@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { hashPassword, isAdminEnvPasswordConfigured, isScryptHash } from './auth.ts';
 import type { 
   User, 
   UserRole,
@@ -55,7 +56,10 @@ import type {
 import { generateBacenPixPayload } from '../utils/pix.ts';
 import { getInitialsAvatar } from '../utils/avatar.ts';
 import {
+  IntegrityError,
   buildIntegrityReport,
+  getInconsistentSales,
+  isSaleConsistent,
   validateDataIntegrity,
   type IntegrityReport,
   type IntegritySnapshot,
@@ -183,6 +187,125 @@ export class DatabaseService {
 
   public validateIntegrity(): IntegrityReport {
     return buildIntegrityReport(this.getIntegritySnapshot());
+  }
+
+  public reconcileOrphanSale(
+    saleId: string,
+    strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT',
+    user: { id: string; name: string; role: any }
+  ): {
+    sale: Sale;
+    receipt?: SalesReceipt;
+    student?: Student;
+    auditLog: AuditLog;
+  } {
+    const rollbackSnapshot = this.takeSnapshot();
+    const prevPendingUpserts = this.clonePendingUpserts();
+    const prevPendingDeletes = this.clonePendingDeletes();
+
+    try {
+      const sale = this.data.sales.find(s => s.id === saleId);
+      if (!sale) {
+        throw new IntegrityError(`Venda ${saleId} não encontrada para correção.`);
+      }
+
+      const nowIso = new Date().toISOString();
+      let createdReceipt: SalesReceipt | undefined;
+      let auditDetails = '';
+
+      if (strategy === 'CANCEL_INVALID') {
+        sale.status = 'CANCELLED';
+        sale.billingStatus = 'CANCELADA';
+        sale.integrityReason = 'Venda órfã/inconsistente cancelada por ausência de recibo ativo correspondente.';
+        sale.reversedReason = sale.integrityReason;
+        sale.reversedByUserName = user.name;
+        sale.reversedAt = nowIso;
+        sale.receiptId = undefined;
+        sale.receiptCode = undefined;
+
+        for (const r of this.data.receipts || []) {
+          if (r.saleId === sale.id && r.status === 'ATIVO') {
+            r.status = 'CANCELADO';
+            r.updatedAt = nowIso;
+            this.triggerSupabaseSync('sales_receipts', r, 'mapReceiptToSupabase');
+          }
+        }
+
+        auditDetails = `Venda inconsistente ${sale.id} (${sale.studentName} • R$ ${Number(sale.total).toFixed(2)}) cancelada (CANCELLED) pela rotina de integridade e excluída dos indicadores.`;
+      } else {
+        const existingActive = (this.data.receipts || []).find(
+          r => r.saleId === sale.id && (r.status === 'ATIVO' || r.status === 'PARCIALMENTE_ESTORNADO')
+        );
+        if (existingActive) {
+          createdReceipt = existingActive;
+          sale.status = 'COMPLETED';
+          sale.receiptId = existingActive.id;
+          sale.receiptCode = existingActive.receiptCode;
+          sale.integrityReason = undefined;
+        } else {
+          sale.status = 'COMPLETED';
+          sale.integrityReason = undefined;
+          const studentRef = this.data.students.find(s => s.id === sale.studentId);
+          createdReceipt = this.createReceiptForSale(sale, studentRef, user, { skipSave: true });
+        }
+
+        const check = isSaleConsistent(sale, this.data.receipts || []);
+        if (!check.valid) {
+          throw new IntegrityError(`Falha ao validar recibo recuperado para ${sale.id}: ${check.reason}`);
+        }
+        auditDetails = `Venda ${sale.id} recuperada com emissão retroativa consistente do recibo ${createdReceipt.receiptCode}.`;
+      }
+
+      const student = this.data.students.find(s => s.id === sale.studentId);
+      if (student) {
+        this.recalculateStudentBalances(student);
+        this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+      }
+
+      const auditLog: AuditLog = {
+        id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: nowIso,
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        action: 'CORRECAO_VENDA_INCONSISTENTE',
+        module: 'SISTEMA',
+        referenceId: sale.id,
+        details: auditDetails,
+        status: 'SUCESSO',
+      };
+      this.data.auditLogs.unshift(auditLog);
+      if (this.data.auditLogs.length > 500) {
+        this.data.auditLogs = this.data.auditLogs.slice(0, 500);
+      }
+
+      this.writeDatabaseSync(this.data, true);
+      this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+      if (createdReceipt) {
+        this.triggerSupabaseSync('sales_receipts', createdReceipt, 'mapReceiptToSupabase');
+      }
+      this.triggerSupabaseSync('audit_logs', auditLog, 'mapAuditLogToSupabase');
+
+      return { sale, receipt: createdReceipt, student, auditLog };
+    } catch (err: any) {
+      this.data = rollbackSnapshot;
+      this.pendingUpserts = prevPendingUpserts;
+      this.pendingDeletes = prevPendingDeletes;
+      throw err instanceof Error ? err : new Error(String(err || 'Erro ao reconciliar venda inconsistente.'));
+    }
+  }
+
+  public reconcileAllOrphanSales(
+    strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT',
+    user: { id: string; name: string; role: any }
+  ): { reconciledIds: string[] } {
+    const inconsistent = getInconsistentSales(this.data.sales || [], this.data.receipts || []);
+    const reconciledIds: string[] = [];
+    for (const item of inconsistent) {
+      this.reconcileOrphanSale(item.sale.id, strategy, user);
+      reconciledIds.push(item.sale.id);
+    }
+    return { reconciledIds };
   }
 
   private clonePendingUpserts() {
@@ -1902,6 +2025,24 @@ export class DatabaseService {
       throw new Error(`A venda ${saleId} já foi estornada anteriormente e não pode ser estornada novamente.`);
     }
 
+    if (
+      existingSale.status === 'CANCELLED' ||
+      existingSale.status === 'INCONSISTENTE' ||
+      existingSale.status === 'FAILED' ||
+      existingSale.status === 'PENDING'
+    ) {
+      throw new IntegrityError(
+        `A venda ${saleId} está com status "${existingSale.status}" e não pode ser estornada diretamente.`
+      );
+    }
+
+    const preCheck = isSaleConsistent(existingSale, this.data.receipts || []);
+    if (!preCheck.valid || !preCheck.receipt) {
+      throw new IntegrityError(
+        `Venda ${saleId} está inconsistente (${preCheck.reason || 'sem recibo ATIVO correspondente'}) e não pode ser estornada diretamente. Utilize a opção de correção de integridade (Cancelar Venda Inválida ou Recuperar Recibo).`
+      );
+    }
+
     const rollbackSnapshot = this.takeSnapshot();
     const prevPendingUpserts = this.clonePendingUpserts();
     const prevPendingDeletes = this.clonePendingDeletes();
@@ -3319,6 +3460,30 @@ export class DatabaseService {
         remainingAmount: remAmt
       };
     });
+
+    if (
+      sale.status === 'CANCELLED' ||
+      sale.status === 'INCONSISTENTE' ||
+      sale.status === 'FAILED' ||
+      sale.status === 'PENDING'
+    ) {
+      return {
+        saleId: sale.id,
+        createdAt: sale.createdAt,
+        saoPauloDate,
+        billingPeriod: this.toSaoPauloPeriod(sale.createdAt) || sale.billingPeriod,
+        origin: sale.origin || 'LOJINHA',
+        paymentMethod,
+        billingStatus: 'CANCELADA',
+        originalTotal: this.roundCurrency(sale.total),
+        reversedAmount: 0,
+        alreadyBilledAmount: 0,
+        remainingBillableAmount: 0,
+        isEligible: false,
+        ineligibleReason: sale.integrityReason || `Status ${sale.status} (inelegível para faturamento)`,
+        items: previewItems.map(it => ({ ...it, remainingQuantity: 0, remainingAmount: 0 }))
+      };
+    }
 
     if (sale.status === 'REVERSED') {
       return {
@@ -5138,7 +5303,7 @@ export class DatabaseService {
       id: `user-${Date.now().toString().slice(-6)}`,
       name: cleanName,
       email: cleanEmail,
-      password: cleanPassword,
+      password: hashPassword(cleanPassword),
       role,
       phone: userData.phone || undefined,
       avatar: getInitialsAvatar(cleanName),
@@ -5163,6 +5328,90 @@ export class DatabaseService {
     this.saveDatabase();
     this.triggerSupabaseSync('users', newUser, 'mapUserToSupabase');
     return newUser;
+  }
+
+  public hasAdminClaimedPassword(): boolean {
+    return this.data.users.some(u => u.role === 'ADMIN' && Boolean(u.password && u.password.trim()));
+  }
+
+  public getPrimaryAdminEmail(): string {
+    const admin = this.data.users.find(u => u.id === 'user-admin') || this.data.users.find(u => u.role === 'ADMIN');
+    return admin?.email || 'admin.lojinha@gmail.com';
+  }
+
+  public claimInitialAdminPassword(plainPassword: string, email?: string): User {
+    if (isAdminEnvPasswordConfigured()) {
+      throw new Error('A senha do administrador já está protegida por variável de ambiente no servidor.');
+    }
+    if (this.hasAdminClaimedPassword()) {
+      throw new Error('A senha inicial do administrador já foi configurada. Utilize a tela de login.');
+    }
+    const cleanPassword = (plainPassword || '').trim();
+    if (cleanPassword.length < 8) {
+      throw new Error('A senha do administrador deve possuir no mínimo 8 caracteres.');
+    }
+
+    let admin = this.data.users.find(u => u.id === 'user-admin') || this.data.users.find(u => u.role === 'ADMIN');
+    if (!admin) {
+      throw new Error('Conta administrativa principal não encontrada.');
+    }
+
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (cleanEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      const conflict = this.data.users.find(u => u.id !== admin!.id && u.email.toLowerCase() === cleanEmail);
+      if (!conflict) {
+        admin.email = cleanEmail;
+      }
+    }
+
+    admin.password = hashPassword(cleanPassword);
+    admin.lastLogin = new Date().toISOString();
+
+    this.logAudit(
+      admin.id,
+      admin.name,
+      admin.role,
+      'CONFIGURAR_SENHA_ADMIN_INICIAL',
+      'AUTH',
+      `Senha administrativa inicial configurada com hash seguro para ${admin.email}.`
+    );
+    this.writeDatabaseSync(this.data, true);
+    this.triggerSupabaseSync('users', admin, 'mapUserToSupabase');
+    return admin;
+  }
+
+  public upgradeUserPasswordToScrypt(userId: string, plainPassword: string): void {
+    const user = this.data.users.find(u => u.id === userId);
+    if (!user) return;
+    if (isScryptHash(user.password)) return;
+    user.password = hashPassword(plainPassword);
+    this.writeDatabaseSync(this.data, true);
+  }
+
+  public setUserPassword(
+    targetUserId: string,
+    newPlainPassword: string,
+    actor: { id: string; name: string; role: any }
+  ): User {
+    const cleanPassword = (newPlainPassword || '').trim();
+    if (cleanPassword.length < 8) {
+      throw new Error('A nova senha deve possuir no mínimo 8 caracteres.');
+    }
+    const target = this.data.users.find(u => u.id === targetUserId);
+    if (!target) {
+      throw new Error('Usuário não encontrado.');
+    }
+    target.password = hashPassword(cleanPassword);
+    this.logAudit(
+      actor.id,
+      actor.name,
+      actor.role,
+      'ALTERAR_SENHA_USUARIO',
+      'AUTH',
+      `Senha atualizada com hash seguro para ${target.email} (${target.role}).`
+    );
+    this.writeDatabaseSync(this.data, true);
+    return target;
   }
 
   // 10.1 Atualização flexível de Mensalidade e Ajustes na Fatura
@@ -6205,9 +6454,21 @@ export class DatabaseService {
         nextSettings.supabaseActive = false;
       }
 
+      const preservedPasswordsById = new Map<string, string>();
+      for (const prevUser of backupSnapshot.users || []) {
+        if (prevUser.password) {
+          preservedPasswordsById.set(prevUser.id, prevUser.password);
+        }
+      }
+
+      const restoredUsers = deepCloneData(initialUsers).map(u => {
+        const prevHash = preservedPasswordsById.get(u.id);
+        return prevHash ? { ...u, password: prevHash } : u;
+      });
+
       this.data = {
         settings: nextSettings,
-        users: deepCloneData(initialUsers),
+        users: restoredUsers,
         guardians: deepCloneData(initialGuardians),
         students: deepCloneData(initialStudents),
         products: deepCloneData(initialProducts),

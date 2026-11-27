@@ -33,6 +33,8 @@ import { ReceiptPreviewModal, triggerScopedReceiptPrint } from '../receipts/Rece
 import { ReceiptDocumentView } from '../receipts/ReceiptDocumentView';
 import { downloadReceiptPdf, resolveEffectiveReceiptSettings } from '../../utils/receiptPdf';
 import { getInitialsAvatar } from '../../utils/avatar';
+import { isSaleConsistent } from '../../utils/dataIntegrity';
+import { emitDiagnosticLog } from '../../services/posTransactionEngine';
 import { createPortal } from 'react-dom';
 
 interface PointOfSaleProps {
@@ -44,6 +46,7 @@ interface PointOfSaleProps {
   onSaleCompleted: (bundle: SaleTransactionBundle) => void;
   onSaleReversed: (bundle: SaleReversalBundle) => void;
   onReceiptUpdated?: (receipt: SalesReceipt) => void;
+  onRecoverInconsistentSale?: (saleId: string, strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT') => Promise<void>;
 }
 
 interface CartItem {
@@ -68,7 +71,8 @@ export function PointOfSale({
   settings = null,
   onSaleCompleted, 
   onSaleReversed,
-  onReceiptUpdated
+  onReceiptUpdated,
+  onRecoverInconsistentSale
 }: PointOfSaleProps) {
   const { user, canManage } = useAuth();
   const { isOnline } = useOnlineStatus();
@@ -85,6 +89,7 @@ export function PointOfSale({
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
   const [completedReceipt, setCompletedReceipt] = useState<SalesReceipt | null>(null);
   const [isExportingCompletedPdf, setIsExportingCompletedPdf] = useState(false);
+  const [recoveringSaleId, setRecoveringSaleId] = useState<string | null>(null);
   const [previewModalState, setPreviewModalState] = useState<{
     receipt: SalesReceipt;
     isSecondCopy: boolean;
@@ -328,6 +333,16 @@ export function PointOfSale({
       };
     }
     const idempotencyKey = pendingIdempotencyRef.current.key;
+    const productSummary = cart.map(i => `${i.quantity}x ${i.product.name}`).join(', ');
+
+    emitDiagnosticLog({
+      event: 'SALE_TRANSACTION_STARTED',
+      idempotencyKey,
+      aluno: selectedStudent.name,
+      total: cartTotal,
+      produto: productSummary,
+      etapa: 'PDV_SUBMIT',
+    });
 
     try {
       const parsedPaid = paymentMethod === 'DINHEIRO' && amountPaidInput.trim()
@@ -351,11 +366,11 @@ export function PointOfSale({
 
       // Verificação explícita da confirmação completa antes de exibir sucesso
       setSubmitStage('CONFIRMANDO');
-      if (!res?.sale || res.sale.status !== 'COMPLETED' || !res.receipt || res.receipt.saleId !== res.sale.id) {
-        throw new Error('A persistência completa da venda e do recibo não foi confirmada. Nenhuma conclusão foi exibida.');
+      if (!res?.sale || res.sale.status !== 'COMPLETED' || !res.receipt || res.receipt.saleId !== res.sale.id || res.receipt.status !== 'ATIVO') {
+        throw new Error('A persistência completa da venda e do recibo ativo não foi confirmada. Nenhuma conclusão foi exibida.');
       }
 
-      // Commit atômico no estado da aplicação + snapshot local (lança erro se falhar)
+      // Commit atômico no estado da aplicação + snapshot local com readback real (lança erro se falhar)
       onSaleCompleted(res);
 
       // Somente após persistência confirmada: limpar carrinho e exibir sucesso/recibo
@@ -376,6 +391,16 @@ export function PointOfSale({
         }, 180);
       }
     } catch (err: any) {
+      emitDiagnosticLog({
+        event: 'SALE_TRANSACTION_FAILED',
+        idempotencyKey,
+        aluno: selectedStudent.name,
+        total: cartTotal,
+        produto: productSummary,
+        etapa: submitStage || 'PDV_SUBMIT',
+        motivo: err?.message || 'Erro desconhecido ao confirmar venda.',
+        estadoFinal: 'FAILED',
+      });
       setSaleError(err?.message || 'Erro ao registrar venda. Nenhuma alteração parcial foi confirmada.');
     } finally {
       submittingLockRef.current = false;
@@ -1059,12 +1084,33 @@ export function PointOfSale({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#242424]">
-                {sales.map(sale => (
-                  <tr key={sale.id} className="hover:bg-[#202020] transition">
+                {sales.map(sale => {
+                  const isCancelled = sale.status === 'CANCELLED';
+                  const isReversed = sale.status === 'REVERSED';
+                  const consistencyCheck =
+                    sale.status === 'COMPLETED' || sale.status === 'PARTIALLY_REVERSED'
+                      ? isSaleConsistent(sale, receipts)
+                      : null;
+                  const isInconsistent =
+                    sale.status === 'INCONSISTENTE' ||
+                    (consistencyCheck !== null && !consistencyCheck.valid);
+                  const canReverseValid =
+                    !isInconsistent &&
+                    (sale.status === 'COMPLETED' || sale.status === 'PARTIALLY_REVERSED');
+                  const inconsistencyTooltip =
+                    consistencyCheck?.reason ||
+                    sale.integrityReason ||
+                    'Venda sem recibo ATIVO correspondente.';
+
+                  return (
+                  <tr
+                    key={sale.id}
+                    className={`transition ${isInconsistent ? 'bg-amber-950/15 hover:bg-amber-950/25' : 'hover:bg-[#202020]'}`}
+                  >
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono font-bold text-[#F5F5F5]">{sale.id}</span>
-                        {sale.receiptCode && (
+                        {sale.receiptCode && !isInconsistent && !isCancelled && (
                           <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-mono text-[10px] font-semibold">
                             {sale.receiptCode}
                           </span>
@@ -1082,10 +1128,10 @@ export function PointOfSale({
                       </p>
                     </td>
                     <td className="py-3 px-4">
-                      <span className={`font-mono font-extrabold ${sale.status === 'REVERSED' ? 'line-through text-[#71717A]' : 'text-[#F5F5F5]'}`}>
+                      <span className={`font-mono font-extrabold ${isReversed || isCancelled ? 'line-through text-[#71717A]' : 'text-[#F5F5F5]'}`}>
                         {formatCurrency(sale.total)}
                       </span>
-                      {(sale.reversedAmount || 0) > 0 && sale.status !== 'REVERSED' && (
+                      {(sale.reversedAmount || 0) > 0 && !isReversed && !isCancelled && (
                         <span className="block text-[10px] text-amber-400 font-mono">
                           Estornado: -{formatCurrency(sale.reversedAmount || 0)}
                         </span>
@@ -1093,11 +1139,35 @@ export function PointOfSale({
                     </td>
                     <td className="py-3 px-4 text-[#A1A1AA]">{sale.operatorUserName}</td>
                     <td className="py-3 px-4">
-                      {sale.status === 'COMPLETED' && !(sale.reversedAmount && sale.reversedAmount > 0) ? (
+                      {isInconsistent ? (
+                        <div>
+                          <span
+                            title={inconsistencyTooltip}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35"
+                          >
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            Inconsistente — requer correção
+                          </span>
+                          <span className="block text-[10px] text-amber-300/80 mt-0.5 truncate max-w-xs" title={inconsistencyTooltip}>
+                            {inconsistencyTooltip}
+                          </span>
+                        </div>
+                      ) : isCancelled ? (
+                        <div>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-500/15 text-zinc-300 border border-zinc-500/30">
+                            Cancelada (Integridade)
+                          </span>
+                          {(sale.integrityReason || sale.reversedReason) && (
+                            <span className="block text-[10px] text-[#71717A] mt-0.5 truncate max-w-xs" title={sale.integrityReason || sale.reversedReason}>
+                              {sale.integrityReason || sale.reversedReason}
+                            </span>
+                          )}
+                        </div>
+                      ) : canReverseValid && !(sale.reversedAmount && sale.reversedAmount > 0) ? (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                           Concluída
                         </span>
-                      ) : sale.status === 'COMPLETED' && (sale.reversedAmount || 0) > 0 ? (
+                      ) : canReverseValid && (sale.reversedAmount || 0) > 0 ? (
                         <div>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/25">
                             Estorno Parcial
@@ -1123,23 +1193,27 @@ export function PointOfSale({
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => openReceiptForSale(sale, false, 'SALE')}
-                          title="Visualizar Recibo"
-                          className="p-1.5 rounded-lg bg-[#242424] hover:bg-[#2E2E2E] text-zinc-200 cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openReceiptForSale(sale, true, 'SALE')}
-                          title="Reimprimir 2ª Via"
-                          className="p-1.5 rounded-lg bg-[#242424] hover:bg-emerald-500/20 text-emerald-400 cursor-pointer"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                        </button>
-                        {((sale.reversedAmount || 0) > 0 || sale.status === 'REVERSED') && (
+                        {!isInconsistent && !isCancelled && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openReceiptForSale(sale, false, 'SALE')}
+                              title="Visualizar Recibo"
+                              className="p-1.5 rounded-lg bg-[#242424] hover:bg-[#2E2E2E] text-zinc-200 cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openReceiptForSale(sale, true, 'SALE')}
+                              title="Reimprimir 2ª Via"
+                              className="p-1.5 rounded-lg bg-[#242424] hover:bg-emerald-500/20 text-emerald-400 cursor-pointer"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                        {!isInconsistent && ((sale.reversedAmount || 0) > 0 || isReversed) && (
                           <button
                             type="button"
                             onClick={() => openReceiptForSale(sale, false, 'REVERSAL')}
@@ -1149,7 +1223,52 @@ export function PointOfSale({
                             <FileCheck2 className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {sale.status === 'COMPLETED' ? (
+                        {isInconsistent ? (
+                          onRecoverInconsistentSale ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                disabled={recoveringSaleId === sale.id}
+                                onClick={async () => {
+                                  setRecoveringSaleId(sale.id);
+                                  setSaleError(null);
+                                  try {
+                                    await onRecoverInconsistentSale(sale.id, 'CANCEL_INVALID');
+                                    setReversalSuccessMessage(`Venda inconsistente ${sale.id} cancelada com segurança e removida dos indicadores.`);
+                                  } catch (err: any) {
+                                    setSaleError(err?.message || 'Erro ao cancelar venda inconsistente.');
+                                  } finally {
+                                    setRecoveringSaleId(null);
+                                  }
+                                }}
+                                className="px-2 py-1 text-[10px] font-semibold text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 rounded-lg transition cursor-pointer disabled:opacity-50"
+                              >
+                                {recoveringSaleId === sale.id ? 'Corrigindo...' : 'Cancelar Inválida'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={recoveringSaleId === sale.id}
+                                onClick={async () => {
+                                  setRecoveringSaleId(sale.id);
+                                  setSaleError(null);
+                                  try {
+                                    await onRecoverInconsistentSale(sale.id, 'RECOVER_RECEIPT');
+                                    setReversalSuccessMessage(`Recibo consistente recuperado para a venda ${sale.id}.`);
+                                  } catch (err: any) {
+                                    setSaleError(err?.message || 'Erro ao recuperar recibo.');
+                                  } finally {
+                                    setRecoveringSaleId(null);
+                                  }
+                                }}
+                                className="px-2 py-1 text-[10px] font-semibold text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 rounded-lg transition cursor-pointer disabled:opacity-50"
+                              >
+                                Recuperar Recibo
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-amber-300 font-semibold px-1">Requer correção</span>
+                          )
+                        ) : canReverseValid ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -1166,13 +1285,16 @@ export function PointOfSale({
                             <RotateCcw className="w-3 h-3" />
                             Estornar
                           </button>
+                        ) : isCancelled ? (
+                          <span className="text-[11px] text-[#71717A] px-1">Cancelada</span>
                         ) : (
                           <span className="text-[11px] text-[#71717A] px-1">Estornado</span>
                         )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

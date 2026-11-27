@@ -206,7 +206,8 @@ export interface Sale {
   total: number;
   operatorUserId: string;
   operatorUserName: string;
-  status: 'PENDING' | 'COMPLETED' | 'PARTIALLY_REVERSED' | 'REVERSED' | 'FAILED';
+  status: 'PENDING' | 'COMPLETED' | 'PARTIALLY_REVERSED' | 'REVERSED' | 'FAILED' | 'CANCELLED' | 'INCONSISTENTE';
+  integrityReason?: string;
   reversedReason?: string;
   reversedByUserName?: string;
   reversedAt?: string;

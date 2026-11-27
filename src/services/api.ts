@@ -58,14 +58,19 @@ export interface SaleReversalBundle {
   idempotentReplay?: boolean;
 }
 
-let currentUserId: string = 'user-admin';
+let authToken: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
 
-export function setApiUserId(id: string) {
-  currentUserId = id;
+export function setApiAuthToken(token: string | null) {
+  authToken = token && token.trim() ? token.trim() : null;
 }
 
-export function getApiUserId() {
-  return currentUserId;
+export function getApiAuthToken(): string | null {
+  return authToken;
+}
+
+export function setApiUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,7 +78,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-user-id': currentUserId,
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...(options.headers as Record<string, string> || {})
   };
 
@@ -99,11 +104,21 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       }
 
       if (!res.ok) {
+        if (res.status === 401 && !endpoint.startsWith('/api/auth/')) {
+          authToken = null;
+          unauthorizedHandler?.();
+        }
         if (method === 'GET' && res.status >= 502 && res.status <= 504 && attempt < maxAttempts - 1) {
           await sleep(350 * (attempt + 1));
           continue;
         }
-        throw new Error(data.error || `Erro na requisição (${res.status})`);
+        const err = new Error(data.error || `Erro na requisição (${res.status})`) as Error & {
+          status?: number;
+          adminSetupRequired?: boolean;
+        };
+        err.status = res.status;
+        if (data.adminSetupRequired) err.adminSetupRequired = true;
+        throw err;
       }
 
       return data as T;
@@ -126,24 +141,50 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 export const api = {
   // Auth
-  async login(email: string, password?: string) {
-    return request<{ user: User; token: string }>('/api/auth/login', {
+  async getAuthBootstrapStatus() {
+    return request<{ adminSetupRequired: boolean; adminEmail: string }>('/api/auth/bootstrap-status');
+  },
+
+  async setupInitialAdmin(password: string, confirmPassword: string, email?: string) {
+    return request<{ user: User; token: string; expiresAt: string }>('/api/auth/setup-admin', {
+      method: 'POST',
+      body: JSON.stringify({ password, confirmPassword, email })
+    });
+  },
+
+  async login(email: string, password: string) {
+    return request<{ user: User; token: string; expiresAt: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
   },
 
   async register(userData: { name: string; email: string; password: string; role?: UserRole; phone?: string }) {
-    return request<{ user: User; token: string }>('/api/auth/register', {
+    return request<{ user: User; token: string; expiresAt: string }>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData)
     });
   },
 
+  async logout() {
+    try {
+      await request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignora erro de rede ao encerrar sessão local
+    }
+  },
+
   async resetPassword(email: string) {
-    return request<{ message: string; maskedEmail: string }>('/api/auth/reset-password', {
+    return request<{ message: string }>('/api/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify({ email })
+    });
+  },
+
+  async changePassword(payload: { targetUserId?: string; currentPassword?: string; newPassword: string }) {
+    return request<{ ok: boolean; message: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload)
     });
   },
 
@@ -647,6 +688,21 @@ export const api = {
 
   async getIntegrityReport() {
     return request<IntegrityReport>('/api/integrity');
+  },
+
+  async reconcileIntegrity(payload: { saleId?: string; strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT' }) {
+    return request<{
+      reconciledIds: string[];
+      strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT';
+      sales: Sale[];
+      receipts: SalesReceipt[];
+      students: Student[];
+      auditLogs: AuditLog[];
+      integrityReport: IntegrityReport;
+    }>('/api/integrity/reconcile', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   // Reset database to seed (com timeout seguro)

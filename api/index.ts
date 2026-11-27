@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { handleApiRoute, type ApiRequest } from '../src/server/handler.ts';
 import { db } from '../src/server/db.ts';
+import { verifySessionToken } from '../src/server/auth.ts';
 import { applySecurityHeaders } from '../src/server/securityHeaders.ts';
 
 export default async function vercelApiHandler(req: IncomingMessage & { body?: any; originalUrl?: string }, res: ServerResponse) {
@@ -30,11 +31,8 @@ export default async function vercelApiHandler(req: IncomingMessage & { body?: a
       await db.ensureHydratedFromSupabase({ maxAgeMs: isMutation ? 2000 : 8000 });
     }
 
-    const userIdHeader = (req.headers['x-user-id'] as string) || '';
-    let currentUser: any = undefined;
-    if (userIdHeader) {
-      currentUser = db.resolveUserById(userIdHeader);
-    }
+    const tokenPayload = verifySessionToken(req.headers['authorization']);
+    const currentUser = tokenPayload ? db.resolveUserById(tokenPayload.sub) : undefined;
 
     const apiReq: ApiRequest = {
       method: req.method || 'GET',

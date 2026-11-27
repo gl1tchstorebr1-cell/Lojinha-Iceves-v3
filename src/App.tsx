@@ -10,10 +10,17 @@ import {
   commitSaleBundleToOfflineSnapshot,
   loadOfflineSnapshot,
   recoverOfflineSnapshotOnBoot,
+  restorePrincipalFromBackupExplicit,
   saveOfflineSnapshot,
+  saveOfflineSnapshotAtomic,
   type OfflineDataSnapshot,
 } from './utils/offlineSnapshotCache';
-import { validateDataIntegrity } from './utils/dataIntegrity';
+import { getInconsistentSales, validateDataIntegrity } from './utils/dataIntegrity';
+import {
+  emitDiagnosticLog,
+  reconcileAllOrphanSalesAtomic,
+  recoverOrphanSaleAtomic,
+} from './services/posTransactionEngine';
 import { 
   Product, 
   Sale, 
@@ -30,7 +37,7 @@ import {
   SalesReceipt
 } from './types';
 import { api, type SaleReversalBundle, type SaleTransactionBundle } from './services/api';
-import { CheckCircle2, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react';
 
 // Code-splitting / Lazy loading of modules for faster initial load
 const LoginPage = lazy(() => import('./components/auth/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -95,11 +102,29 @@ function AppContent() {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [showTestChecklist, setShowTestChecklist] = useState(false);
+  const [isReconcilingBanner, setIsReconcilingBanner] = useState(false);
+  const [bannerError, setBannerError] = useState<string | null>(null);
   const hasMountedTabRef = useRef(false);
 
-  // Auto switch tab when user role changes
+  // Auto switch tab when user role changes & clear sensitive state on logout
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setSettings(null);
+      setProducts([]);
+      setStudents([]);
+      setGuardians([]);
+      setSales([]);
+      setReceipts([]);
+      setInvoices([]);
+      setPixPayments([]);
+      setStockMovements([]);
+      setWhatsappNotifications([]);
+      setAuditLogs([]);
+      setLedger([]);
+      setPasseios([]);
+      setSelectedPortalStudentId('');
+      return;
+    }
     if (isAdmin || canManage || isViewer) {
       setActiveTab('dashboard');
     } else if (role === 'CASHIER') {
@@ -111,7 +136,7 @@ function AppContent() {
     } else if (isGuardian) {
       setActiveTab('guardian_portal');
     }
-  }, [role, user?.id, isAdmin, canManage, isViewer, isStudent, isGuardian]);
+  }, [role, user, isAdmin, canManage, isViewer, isStudent, isGuardian]);
 
   // Recuperação segura de snapshot local em caso de transação interrompida antes do reload
   useEffect(() => {
@@ -475,29 +500,92 @@ function AppContent() {
     [isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian, role, settings, startTransition]
   );
 
-  // Handlers for POS and Sales (Commit atômico em todas as coleções + snapshot local)
+  // Handlers for POS and Sales (Commit atômico em todas as coleções + snapshot local com readback obrigatório)
   const handleSaleCompleted = useCallback((bundle: SaleTransactionBundle) => {
     if (!bundle?.sale || bundle.sale.status !== 'COMPLETED') {
       throw new Error('A venda não retornou com status COMPLETED após persistência.');
     }
-    if (!bundle.receipt || bundle.receipt.saleId !== bundle.sale.id) {
-      throw new Error('Recibo vinculado à venda não foi confirmado.');
+    if (!bundle.receipt || bundle.receipt.saleId !== bundle.sale.id || bundle.receipt.status !== 'ATIVO') {
+      throw new Error('Recibo ativo vinculado à venda não foi confirmado.');
     }
 
-    const committed = commitSaleBundleToOfflineSnapshot(latestSnapshotRef.current, bundle);
-    latestSnapshotRef.current = committed;
+    try {
+      const committed = commitSaleBundleToOfflineSnapshot(latestSnapshotRef.current, bundle);
+      latestSnapshotRef.current = committed;
 
-    setSales(committed.sales);
-    setReceipts(committed.receipts || []);
-    setStudents(committed.students);
-    setProducts(committed.products);
-    if (committed.stockMovements) setStockMovements(committed.stockMovements);
-    if (committed.financialLedger) setLedger(committed.financialLedger);
-    if (committed.auditLogs) setAuditLogs(committed.auditLogs);
-    setLastSyncedAt(committed.syncedAt);
+      emitDiagnosticLog({
+        event: 'SALE_SNAPSHOT_COMMITTED',
+        saleId: bundle.sale.id,
+        idempotencyKey: bundle.sale.idempotencyKey,
+        aluno: bundle.sale.studentName,
+        total: bundle.sale.total,
+        etapa: 'SNAPSHOT_COMMIT',
+      });
 
-    refreshSilent();
-  }, [refreshSilent]);
+      emitDiagnosticLog({
+        event: 'SALE_PERSISTENCE_VERIFIED',
+        saleId: bundle.sale.id,
+        idempotencyKey: bundle.sale.idempotencyKey,
+        aluno: bundle.sale.studentName,
+        total: bundle.sale.total,
+        etapa: 'READBACK_VERIFY',
+        estadoFinal: 'COMPLETED',
+      });
+
+      setSales(committed.sales);
+      setReceipts(committed.receipts || []);
+      setStudents(committed.students);
+      setProducts(committed.products);
+      if (committed.stockMovements) setStockMovements(committed.stockMovements);
+      if (committed.financialLedger) setLedger(committed.financialLedger);
+      if (committed.auditLogs) setAuditLogs(committed.auditLogs);
+      setLastSyncedAt(committed.syncedAt);
+
+      emitDiagnosticLog({
+        event: 'SALE_TRANSACTION_COMPLETED',
+        saleId: bundle.sale.id,
+        idempotencyKey: bundle.sale.idempotencyKey,
+        aluno: bundle.sale.studentName,
+        total: bundle.sale.total,
+        etapa: 'CONCLUIDO',
+        estadoFinal: 'COMPLETED',
+      });
+
+      refreshSilent();
+    } catch (err: any) {
+      emitDiagnosticLog({
+        event: 'SALE_ROLLBACK_STARTED',
+        saleId: bundle.sale.id,
+        idempotencyKey: bundle.sale.idempotencyKey,
+        aluno: bundle.sale.studentName,
+        total: bundle.sale.total,
+        etapa: 'LOCAL_COMMIT',
+        motivo: err?.message || 'Falha na persistência local',
+      });
+
+      // Compensação automática no servidor para não deixar venda confirmada remotamente se a persistência local falhou
+      if (!bundle.idempotentReplay && isOnline) {
+        void api
+          .reverseSale(
+            bundle.sale.id,
+            'Rollback automático: falha na verificação de persistência local do terminal',
+            `COMP-ROLLBACK-${bundle.sale.id}`
+          )
+          .catch(() => {});
+      }
+
+      emitDiagnosticLog({
+        event: 'SALE_ROLLBACK_COMPLETED',
+        saleId: bundle.sale.id,
+        idempotencyKey: bundle.sale.idempotencyKey,
+        aluno: bundle.sale.studentName,
+        total: bundle.sale.total,
+        etapa: 'ROLLBACK',
+        estadoFinal: 'ROLLED_BACK',
+      });
+      throw err;
+    }
+  }, [isOnline, refreshSilent]);
 
   const handleSaleReversed = useCallback((bundle: SaleReversalBundle) => {
     const committed = commitReversalBundleToOfflineSnapshot(latestSnapshotRef.current, bundle);
@@ -515,6 +603,104 @@ function AppContent() {
 
     refreshSilent();
   }, [refreshSilent]);
+
+  // Reconciliação segura e auditada de vendas órfãs/inconsistentes (ex: VEN-610628)
+  const applySnapshotState = useCallback((snap: OfflineDataSnapshot) => {
+    latestSnapshotRef.current = snap;
+    setSales(snap.sales || []);
+    setReceipts(snap.receipts || []);
+    setStudents(snap.students || []);
+    setProducts(snap.products || []);
+    setInvoices(snap.invoices || []);
+    if (snap.stockMovements) setStockMovements(snap.stockMovements);
+    if (snap.financialLedger) setLedger(snap.financialLedger);
+    if (snap.auditLogs) setAuditLogs(snap.auditLogs);
+    if (snap.syncedAt) setLastSyncedAt(snap.syncedAt);
+  }, []);
+
+  const handleRecoverInconsistentSale = useCallback(
+    async (saleId: string, strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT') => {
+      const actor = {
+        id: user?.id || 'admin',
+        name: user?.name || 'Administrador',
+        role: user?.role || ('ADMIN' as const),
+      };
+
+      if (isOnline) {
+        try {
+          const res = await api.reconcileIntegrity({ saleId, strategy });
+          const nextSnap: OfflineDataSnapshot = {
+            ...latestSnapshotRef.current,
+            syncedAt: new Date().toISOString(),
+            sales: res.sales,
+            receipts: res.receipts,
+            students: res.students,
+            auditLogs: res.auditLogs,
+          };
+          const { persisted } = saveOfflineSnapshotAtomic(nextSnap, {
+            operation: `RECONCILE:${saleId}:${strategy}`,
+            txId: `REC-${saleId}-${Date.now()}`,
+            previousSnapshotOverride: latestSnapshotRef.current,
+          });
+          applySnapshotState(persisted);
+          return;
+        } catch {
+          // Fallback local atômico caso o registro exista apenas no snapshot offline
+        }
+      }
+
+      const localResult = recoverOrphanSaleAtomic(latestSnapshotRef.current, saleId, strategy, actor);
+      applySnapshotState(localResult.snapshot);
+    },
+    [applySnapshotState, isOnline, user]
+  );
+
+  const handleReconcileAllInconsistent = useCallback(
+    async (strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT') => {
+      const actor = {
+        id: user?.id || 'admin',
+        name: user?.name || 'Administrador',
+        role: user?.role || ('ADMIN' as const),
+      };
+
+      if (isOnline) {
+        try {
+          const res = await api.reconcileIntegrity({ strategy });
+          const nextSnap: OfflineDataSnapshot = {
+            ...latestSnapshotRef.current,
+            syncedAt: new Date().toISOString(),
+            sales: res.sales,
+            receipts: res.receipts,
+            students: res.students,
+            auditLogs: res.auditLogs,
+          };
+          const { persisted } = saveOfflineSnapshotAtomic(nextSnap, {
+            operation: `RECONCILE_ALL:${strategy}`,
+            txId: `REC-ALL-${Date.now()}`,
+            previousSnapshotOverride: latestSnapshotRef.current,
+          });
+          applySnapshotState(persisted);
+          return;
+        } catch {
+          // Fallback local atômico
+        }
+      }
+
+      const localResult = reconcileAllOrphanSalesAtomic(latestSnapshotRef.current, strategy, actor);
+      applySnapshotState(localResult.snapshot);
+    },
+    [applySnapshotState, isOnline, user]
+  );
+
+  const handleRestoreBackup = useCallback(async () => {
+    const actor = {
+      id: user?.id || 'admin',
+      name: user?.name || 'Administrador',
+      role: user?.role || ('ADMIN' as const),
+    };
+    const restored = restorePrincipalFromBackupExplicit(actor);
+    applySnapshotState(restored);
+  }, [applySnapshotState, user]);
 
   const handleReceiptUpdated = useCallback((updatedReceipt: SalesReceipt) => {
     setReceipts(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
@@ -585,6 +771,12 @@ function AppContent() {
   const lowStockCount = useMemo(
     () => products.filter(p => p.status === 'ACTIVE' && !p.archived && p.currentStock <= p.minStock).length,
     [products]
+  );
+
+  // Detecção global de vendas inconsistentes / órfãs (sem recibo ATIVO consistente)
+  const inconsistentSales = useMemo(
+    () => (isStockist ? [] : getInconsistentSales(sales, receipts)),
+    [isStockist, sales, receipts]
   );
 
   // Selected student for student portal (memoized)
@@ -685,6 +877,73 @@ function AppContent() {
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
           <OfflineBanner lastSyncedAt={lastSyncedAt} onSyncNow={() => loadData(false)} />
 
+          {canManage && inconsistentSales.length > 0 && (
+            <div className="mb-5 p-4 rounded-xl bg-amber-950/35 border border-amber-500/35 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-amber-200">
+                    {inconsistentSales.length} venda(s) inconsistente(s) detectada(s) sem recibo ATIVO correspondente
+                    {' '}({inconsistentSales.slice(0, 3).map(i => i.sale.id).join(', ')}{inconsistentSales.length > 3 ? '…' : ''})
+                  </p>
+                  <p className="text-amber-200/80 mt-0.5">
+                    Esses registros foram excluídos automaticamente do Dashboard, Relatórios e Faturamento até serem corrigidos com auditoria.
+                  </p>
+                  {bannerError && (
+                    <p className="text-rose-300 mt-1 font-medium">{bannerError}</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={isReconcilingBanner}
+                  onClick={async () => {
+                    setIsReconcilingBanner(true);
+                    setBannerError(null);
+                    try {
+                      await handleReconcileAllInconsistent('CANCEL_INVALID');
+                    } catch (e: any) {
+                      setBannerError(e?.message || 'Não foi possível cancelar as vendas inválidas.');
+                    } finally {
+                      setIsReconcilingBanner(false);
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-rose-600/85 hover:bg-rose-600 text-white font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  {isReconcilingBanner ? 'Corrigindo...' : 'Cancelar Inválidas'}
+                </button>
+                <button
+                  type="button"
+                  disabled={isReconcilingBanner}
+                  onClick={async () => {
+                    setIsReconcilingBanner(true);
+                    setBannerError(null);
+                    try {
+                      await handleReconcileAllInconsistent('RECOVER_RECEIPT');
+                    } catch (e: any) {
+                      setBannerError(e?.message || 'Não foi possível recuperar os recibos.');
+                    } finally {
+                      setIsReconcilingBanner(false);
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600/85 hover:bg-emerald-600 text-white font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  Recuperar Recibos
+                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleSafeNavigate('audit')}
+                    className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-amber-100 font-semibold cursor-pointer"
+                  >
+                    Abrir Auditoria
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {isLoading && products.length === 0 ? (
             <ViewFallback />
           ) : (
@@ -694,6 +953,7 @@ function AppContent() {
               {activeTab === 'dashboard' && (
                 <Dashboard 
                   sales={sales}
+                  receipts={receipts}
                   invoices={invoices}
                   products={products}
                   pixPayments={pixPayments}
@@ -714,6 +974,7 @@ function AppContent() {
                   onSaleCompleted={handleSaleCompleted}
                   onSaleReversed={handleSaleReversed}
                   onReceiptUpdated={handleReceiptUpdated}
+                  onRecoverInconsistentSale={canManage ? handleRecoverInconsistentSale : undefined}
                 />
               )}
 
@@ -746,6 +1007,7 @@ function AppContent() {
               {(canManage || isViewer) && activeTab === 'reports' && (
                 <ReportsCenter
                   sales={sales}
+                  receipts={receipts}
                   products={products}
                   students={students}
                   invoices={invoices}
@@ -834,6 +1096,9 @@ function AppContent() {
                   products={products}
                   stockMovements={stockMovements}
                   invoices={invoices}
+                  onRecoverInconsistentSale={handleRecoverInconsistentSale}
+                  onReconcileAllInconsistent={handleReconcileAllInconsistent}
+                  onRestoreBackup={handleRestoreBackup}
                 />
               )}
 

@@ -21,14 +21,17 @@ import {
   PixPayment,
   Product,
   Sale,
+  SalesReceipt,
   StockMovement,
   Student
 } from '../../types';
 import { api } from '../../services/api';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { getValidCompletedSales, isSaleConsistent } from '../../utils/dataIntegrity';
 
 interface ReportsCenterProps {
   sales: Sale[];
+  receipts?: SalesReceipt[];
   products: Product[];
   students: Student[];
   invoices: Invoice[];
@@ -81,6 +84,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
 
 export function ReportsCenter({
   sales,
+  receipts,
   products,
   students,
   invoices,
@@ -115,8 +119,11 @@ export function ReportsCenter({
   );
 
   const completedSales = useMemo(
-    () => filteredSales.filter(s => s.status === 'COMPLETED'),
-    [filteredSales]
+    () =>
+      Array.isArray(receipts)
+        ? getValidCompletedSales(filteredSales, receipts)
+        : filteredSales.filter(s => s.status === 'COMPLETED'),
+    [filteredSales, receipts]
   );
 
   const activeProducts = useMemo(
@@ -128,21 +135,32 @@ export function ReportsCenter({
   const reportTable = useMemo(() => {
     if (activeReport === 'VENDAS') {
       const headers = ['Cupom', 'Data', 'Aluno', 'Matrícula', 'Pagamento', 'Desconto (R$)', 'Total (R$)', 'Status', 'Operador'];
-      const rows = filteredSales.map(s => [
-        s.id,
-        formatDateTime(s.createdAt),
-        s.studentName,
-        s.registrationNumber,
-        s.paymentMethod || 'CONTA_ALUNO',
-        (s.discountAmount || 0).toFixed(2),
-        s.total.toFixed(2),
-        s.status === 'COMPLETED' ? 'Concluída' : 'Estornada',
-        s.operatorUserName,
-      ]);
+      const rows = filteredSales.map(s => {
+        let statusLabel = 'Estornada';
+        if (s.status === 'CANCELLED') {
+          statusLabel = 'Cancelada (Integridade)';
+        } else if (s.status === 'INCONSISTENTE') {
+          statusLabel = 'Inconsistente — requer correção';
+        } else if (s.status === 'COMPLETED' || s.status === 'PARTIALLY_REVERSED') {
+          const ok = Array.isArray(receipts) ? isSaleConsistent(s, receipts).valid : true;
+          statusLabel = ok ? (s.status === 'PARTIALLY_REVERSED' ? 'Estorno Parcial' : 'Concluída') : 'Inconsistente — requer correção';
+        }
+        return [
+          s.id,
+          formatDateTime(s.createdAt),
+          s.studentName,
+          s.registrationNumber,
+          s.paymentMethod || 'CONTA_ALUNO',
+          (s.discountAmount || 0).toFixed(2),
+          s.total.toFixed(2),
+          statusLabel,
+          s.operatorUserName,
+        ];
+      });
       const totalVendido = completedSales.reduce((acc, s) => acc + s.total, 0);
       return {
         title: 'Relatório de Vendas no Período',
-        summary: `${completedSales.length} venda(s) concluída(s) • Total: ${formatCurrency(totalVendido)}`,
+        summary: `${completedSales.length} venda(s) concluída(s) válida(s) • Total: ${formatCurrency(totalVendido)}`,
         headers,
         rows,
       };

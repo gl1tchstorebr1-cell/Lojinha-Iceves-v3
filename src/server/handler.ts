@@ -1,5 +1,16 @@
 import { db } from './db.ts';
 import type { UserRole } from '../types/index.ts';
+import {
+  checkLoginRateLimit,
+  clearLoginFailures,
+  isAdminEnvPasswordConfigured,
+  isScryptHash,
+  issueSessionToken,
+  recordLoginFailure,
+  revokeSessionToken,
+  verifyAdminEnvPassword,
+  verifyPassword,
+} from './auth.ts';
 import { checkSupabaseConnection, syncAllToSupabase, syncFromSupabase } from './supabase.ts';
 import {
   getMercadoPagoStatus,
@@ -21,6 +32,7 @@ export interface ApiRequest {
   user?: {
     id: string;
     name: string;
+    email?: string;
     role: UserRole;
     studentId?: string;
     guardianId?: string;
@@ -42,90 +54,152 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     await db.ensureHydratedFromSupabase();
   }
 
-  // Helper for current user fallback
-  const currentUser = req.user || {
-    id: 'user-admin',
-    name: 'Mariana Vasconcelos',
-    role: 'ADMIN' as UserRole
-  };
-
-  const isAdminOrManager = currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER';
-  const canOperateStock = isAdminOrManager || currentUser.role === 'STOCKIST';
-  const canOperateCashier = isAdminOrManager || currentUser.role === 'CASHIER';
-
   try {
-    // 1. Auth routes
+    // 1. Rotas públicas de autenticação (únicas rotas que não exigem sessão autenticada, além do webhook Mercado Pago)
+    if (pathname === '/api/auth/bootstrap-status' && method === 'GET') {
+      const envConfigured = isAdminEnvPasswordConfigured();
+      const claimed = db.hasAdminClaimedPassword();
+      return {
+        status: 200,
+        data: {
+          adminSetupRequired: !envConfigured && !claimed,
+          adminEmail: db.getPrimaryAdminEmail(),
+        },
+      };
+    }
+
+    if (pathname === '/api/auth/setup-admin' && method === 'POST') {
+      if (isAdminEnvPasswordConfigured() || db.hasAdminClaimedPassword()) {
+        return {
+          status: 403,
+          data: { error: 'A configuração inicial do administrador já foi concluída.' },
+        };
+      }
+      const { password, confirmPassword, email } = req.body || {};
+      const cleanPassword = String(password || '').trim();
+      const cleanConfirm = String(confirmPassword || '').trim();
+      if (cleanPassword.length < 8) {
+        return { status: 400, data: { error: 'A senha do administrador deve possuir no mínimo 8 caracteres.' } };
+      }
+      if (cleanConfirm && cleanPassword !== cleanConfirm) {
+        return { status: 400, data: { error: 'As senhas informadas não coincidem.' } };
+      }
+      const admin = db.claimInitialAdminPassword(cleanPassword, email);
+      const { password: _removedPassword, ...safeAdmin } = admin;
+      const session = issueSessionToken({ id: admin.id, role: admin.role, email: admin.email });
+      return {
+        status: 201,
+        data: {
+          user: safeAdmin,
+          token: session.token,
+          expiresAt: session.expiresAt,
+        },
+      };
+    }
+
     if (pathname === '/api/auth/login' && method === 'POST') {
       const { email, password } = req.body || {};
-      const identifier = (email || '').toLowerCase().trim();
-      const cleanPassword = (password || '').trim();
+      const identifier = String(email || '').toLowerCase().trim();
+      const cleanPassword = String(password || '').trim();
 
       if (!identifier || !cleanPassword) {
         return { status: 400, data: { error: 'Informe seu e-mail (ou matrícula) e senha para entrar.' } };
       }
 
+      const clientKey = `${String(req.headers?.['x-forwarded-for'] || 'local').split(',')[0].trim()}:${identifier}`;
+      const rate = checkLoginRateLimit(clientKey);
+      if (!rate.allowed) {
+        return {
+          status: 429,
+          data: {
+            error: `Muitas tentativas de login inválidas. Aguarde ${Math.ceil((rate.retryAfterSeconds || 60) / 60)} minuto(s) e tente novamente.`,
+          },
+        };
+      }
+
       const users = db.getUsers();
-      let user = users.find(
+      const user = users.find(
         u =>
           u.email.toLowerCase() === identifier ||
           (u.registrationNumber && u.registrationNumber.toLowerCase() === identifier)
       );
 
-      // If not found in users, check if identifier matches any of the students by email or registrationNumber
       if (!user) {
-        const student = db.getStudents().find(
-          s =>
-            s.email.toLowerCase() === identifier ||
-            s.registrationNumber.toLowerCase() === identifier
-        );
-        if (student) {
-          user = {
-            id: `user-${student.id}`,
-            name: student.name,
-            email: student.email,
-            role: 'STUDENT',
-            studentId: student.id,
-            registrationNumber: student.registrationNumber,
-            avatar: student.avatar,
-            createdAt: student.createdAt || new Date().toISOString()
+        recordLoginFailure(clientKey);
+        return { status: 401, data: { error: 'E-mail/matrícula ou senha inválidos.' } };
+      }
+
+      let passwordValid = false;
+      if (user.role === 'ADMIN') {
+        if (isAdminEnvPasswordConfigured()) {
+          // Quando ADMIN_PASSWORD está configurado no servidor, SEMPRE prevalece sobre hash local
+          passwordValid = verifyAdminEnvPassword(cleanPassword);
+        } else if (user.password) {
+          passwordValid = verifyPassword(cleanPassword, user.password);
+          if (passwordValid && !isScryptHash(user.password)) {
+            db.upgradeUserPasswordToScrypt(user.id, cleanPassword);
+          }
+        } else {
+          return {
+            status: 403,
+            data: {
+              error: 'A senha do administrador ainda não foi configurada. Defina a senha no primeiro acesso.',
+              adminSetupRequired: true,
+            },
           };
         }
-      }
-
-      if (!user) {
-        return { status: 401, data: { error: 'Usuário não encontrado. Verifique o e-mail/matrícula ou crie uma conta.' } };
-      }
-
-      // Verify password if user has a custom password stored
-      if (user.password) {
-        if (user.password !== cleanPassword) {
-          return { status: 401, data: { error: 'Senha incorreta. Verifique suas credenciais e tente novamente.' } };
-        }
       } else {
-        // Default passwords for pre-existing institutional accounts
-        const defaultPasswords: Record<string, string[]> = {
-          ADMIN: ['Admin#Iceves2026', 'admin123', 'iceves2026'],
-          MANAGER: ['Gerente#Iceves2026', 'gerente123', 'iceves2026'],
-          CASHIER: ['Caixa#Iceves2026', 'caixa123', 'iceves2026'],
-          STOCKIST: ['Estoque#Iceves2026', 'estoque123', 'iceves2026'],
-          VIEWER: ['Leitura#Iceves2026', 'leitura123', 'iceves2026'],
-          STUDENT: ['Aluno#Iceves2026', 'aluno123', 'iceves2026'],
-          GUARDIAN: ['Familia#Iceves2026', 'familia123', 'iceves2026']
-        };
-        const allowed = defaultPasswords[user.role] || [];
-        if (!allowed.includes(cleanPassword) && cleanPassword.length < 6) {
-          return { status: 401, data: { error: 'Senha inválida. Digite sua senha cadastrada.' } };
+        if (!user.password) {
+          recordLoginFailure(clientKey);
+          return {
+            status: 401,
+            data: {
+              error: 'Esta conta ainda não possui senha definida. Crie uma conta ou solicite à coordenação a definição da senha.',
+            },
+          };
+        }
+        passwordValid = verifyPassword(cleanPassword, user.password);
+        if (passwordValid && !isScryptHash(user.password)) {
+          db.upgradeUserPasswordToScrypt(user.id, cleanPassword);
         }
       }
+
+      if (!passwordValid) {
+        recordLoginFailure(clientKey);
+        db.logAudit(
+          user.id,
+          user.name,
+          user.role,
+          'FALHA_LOGIN',
+          'AUTH',
+          `Tentativa de login com senha incorreta para ${user.email}.`,
+          'FALHA'
+        );
+        return { status: 401, data: { error: 'E-mail/matrícula ou senha inválidos.' } };
+      }
+
+      clearLoginFailures(clientKey);
+      user.lastLogin = new Date().toISOString();
+      db.logAudit(
+        user.id,
+        user.name,
+        user.role,
+        'LOGIN_SUCESSO',
+        'AUTH',
+        `Sessão autenticada iniciada para ${user.email} (${user.role}).`,
+        'SUCESSO'
+      );
 
       const { password: _removedPassword, ...safeUser } = user;
+      const session = issueSessionToken({ id: user.id, role: user.role, email: user.email });
 
-      return { 
-        status: 200, 
-        data: { 
-          user: safeUser, 
-          token: `token_${user.id}_${Date.now()}` 
-        } 
+      return {
+        status: 200,
+        data: {
+          user: safeUser,
+          token: session.token,
+          expiresAt: session.expiresAt,
+        },
       };
     }
 
@@ -133,38 +207,107 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       const { name, email, password, role, phone } = req.body || {};
       const newUser = db.registerUser({ name, email, password, role, phone });
       const { password: _removedPassword, ...safeNewUser } = newUser;
+      const session = issueSessionToken({ id: newUser.id, role: newUser.role, email: newUser.email });
       return {
         status: 201,
         data: {
           user: safeNewUser,
-          token: `token_${newUser.id}_${Date.now()}`
-        }
+          token: session.token,
+          expiresAt: session.expiresAt,
+        },
       };
+    }
+
+    if (pathname === '/api/auth/logout' && method === 'POST') {
+      revokeSessionToken(req.headers?.['authorization']);
+      return { status: 200, data: { ok: true } };
     }
 
     if (pathname === '/api/auth/reset-password' && method === 'POST') {
       const { email } = req.body || {};
-      const user = db.getUsers().find(u => u.email.toLowerCase() === (email || '').toLowerCase().trim());
-      if (!user) {
-        return { status: 404, data: { error: 'Usuário não encontrado para este e-mail.' } };
+      const cleanEmail = String(email || '').toLowerCase().trim();
+      if (!cleanEmail) {
+        return { status: 400, data: { error: 'Informe o e-mail cadastrado.' } };
+      }
+      const user = db.getUsers().find(u => u.email.toLowerCase() === cleanEmail);
+      if (user) {
+        db.logAudit(
+          user.id,
+          user.name,
+          user.role,
+          'RECUPERACAO_SENHA',
+          'AUTH',
+          `Solicitação de redefinição de senha registrada para ${user.email}.`
+        );
       }
 
-      db.logAudit(
-        user.id,
-        user.name,
-        user.role,
-        'RECUPERACAO_SENHA',
-        'AUTH',
-        `Link seguro de redefinição de senha gerado para ${user.email} (token seguro emitido)`
-      );
-
-      return { 
-        status: 200, 
-        data: { 
-          message: 'Instruções de recuperação e token seguro enviados com sucesso para o e-mail cadastrado.',
-          maskedEmail: user.email.replace(/(.{2})(.*)(?=@)/, (_, a, b) => a + '*'.repeat(b.length))
-        } 
+      // Resposta genérica para evitar enumeração de e-mails cadastrados
+      return {
+        status: 200,
+        data: {
+          message:
+            'Se o e-mail informado estiver cadastrado, a solicitação foi registrada. Procure a Coordenação ICEVES para concluir a redefinição com segurança.',
+        },
       };
+    }
+
+    // Webhook público de confirmação do Mercado Pago (validado internamente pelo módulo Mercado Pago)
+    if (pathname === '/api/mercadopago/webhook' && (method === 'POST' || method === 'GET')) {
+      const queryParams = Object.fromEntries(url.searchParams.entries());
+      const webhookResult = await handleMercadoPagoWebhookEvent(req.body, queryParams, req.headers);
+      await db.flushSupabaseSync();
+      return { status: 200, data: webhookResult };
+    }
+
+    // =========================================================================
+    // BLOQUEIO GLOBAL DE AUTENTICAÇÃO: TODAS AS DEMAIS ROTAS EXIGEM SESSÃO VÁLIDA
+    // =========================================================================
+    if (!req.user) {
+      return {
+        status: 401,
+        data: { error: 'Acesso negado. Faça login com suas credenciais para continuar.' },
+      };
+    }
+
+    const currentUser = req.user;
+    const isAdminOrManager = currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER';
+    const canOperateStock = isAdminOrManager || currentUser.role === 'STOCKIST';
+    const canOperateCashier = isAdminOrManager || currentUser.role === 'CASHIER';
+
+    if (pathname === '/api/auth/me' && method === 'GET') {
+      const found = db.resolveUserById(currentUser.id);
+      if (!found) {
+        return { status: 401, data: { error: 'Sessão inválida.' } };
+      }
+      const { password: _removed, ...safeUser } = found;
+      return { status: 200, data: { user: safeUser } };
+    }
+
+    if (pathname === '/api/auth/change-password' && method === 'POST') {
+      const { targetUserId, currentPassword, newPassword } = req.body || {};
+      const cleanNew = String(newPassword || '').trim();
+      const targetId = targetUserId && currentUser.role === 'ADMIN' ? String(targetUserId) : currentUser.id;
+      const isSelf = targetId === currentUser.id;
+
+      if (isSelf) {
+        const selfUser = db.getUsers().find(u => u.id === currentUser.id);
+        if (!selfUser) {
+          return { status: 404, data: { error: 'Usuário não encontrado.' } };
+        }
+        const curPass = String(currentPassword || '').trim();
+        const validCurrent =
+          selfUser.role === 'ADMIN' && isAdminEnvPasswordConfigured()
+            ? verifyAdminEnvPassword(curPass)
+            : verifyPassword(curPass, selfUser.password);
+        if (!validCurrent) {
+          return { status: 401, data: { error: 'A senha atual informada está incorreta.' } };
+        }
+      } else if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem redefinir a senha de outros usuários.' } };
+      }
+
+      db.setUserPassword(targetId, cleanNew, currentUser);
+      return { status: 200, data: { ok: true, message: 'Senha atualizada com sucesso.' } };
     }
 
     // 2. Settings
@@ -1140,13 +1283,6 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
       return { status: 200, data: cardResult };
     }
 
-    if (pathname === '/api/mercadopago/webhook' && (method === 'POST' || method === 'GET')) {
-      const queryParams = Object.fromEntries(url.searchParams.entries());
-      const webhookResult = await handleMercadoPagoWebhookEvent(req.body, queryParams, req.headers);
-      await db.flushSupabaseSync();
-      return { status: 200, data: webhookResult };
-    }
-
     if (pathname.startsWith('/api/mercadopago/check-payment/') && method === 'GET') {
       const paymentId = pathname.replace('/api/mercadopago/check-payment/', '');
       const paymentInfo = await fetchMercadoPagoPayment(paymentId);
@@ -1155,16 +1291,25 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
 
     // 8.3. Supabase Integration & Status
     if (pathname === '/api/supabase/status' && method === 'GET') {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem consultar o status de sincronização.' } };
+      }
       const status = await checkSupabaseConnection();
       return { status: 200, data: status };
     }
 
     if (pathname === '/api/supabase/test-connection' && method === 'POST') {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem testar a conexão com o banco.' } };
+      }
       const status = await checkSupabaseConnection();
       return { status: status.connected ? 200 : 400, data: status };
     }
 
     if (pathname === '/api/supabase/sync-push' && method === 'POST') {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem enviar sincronização manual.' } };
+      }
       try {
         const result = await syncAllToSupabase();
         return { status: 200, data: result };
@@ -1174,6 +1319,9 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
     }
 
     if (pathname === '/api/supabase/sync-pull' && method === 'POST') {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem importar sincronização manual.' } };
+      }
       try {
         const result = await syncFromSupabase();
         return { status: 200, data: result };
@@ -1184,10 +1332,16 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
 
     // 9. WhatsApp Notifications
     if (pathname === '/api/whatsapp' && method === 'GET') {
+      if (!isAdminOrManager) {
+        return { status: 200, data: [] };
+      }
       return { status: 200, data: db.getWhatsAppNotifications() };
     }
 
     if (pathname.startsWith('/api/whatsapp/') && pathname.endsWith('/retry') && method === 'POST') {
+      if (currentUser.role !== 'ADMIN') {
+        return { status: 403, data: { error: 'Apenas Administradores podem reenviar notificações.' } };
+      }
       const notifId = pathname.replace('/api/whatsapp/', '').replace('/retry', '');
       const result = db.retryWhatsAppNotification(notifId);
       return { status: 200, data: result };
@@ -1350,6 +1504,37 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem consultar o diagnóstico de integridade.' } };
       }
       return { status: 200, data: db.validateIntegrity() };
+    }
+
+    if (pathname === '/api/integrity/reconcile' && method === 'POST') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem corrigir vendas inconsistentes.' } };
+      }
+      const strategy = req.body?.strategy === 'RECOVER_RECEIPT' ? 'RECOVER_RECEIPT' : 'CANCEL_INVALID';
+      const targetSaleId = typeof req.body?.saleId === 'string' && req.body.saleId.trim() ? req.body.saleId.trim() : undefined;
+
+      let reconciledIds: string[] = [];
+      if (targetSaleId) {
+        db.reconcileOrphanSale(targetSaleId, strategy, currentUser);
+        reconciledIds = [targetSaleId];
+      } else {
+        const res = db.reconcileAllOrphanSales(strategy, currentUser);
+        reconciledIds = res.reconciledIds;
+      }
+
+      await db.flushSupabaseSync();
+      return {
+        status: 200,
+        data: {
+          reconciledIds,
+          strategy,
+          sales: db.getSales(),
+          receipts: db.getReceipts(),
+          students: db.getStudents(),
+          auditLogs: db.getAuditLogs(),
+          integrityReport: db.validateIntegrity(),
+        },
+      };
     }
 
     if (pathname === '/api/reset-data' && method === 'POST') {

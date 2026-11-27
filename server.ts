@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { handleApiRoute, type ApiRequest } from './src/server/handler';
 import { db } from './src/server/db';
+import { verifySessionToken } from './src/server/auth';
 import { applySecurityHeaders } from './src/server/securityHeaders';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,11 +25,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.all('/api/*', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
-    const userIdHeader = (req.headers['x-user-id'] as string) || '';
-    let currentUser: any = undefined;
-    if (userIdHeader) {
-      currentUser = db.resolveUserById(userIdHeader);
-    }
+    const tokenPayload = verifySessionToken(req.headers['authorization']);
+    const currentUser = tokenPayload ? db.resolveUserById(tokenPayload.sub) : undefined;
 
     const apiReq: ApiRequest = {
       method: req.method,

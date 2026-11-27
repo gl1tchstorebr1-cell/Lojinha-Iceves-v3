@@ -29,6 +29,7 @@ import { OFFICIAL_PRODUCT_CATEGORIES, normalizeProductCategory } from '../../uti
 import { useAuth } from '../../context/AuthContext';
 import { 
   Sale, 
+  SalesReceipt,
   Invoice, 
   Product, 
   ProductCategory,
@@ -36,6 +37,7 @@ import {
   Student, 
   SystemSettings 
 } from '../../types';
+import { getValidCompletedSales } from '../../utils/dataIntegrity';
 
 const OFFICIAL_CATEGORIES: ProductCategory[] = OFFICIAL_PRODUCT_CATEGORIES;
 
@@ -170,6 +172,7 @@ const SpotlightCard = React.memo(({ children, className = '', onClick }: { child
 
 interface DashboardProps {
   sales: Sale[];
+  receipts?: SalesReceipt[];
   invoices: Invoice[];
   products: Product[];
   pixPayments: PixPayment[];
@@ -180,6 +183,7 @@ interface DashboardProps {
 
 export function Dashboard({ 
   sales, 
+  receipts,
   invoices, 
   products, 
   pixPayments, 
@@ -259,14 +263,16 @@ export function Dashboard({
     return null;
   }, [isStudent, loggedInStudent, selectedStudentFilter, students]);
 
-  // Filter sales, invoices, and pix payments strictly to the target student (if active)
+  // Filter sales, invoices, and pix payments strictly to valid completed sales (with consistent active receipt)
   const scopedCompletedSales = useMemo(() => {
-    return sales.filter(s => {
-      if (s.status !== 'COMPLETED') return false;
+    const validSales = Array.isArray(receipts)
+      ? getValidCompletedSales(sales, receipts)
+      : sales.filter(s => s.status === 'COMPLETED');
+    return validSales.filter(s => {
       if (activeTargetStudent && s.studentId !== activeTargetStudent.id) return false;
       return true;
     });
-  }, [sales, activeTargetStudent]);
+  }, [sales, receipts, activeTargetStudent]);
 
   const scopedInvoices = useMemo(() => {
     return invoices.filter(i => {

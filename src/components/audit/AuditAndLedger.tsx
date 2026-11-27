@@ -21,7 +21,12 @@ import {
   Invoice,
 } from '../../types';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
-import { buildIntegrityReport, type IntegrityReport } from '../../utils/dataIntegrity';
+import {
+  buildIntegrityReport,
+  getInconsistentSales,
+  type IntegrityReport,
+} from '../../utils/dataIntegrity';
+import { inspectPrincipalSnapshot } from '../../utils/offlineSnapshotCache';
 import { api } from '../../services/api';
 
 interface AuditAndLedgerProps {
@@ -33,6 +38,9 @@ interface AuditAndLedgerProps {
   products?: Product[];
   stockMovements?: StockMovement[];
   invoices?: Invoice[];
+  onRecoverInconsistentSale?: (saleId: string, strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT') => Promise<void>;
+  onReconcileAllInconsistent?: (strategy: 'CANCEL_INVALID' | 'RECOVER_RECEIPT') => Promise<void>;
+  onRestoreBackup?: () => Promise<void>;
 }
 
 export function AuditAndLedger({
@@ -44,6 +52,9 @@ export function AuditAndLedger({
   products = [],
   stockMovements = [],
   invoices = [],
+  onRecoverInconsistentSale,
+  onReconcileAllInconsistent,
+  onRestoreBackup,
 }: AuditAndLedgerProps) {
   const [activeTab, setActiveTab] = useState<'ledger' | 'audit' | 'integrity'>('ledger');
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,6 +62,15 @@ export function AuditAndLedger({
   const [serverReport, setServerReport] = useState<IntegrityReport | null>(null);
   const [isCheckingServer, setIsCheckingServer] = useState(false);
   const [integrityCheckError, setIntegrityCheckError] = useState<string | null>(null);
+  const [reconcilingKey, setReconcilingKey] = useState<string | null>(null);
+  const [reconcileFeedback, setReconcileFeedback] = useState<string | null>(null);
+
+  const inconsistentSales = useMemo(
+    () => getInconsistentSales(sales, receipts),
+    [sales, receipts]
+  );
+
+  const backupInfo = useMemo(() => inspectPrincipalSnapshot(), [sales, receipts]);
 
   const localIntegrityReport = useMemo(
     () =>
@@ -401,11 +421,176 @@ export function AuditAndLedger({
             </div>
           )}
 
+          {reconcileFeedback && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300">
+              {reconcileFeedback}
+            </div>
+          )}
+
+          {inconsistentSales.length > 0 && (onRecoverInconsistentSale || onReconcileAllInconsistent) && (
+            <div className="p-4 rounded-xl bg-rose-950/25 border border-rose-700/40 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-rose-200">
+                    Vendas Inconsistentes / Órfãs Detectadas ({inconsistentSales.length})
+                  </h4>
+                  <p className="text-[11px] text-rose-200/80 mt-0.5">
+                    Estas vendas não possuem recibo ATIVO consistente, foram removidas dos indicadores e não podem ser estornadas normalmente. Escolha uma ação auditada:
+                  </p>
+                </div>
+                {onReconcileAllInconsistent && (
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={Boolean(reconcilingKey)}
+                      onClick={async () => {
+                        setReconcilingKey('ALL-CANCEL');
+                        setIntegrityCheckError(null);
+                        setReconcileFeedback(null);
+                        try {
+                          await onReconcileAllInconsistent('CANCEL_INVALID');
+                          setServerReport(null);
+                          setReconcileFeedback('Todas as vendas inconsistentes foram canceladas (CANCELLED) com registro em auditoria.');
+                        } catch (e: any) {
+                          setIntegrityCheckError(e?.message || 'Erro ao cancelar vendas inconsistentes.');
+                        } finally {
+                          setReconcilingKey(null);
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                    >
+                      {reconcilingKey === 'ALL-CANCEL' ? 'Cancelando...' : 'Cancelar Todas Inválidas'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(reconcilingKey)}
+                      onClick={async () => {
+                        setReconcilingKey('ALL-RECOVER');
+                        setIntegrityCheckError(null);
+                        setReconcileFeedback(null);
+                        try {
+                          await onReconcileAllInconsistent('RECOVER_RECEIPT');
+                          setServerReport(null);
+                          setReconcileFeedback('Recibos consistentes emitidos retroativamente para todas as vendas recuperáveis.');
+                        } catch (e: any) {
+                          setIntegrityCheckError(e?.message || 'Erro ao recuperar recibos.');
+                        } finally {
+                          setReconcilingKey(null);
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                    >
+                      {reconcilingKey === 'ALL-RECOVER' ? 'Recuperando...' : 'Recuperar Recibos'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {inconsistentSales.map(({ sale, reason }) => (
+                  <div
+                    key={sale.id}
+                    className="p-3 rounded-lg bg-[#151515] border border-rose-800/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                  >
+                    <div>
+                      <span className="font-mono font-bold text-rose-300">{sale.id}</span>
+                      <span className="text-zinc-400 mx-2">•</span>
+                      <span className="text-zinc-200 font-semibold">{sale.studentName}</span>
+                      <span className="text-zinc-400 mx-2">•</span>
+                      <span className="font-mono text-zinc-200">{formatCurrency(sale.total)}</span>
+                      <p className="text-[11px] text-rose-300/80 mt-0.5">{reason}</p>
+                    </div>
+                    {onRecoverInconsistentSale && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={Boolean(reconcilingKey)}
+                          onClick={async () => {
+                            setReconcilingKey(`${sale.id}-CANCEL`);
+                            setIntegrityCheckError(null);
+                            setReconcileFeedback(null);
+                            try {
+                              await onRecoverInconsistentSale(sale.id, 'CANCEL_INVALID');
+                              setServerReport(null);
+                              setReconcileFeedback(`Venda ${sale.id} marcada como CANCELLED com sucesso.`);
+                            } catch (e: any) {
+                              setIntegrityCheckError(e?.message || 'Erro ao cancelar venda.');
+                            } finally {
+                              setReconcilingKey(null);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-md bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                        >
+                          Cancelar Inválida
+                        </button>
+                        <button
+                          type="button"
+                          disabled={Boolean(reconcilingKey)}
+                          onClick={async () => {
+                            setReconcilingKey(`${sale.id}-RECOVER`);
+                            setIntegrityCheckError(null);
+                            setReconcileFeedback(null);
+                            try {
+                              await onRecoverInconsistentSale(sale.id, 'RECOVER_RECEIPT');
+                              setServerReport(null);
+                              setReconcileFeedback(`Recibo consistente recuperado para a venda ${sale.id}.`);
+                            } catch (e: any) {
+                              setIntegrityCheckError(e?.message || 'Erro ao recuperar recibo.');
+                            } finally {
+                              setReconcilingKey(null);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                        >
+                          Recuperar Recibo
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {backupInfo.hasValidBackup && onRestoreBackup && (
+            <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div>
+                <span className="font-semibold text-zinc-200 block">
+                  Cópia de Segurança Local Disponível (iceves_offline_snapshot_v1_backup)
+                </span>
+                <span className="text-[11px] text-zinc-400">
+                  Último ponto salvo antes de transação: {backupInfo.backupSyncedAt ? formatDateTime(backupInfo.backupSyncedAt) : 'disponível'}. Nunca é misturado automaticamente ao snapshot principal.
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={Boolean(reconcilingKey)}
+                onClick={async () => {
+                  setReconcilingKey('RESTORE-BACKUP');
+                  setIntegrityCheckError(null);
+                  setReconcileFeedback(null);
+                  try {
+                    await onRestoreBackup();
+                    setServerReport(null);
+                    setReconcileFeedback('Snapshot principal restaurado a partir do backup seguro com registro em auditoria.');
+                  } catch (e: any) {
+                    setIntegrityCheckError(e?.message || 'Erro ao restaurar backup.');
+                  } finally {
+                    setReconcilingKey(null);
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] border border-[#333333] text-zinc-200 text-[11px] font-semibold cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                {reconcilingKey === 'RESTORE-BACKUP' ? 'Restaurando...' : 'Restaurar Backup Seguro'}
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828]">
-              <span className="text-[11px] text-[#A1A1AA] block">Vendas Concluídas</span>
+              <span className="text-[11px] text-[#A1A1AA] block">Vendas Válidas</span>
               <span className="text-lg font-bold text-[#F5F5F5] font-mono">
-                {activeIntegrityReport.summary.completedSales}
+                {activeIntegrityReport.summary.validCompletedSales}
               </span>
             </div>
             <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828]">

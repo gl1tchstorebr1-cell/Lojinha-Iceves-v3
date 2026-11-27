@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite';
 import { handleApiRoute, type ApiRequest } from './handler.ts';
 import { db } from './db.ts';
+import { verifySessionToken } from './auth.ts';
 import { applySecurityHeaders } from './securityHeaders.ts';
 
 export function base44ApiPlugin(): Plugin {
@@ -37,12 +38,9 @@ export function base44ApiPlugin(): Plugin {
             await db.ensureHydratedFromSupabase();
           }
 
-          // Resolve User from headers for true server-side RBAC
-          const userIdHeader = (req.headers['x-user-id'] as string) || '';
-          let currentUser: any = undefined;
-          if (userIdHeader) {
-            currentUser = db.resolveUserById(userIdHeader);
-          }
+          // Autenticação real via token Bearer assinado (nunca confiar em x-user-id)
+          const tokenPayload = verifySessionToken(req.headers['authorization']);
+          const currentUser = tokenPayload ? db.resolveUserById(tokenPayload.sub) : undefined;
 
           const apiReq: ApiRequest = {
             method: req.method || 'GET',
