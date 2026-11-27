@@ -99,6 +99,8 @@ export function SystemSettingsView({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetFeedback, setResetFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [showSbKey, setShowSbKey] = useState(false);
 
@@ -411,18 +413,23 @@ export function SystemSettingsView({
     }
   };
 
-  const handleReset = async () => {
-    if (!window.confirm('Atenção: Deseja restaurar todos os dados para o estado semente inicial? Isso reiniciará o estoque, as vendas e as faturas de teste.')) {
-      return;
-    }
-
+  const handleConfirmReset = async () => {
+    if (isResetting) return;
     setIsResetting(true);
+    setResetFeedback(null);
     try {
-      await api.resetData();
-      onResetData();
-      alert('Dados restaurados com sucesso para os valores padrão de teste!');
+      const res = await api.resetData(15000);
+      await onResetData();
+      setShowResetModal(false);
+      setResetFeedback({
+        type: 'success',
+        message: `Dados iniciais de teste restaurados com sucesso (${res.counts?.products ?? 70} produtos, ${res.counts?.students ?? 17} alunos, ${res.counts?.sales ?? 0} vendas).`,
+      });
     } catch (err: any) {
-      alert(`Erro ao resetar: ${err.message}`);
+      setResetFeedback({
+        type: 'error',
+        message: err?.message || 'Erro ao restaurar os dados iniciais. O estado anterior foi preservado.',
+      });
     } finally {
       setIsResetting(false);
     }
@@ -1871,17 +1878,40 @@ END $$;`;
           </div>
         </div>
 
+        {resetFeedback && (
+          <div
+            className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+              resetFeedback.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            <span>{resetFeedback.message}</span>
+            <button
+              type="button"
+              onClick={() => setResetFeedback(null)}
+              className="font-bold opacity-80 hover:opacity-100 cursor-pointer"
+              aria-label="Fechar aviso"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
           {isAdmin && (
             <button
               type="button"
               disabled={isResetting}
-              onClick={handleReset}
+              onClick={() => {
+                setResetFeedback(null);
+                setShowResetModal(true);
+              }}
               className="px-4 py-2.5 bg-[#222222] border border-[#303030] text-red-400 hover:bg-[#2A2A2A] rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Restaurar Dados Iniciais de Teste
+              <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+              {isResetting ? 'Restaurando Dados...' : 'Restaurar Dados Iniciais de Teste'}
             </button>
           )}
 
@@ -1898,6 +1928,78 @@ END $$;`;
         </div>
 
       </form>
+
+      {/* Modal de Confirmação Segura para Restauração de Dados */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1A1A1A] rounded-2xl shadow-2xl border border-[#303030] max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <RotateCcw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[#F5F5F5] text-sm">Restaurar Dados Iniciais de Teste</h3>
+                  <p className="text-[11px] text-[#A1A1AA]">Ação protegida com backup temporário e rollback automático</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setShowResetModal(false)}
+                className="text-[#71717A] hover:text-white text-xl font-bold cursor-pointer disabled:opacity-40"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[#141414] border border-[#282828] space-y-2 text-xs text-[#D4D4D8]">
+              <p className="font-semibold text-[#F5F5F5]">O que será restaurado para o estado inicial:</p>
+              <ul className="list-disc pl-4 space-y-1 text-[#A1A1AA]">
+                <li>Catálogo oficial dos 70 produtos e seus estoques iniciais</li>
+                <li>17 alunos da 10ª Turma e respectivos responsáveis com saldo zerado</li>
+                <li>Histórico de vendas, recibos, movimentações de estoque, caixa e faturas</li>
+                <li>Configurações padrão do sistema e passeios iniciais</li>
+              </ul>
+              <p className="text-[11px] text-emerald-400 pt-1">
+                Se ocorrer qualquer falha ou tempo limite excedido, o sistema restaura o backup anterior automaticamente.
+              </p>
+            </div>
+
+            {resetFeedback?.type === 'error' && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300">
+                {resetFeedback.message}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setShowResetModal(false)}
+                className="flex-1 py-2.5 px-3 rounded-xl border border-[#303030] text-xs font-semibold text-[#A1A1AA] hover:text-white hover:bg-[#242424] cursor-pointer disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={handleConfirmReset}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-xs font-bold text-white cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isResetting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Restaurando...</span>
+                  </>
+                ) : (
+                  <span>Confirmar Restauração</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

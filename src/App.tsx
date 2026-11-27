@@ -5,7 +5,15 @@ import { Sidebar } from './components/layout/Sidebar';
 import { TopBar } from './components/layout/TopBar';
 import { OfflineBanner } from './components/pwa/OfflineBanner';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
-import { loadOfflineSnapshot, saveOfflineSnapshot } from './utils/offlineSnapshotCache';
+import {
+  commitReversalBundleToOfflineSnapshot,
+  commitSaleBundleToOfflineSnapshot,
+  loadOfflineSnapshot,
+  recoverOfflineSnapshotOnBoot,
+  saveOfflineSnapshot,
+  type OfflineDataSnapshot,
+} from './utils/offlineSnapshotCache';
+import { validateDataIntegrity } from './utils/dataIntegrity';
 import { 
   Product, 
   Sale, 
@@ -21,7 +29,7 @@ import {
   Passeio,
   SalesReceipt
 } from './types';
-import { api } from './services/api';
+import { api, type SaleReversalBundle, type SaleTransactionBundle } from './services/api';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
 
 // Code-splitting / Lazy loading of modules for faster initial load
@@ -105,6 +113,66 @@ function AppContent() {
     }
   }, [role, user?.id, isAdmin, canManage, isViewer, isStudent, isGuardian]);
 
+  // Recuperação segura de snapshot local em caso de transação interrompida antes do reload
+  useEffect(() => {
+    const recovery = recoverOfflineSnapshotOnBoot();
+    if (recovery.recovered && import.meta.env.DEV) {
+      console.warn('[ICEVES Recovery]', recovery.reason);
+    }
+  }, []);
+
+  // Snapshot sempre sincronizado para commits atômicos imediatos
+  const latestSnapshotRef = useRef<OfflineDataSnapshot>({
+    syncedAt: new Date().toISOString(),
+    settings: null,
+    products: [],
+    students: [],
+    guardians: [],
+    sales: [],
+    receipts: [],
+    stockMovements: [],
+    financialLedger: [],
+    auditLogs: [],
+    invoices: [],
+    pixPayments: [],
+    whatsappNotifications: [],
+    passeios: [],
+  });
+
+  useEffect(() => {
+    latestSnapshotRef.current = {
+      syncedAt: lastSyncedAt || new Date().toISOString(),
+      settings,
+      products,
+      students,
+      guardians,
+      sales,
+      receipts,
+      stockMovements,
+      financialLedger: ledger,
+      auditLogs,
+      invoices,
+      pixPayments,
+      whatsappNotifications,
+      passeios,
+    };
+  }, [
+    lastSyncedAt,
+    settings,
+    products,
+    students,
+    guardians,
+    sales,
+    receipts,
+    stockMovements,
+    ledger,
+    auditLogs,
+    invoices,
+    pixPayments,
+    whatsappNotifications,
+    passeios,
+  ]);
+
   // Load all initial data from server (supports silent background sync and offline snapshot fallback)
   const loadData = useCallback(async (silent = false) => {
     if (!user) return;
@@ -125,12 +193,45 @@ function AppContent() {
         api.getProducts(),
         api.getStudents(),
         api.getSales(),
-        api.getReceipts().catch(() => []),
+        isStockist ? Promise.resolve([] as SalesReceipt[]) : api.getReceipts(),
         api.getInvoices(),
         api.getPixPayments(),
         api.getWhatsAppNotifications(),
         api.getPasseios(),
       ]);
+
+      // Proteção contra sobrescrita por resposta parcialmente inconsistente em refresh silencioso
+      if (silent && !isStockist) {
+        const fetchedIssues = validateDataIntegrity({
+          sales: salesData,
+          receipts: receiptsData,
+          products: productsData,
+          students: studentsData,
+          invoices: invoicesData,
+        }).filter(
+          i =>
+            i.code === 'RECEIPT_ACTIVE_WITHOUT_COMPLETED_SALE' ||
+            i.code === 'COMPLETED_SALE_WITHOUT_ACTIVE_RECEIPT'
+        );
+        const currentIssues = validateDataIntegrity({
+          sales: latestSnapshotRef.current.sales,
+          receipts: latestSnapshotRef.current.receipts || [],
+          products: latestSnapshotRef.current.products,
+          students: latestSnapshotRef.current.students,
+          invoices: latestSnapshotRef.current.invoices,
+        }).filter(
+          i =>
+            i.code === 'RECEIPT_ACTIVE_WITHOUT_COMPLETED_SALE' ||
+            i.code === 'COMPLETED_SALE_WITHOUT_ACTIVE_RECEIPT'
+        );
+        if (fetchedIssues.length > currentIssues.length) {
+          console.warn(
+            '[ICEVES Integridade] Refresh silencioso retornou snapshot divergente e foi descartado para preservar consistência:',
+            fetchedIssues
+          );
+          return;
+        }
+      }
 
       setSettings(settingsData);
       setProducts(productsData);
@@ -142,36 +243,66 @@ function AppContent() {
       setWhatsappNotifications(notificationsData);
       setPasseios(passeiosData);
 
-      const syncedAt = new Date().toISOString();
-      setLastSyncedAt(syncedAt);
-      saveOfflineSnapshot({
-        syncedAt,
-        settings: settingsData,
-        products: productsData,
-        students: studentsData,
-        sales: salesData,
-        receipts: receiptsData,
-        invoices: invoicesData,
-        pixPayments: pixData,
-        whatsappNotifications: notificationsData,
-        passeios: passeiosData,
-      });
+      let guardiansData: Guardian[] = latestSnapshotRef.current.guardians || [];
+      let movementsData: StockMovement[] = latestSnapshotRef.current.stockMovements || [];
+      let auditData: AuditLog[] = latestSnapshotRef.current.auditLogs || [];
+      let ledgerData: FinancialTransaction[] = latestSnapshotRef.current.financialLedger || [];
 
       // Load manager/admin/stockist auxiliary data if authorized
       if (canManage || isStockist || isViewer) {
         try {
-          const [guardiansData, movementsData, auditData, ledgerData] = await Promise.all([
-            canManage || isViewer ? api.getGuardians().catch(() => []) : Promise.resolve([]),
-            api.getStockMovements().catch(() => []),
-            canManage ? api.getAuditLogs().catch(() => []) : Promise.resolve([]),
-            canManage || isViewer ? api.getFinancialLedger().catch(() => []) : Promise.resolve([]),
+          const [gData, mData, aData, lData] = await Promise.all([
+            canManage || isViewer ? api.getGuardians().catch(() => guardiansData) : Promise.resolve(guardiansData),
+            api.getStockMovements().catch(() => movementsData),
+            canManage ? api.getAuditLogs().catch(() => auditData) : Promise.resolve(auditData),
+            canManage || isViewer ? api.getFinancialLedger().catch(() => ledgerData) : Promise.resolve(ledgerData),
           ]);
+          guardiansData = gData;
+          movementsData = mData;
+          auditData = aData;
+          ledgerData = lData;
           setGuardians(guardiansData);
           setStockMovements(movementsData);
           setAuditLogs(auditData);
           setLedger(ledgerData);
         } catch {
           // non-critical
+        }
+      }
+
+      const syncedAt = new Date().toISOString();
+      setLastSyncedAt(syncedAt);
+      const fullSnapshot: OfflineDataSnapshot = {
+        syncedAt,
+        settings: settingsData,
+        products: productsData,
+        students: studentsData,
+        guardians: guardiansData,
+        sales: salesData,
+        receipts: receiptsData,
+        stockMovements: movementsData,
+        financialLedger: ledgerData,
+        auditLogs: auditData,
+        invoices: invoicesData,
+        pixPayments: pixData,
+        whatsappNotifications: notificationsData,
+        passeios: passeiosData,
+      };
+      latestSnapshotRef.current = fullSnapshot;
+      saveOfflineSnapshot(fullSnapshot);
+
+      if (import.meta.env.DEV && !isStockist) {
+        const issues = validateDataIntegrity({
+          sales: salesData,
+          receipts: receiptsData,
+          products: productsData,
+          students: studentsData,
+          stockMovements: movementsData,
+          financialLedger: ledgerData,
+          invoices: invoicesData,
+        });
+        if (issues.length > 0) {
+          console.warn('[ICEVES Integridade] Inconsistências detectadas no carregamento:', issues);
         }
       }
     } catch (err) {
@@ -181,8 +312,12 @@ function AppContent() {
         setSettings(cached.settings);
         setProducts(cached.products || []);
         setStudents(cached.students || []);
+        if (cached.guardians) setGuardians(cached.guardians);
         setSales(cached.sales || []);
         setReceipts(cached.receipts || []);
+        if (cached.stockMovements) setStockMovements(cached.stockMovements);
+        if (cached.financialLedger) setLedger(cached.financialLedger);
+        if (cached.auditLogs) setAuditLogs(cached.auditLogs);
         setInvoices(cached.invoices || []);
         setPixPayments(cached.pixPayments || []);
         setWhatsappNotifications(cached.whatsappNotifications || []);
@@ -340,22 +475,44 @@ function AppContent() {
     [isAdmin, canManage, isCashier, isStockist, isViewer, isStudent, isGuardian, role, settings, startTransition]
   );
 
-  // Handlers for POS and Sales
-  const handleSaleCompleted = useCallback((newSale: Sale, updatedStudent: Student, newReceipt?: SalesReceipt) => {
-    setSales(prev => [newSale, ...prev]);
-    if (newReceipt) {
-      setReceipts(prev => [newReceipt, ...prev.filter(r => r.id !== newReceipt.id)]);
+  // Handlers for POS and Sales (Commit atômico em todas as coleções + snapshot local)
+  const handleSaleCompleted = useCallback((bundle: SaleTransactionBundle) => {
+    if (!bundle?.sale || bundle.sale.status !== 'COMPLETED') {
+      throw new Error('A venda não retornou com status COMPLETED após persistência.');
     }
-    setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
+    if (!bundle.receipt || bundle.receipt.saleId !== bundle.sale.id) {
+      throw new Error('Recibo vinculado à venda não foi confirmado.');
+    }
+
+    const committed = commitSaleBundleToOfflineSnapshot(latestSnapshotRef.current, bundle);
+    latestSnapshotRef.current = committed;
+
+    setSales(committed.sales);
+    setReceipts(committed.receipts || []);
+    setStudents(committed.students);
+    setProducts(committed.products);
+    if (committed.stockMovements) setStockMovements(committed.stockMovements);
+    if (committed.financialLedger) setLedger(committed.financialLedger);
+    if (committed.auditLogs) setAuditLogs(committed.auditLogs);
+    setLastSyncedAt(committed.syncedAt);
+
     refreshSilent();
   }, [refreshSilent]);
 
-  const handleSaleReversed = useCallback((reversedSale: Sale, updatedStudent: Student, updatedReceipt?: SalesReceipt) => {
-    setSales(prev => prev.map(s => s.id === reversedSale.id ? reversedSale : s));
-    if (updatedReceipt) {
-      setReceipts(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
-    }
-    setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
+  const handleSaleReversed = useCallback((bundle: SaleReversalBundle) => {
+    const committed = commitReversalBundleToOfflineSnapshot(latestSnapshotRef.current, bundle);
+    latestSnapshotRef.current = committed;
+
+    setSales(committed.sales);
+    setReceipts(committed.receipts || []);
+    setStudents(committed.students);
+    setProducts(committed.products);
+    setInvoices(committed.invoices);
+    if (committed.stockMovements) setStockMovements(committed.stockMovements);
+    if (committed.financialLedger) setLedger(committed.financialLedger);
+    if (committed.auditLogs) setAuditLogs(committed.auditLogs);
+    setLastSyncedAt(committed.syncedAt);
+
     refreshSilent();
   }, [refreshSilent]);
 
@@ -672,6 +829,11 @@ function AppContent() {
                   ledger={ledger}
                   auditLogs={auditLogs}
                   students={students}
+                  sales={sales}
+                  receipts={receipts}
+                  products={products}
+                  stockMovements={stockMovements}
+                  invoices={invoices}
                 />
               )}
 

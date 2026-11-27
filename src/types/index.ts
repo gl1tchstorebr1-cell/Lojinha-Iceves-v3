@@ -132,10 +132,12 @@ export interface StockMovement {
   id: string;
   productId: string;
   productName: string;
+  saleId?: string;
   type: StockMovementType;
   quantity: number; // Positive or negative
   previousStock: number;
   newStock: number;
+  resultingStock?: number;
   reason: string;
   performedByUserId: string;
   performedByUserName: string;
@@ -199,14 +201,17 @@ export interface Sale {
   studentName: string;
   registrationNumber: string;
   items: SaleItem[];
+  subtotal?: number;
+  discountTotal?: number;
   total: number;
   operatorUserId: string;
   operatorUserName: string;
-  status: 'COMPLETED' | 'REVERSED';
+  status: 'PENDING' | 'COMPLETED' | 'PARTIALLY_REVERSED' | 'REVERSED' | 'FAILED';
   reversedReason?: string;
   reversedByUserName?: string;
   reversedAt?: string;
   reversedAmount?: number; // Para estorno parcial ou rastreio
+  reversalIdempotencyKey?: string;
   billingPeriod: string; // '2026-10'
   invoiceId?: string; // Populated once 100% consolidated into an invoice
   invoiceAllocations?: SaleInvoiceAllocation[]; // Rastreamento granular por item/fatura
@@ -231,6 +236,7 @@ export interface Sale {
   tripDate?: string;
   tripDestination?: string;
   createdAt: string;
+  completedAt?: string;
 }
 
 export type ReceiptPrintFormat = '58mm' | '80mm' | 'A4';
@@ -362,6 +368,7 @@ export interface FinancialTransaction {
   id: string;
   timestamp: string;
   studentId: string;
+  saleId?: string;
   type: FinancialTransactionType;
   category: FinancialCategory;
   amount: number;
@@ -558,7 +565,8 @@ export interface AuditLog {
   userName: string;
   userRole: UserRole;
   action: string;
-  module: 'VENDAS' | 'ESTOQUE' | 'FATURAS' | 'PAGAMENTOS' | 'FECHAMENTO' | 'CONFIGURACOES' | 'AUTH' | 'NOTIFICACOES' | 'PASSEIOS' | 'PDV_PASSEIOS' | 'CAIXA' | 'IA_GEMINI' | 'RELATORIOS' | 'RECIBOS';
+  module: 'VENDAS' | 'ESTOQUE' | 'FATURAS' | 'PAGAMENTOS' | 'FECHAMENTO' | 'CONFIGURACOES' | 'AUTH' | 'NOTIFICACOES' | 'PASSEIOS' | 'PDV_PASSEIOS' | 'CAIXA' | 'IA_GEMINI' | 'RELATORIOS' | 'RECIBOS' | 'SISTEMA';
+  referenceId?: string;
   details: string;
   ipAddress?: string;
   status: 'SUCESSO' | 'FALHA';

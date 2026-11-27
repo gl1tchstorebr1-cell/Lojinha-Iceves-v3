@@ -23,6 +23,13 @@ export default async function vercelApiHandler(req: IncomingMessage & { body?: a
       }
     }
 
+    const reqUrl = req.originalUrl || req.url || '/api';
+    const isSyncControlRoute = reqUrl.startsWith('/api/supabase/status') || reqUrl.startsWith('/api/supabase/sync-all');
+    if (!isSyncControlRoute) {
+      const isMutation = (req.method || 'GET').toUpperCase() !== 'GET' && (req.method || 'GET').toUpperCase() !== 'HEAD' && (req.method || 'GET').toUpperCase() !== 'OPTIONS';
+      await db.ensureHydratedFromSupabase({ maxAgeMs: isMutation ? 2000 : 8000 });
+    }
+
     const userIdHeader = (req.headers['x-user-id'] as string) || '';
     let currentUser: any = undefined;
     if (userIdHeader) {
@@ -31,7 +38,7 @@ export default async function vercelApiHandler(req: IncomingMessage & { body?: a
 
     const apiReq: ApiRequest = {
       method: req.method || 'GET',
-      url: req.originalUrl || req.url || '/api',
+      url: reqUrl,
       body,
       headers: req.headers as Record<string, string>,
       user: currentUser,
@@ -39,7 +46,7 @@ export default async function vercelApiHandler(req: IncomingMessage & { body?: a
 
     const response = await handleApiRoute(apiReq);
     if (apiReq.method !== 'GET' && apiReq.method !== 'HEAD' && apiReq.method !== 'OPTIONS') {
-      await db.flushSupabaseSync(6000);
+      await db.flushSupabaseSync(12000);
     }
     res.statusCode = response.status;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');

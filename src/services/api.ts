@@ -33,6 +33,30 @@ import {
   SalesReceipt,
   SalePaymentEntry
 } from '../types';
+import type { IntegrityReport } from '../utils/dataIntegrity';
+
+export interface SaleTransactionBundle {
+  sale: Sale;
+  student: Student;
+  receipt: SalesReceipt;
+  updatedProducts?: Product[];
+  stockMovements?: StockMovement[];
+  ledgerEntries?: FinancialTransaction[];
+  auditLog?: AuditLog;
+  idempotentReplay?: boolean;
+}
+
+export interface SaleReversalBundle {
+  sale: Sale;
+  student: Student;
+  receipt?: SalesReceipt;
+  updatedProducts?: Product[];
+  stockMovements?: StockMovement[];
+  updatedInvoices?: Invoice[];
+  ledgerEntries?: FinancialTransaction[];
+  auditLog?: AuditLog;
+  idempotentReplay?: boolean;
+}
 
 let currentUserId: string = 'user-admin';
 
@@ -187,16 +211,16 @@ export const api = {
     notes?: string;
     idempotencyKey?: string;
   }) {
-    return request<{ sale: Sale; student: Student; receipt: SalesReceipt }>('/api/sales', {
+    return request<SaleTransactionBundle>('/api/sales', {
       method: 'POST',
       body: JSON.stringify(params)
     });
   },
 
-  async reverseSale(saleId: string, reason: string) {
-    return request<{ sale: Sale; student: Student; receipt?: SalesReceipt }>(`/api/sales/${saleId}/reverse`, {
+  async reverseSale(saleId: string, reason: string, idempotencyKey?: string) {
+    return request<SaleReversalBundle>(`/api/sales/${saleId}/reverse`, {
       method: 'POST',
-      body: JSON.stringify({ reason })
+      body: JSON.stringify({ reason, idempotencyKey })
     });
   },
 
@@ -621,11 +645,39 @@ export const api = {
     return request<FinancialTransaction[]>('/api/ledger');
   },
 
-  // Reset database to seed
-  async resetData() {
-    return request<{ success: boolean }>('/api/reset-data', {
-      method: 'POST'
-    });
+  async getIntegrityReport() {
+    return request<IntegrityReport>('/api/integrity');
+  },
+
+  // Reset database to seed (com timeout seguro)
+  async resetData(timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await request<{
+        success: boolean;
+        backupCreated?: boolean;
+        restoredAt?: string;
+        counts?: {
+          students: number;
+          products: number;
+          sales: number;
+          receipts: number;
+          invoices: number;
+          passeios: number;
+        };
+      }>('/api/reset-data', {
+        method: 'POST',
+        signal: controller.signal
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw new Error('Tempo limite excedido ao restaurar os dados iniciais. Tente novamente.');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   },
 
   // Stripe Payments

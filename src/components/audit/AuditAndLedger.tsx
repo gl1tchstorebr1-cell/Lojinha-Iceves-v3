@@ -1,39 +1,98 @@
-import React, { useState } from 'react';
-import { 
-  ShieldAlert, 
-  BookOpen, 
-  Search, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Clock, 
-  User, 
-  FileText,
-  Filter
+import React, { useMemo, useState } from 'react';
+import {
+  ShieldAlert,
+  ShieldCheck,
+  BookOpen,
+  Search,
+  ArrowUpRight,
+  ArrowDownLeft,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
-import { FinancialTransaction, AuditLog, Student } from '../../types';
+import {
+  FinancialTransaction,
+  AuditLog,
+  Student,
+  Sale,
+  SalesReceipt,
+  Product,
+  StockMovement,
+  Invoice,
+} from '../../types';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { buildIntegrityReport, type IntegrityReport } from '../../utils/dataIntegrity';
+import { api } from '../../services/api';
 
 interface AuditAndLedgerProps {
   ledger: FinancialTransaction[];
   auditLogs: AuditLog[];
   students: Student[];
+  sales?: Sale[];
+  receipts?: SalesReceipt[];
+  products?: Product[];
+  stockMovements?: StockMovement[];
+  invoices?: Invoice[];
 }
 
-export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerProps) {
-  const [activeTab, setActiveTab] = useState<'ledger' | 'audit'>('ledger');
+export function AuditAndLedger({
+  ledger,
+  auditLogs,
+  students,
+  sales = [],
+  receipts = [],
+  products = [],
+  stockMovements = [],
+  invoices = [],
+}: AuditAndLedgerProps) {
+  const [activeTab, setActiveTab] = useState<'ledger' | 'audit' | 'integrity'>('ledger');
   const [searchTerm, setSearchTerm] = useState('');
   const [moduleFilter, setModuleFilter] = useState<string>('TODOS');
+  const [serverReport, setServerReport] = useState<IntegrityReport | null>(null);
+  const [isCheckingServer, setIsCheckingServer] = useState(false);
+  const [integrityCheckError, setIntegrityCheckError] = useState<string | null>(null);
+
+  const localIntegrityReport = useMemo(
+    () =>
+      buildIntegrityReport({
+        sales,
+        receipts,
+        products,
+        students,
+        stockMovements,
+        financialLedger: ledger,
+        invoices,
+      }),
+    [sales, receipts, products, students, stockMovements, ledger, invoices]
+  );
+
+  const activeIntegrityReport = serverReport || localIntegrityReport;
+
+  const handleRunServerIntegrityCheck = async () => {
+    setIsCheckingServer(true);
+    setIntegrityCheckError(null);
+    try {
+      const report = await api.getIntegrityReport();
+      setServerReport(report);
+    } catch (err: any) {
+      setIntegrityCheckError(err?.message || 'Não foi possível executar o diagnóstico no servidor.');
+    } finally {
+      setIsCheckingServer(false);
+    }
+  };
 
   // Filter ledger
   const filteredLedger = ledger.filter(entry => {
     const q = searchTerm.toLowerCase();
     const student = students.find(s => s.id === entry.studentId);
     const studentName = student?.name.toLowerCase() || '';
-    return !q || (
+    return (
+      !q ||
       entry.id.toLowerCase().includes(q) ||
       entry.description.toLowerCase().includes(q) ||
       studentName.includes(q) ||
-      (entry.documentRef && entry.documentRef.toLowerCase().includes(q))
+      (entry.documentRef && entry.documentRef.toLowerCase().includes(q)) ||
+      (entry.saleId && entry.saleId.toLowerCase().includes(q))
     );
   });
 
@@ -41,47 +100,71 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
   const filteredAudit = auditLogs.filter(log => {
     const matchesModule = moduleFilter === 'TODOS' || log.module === moduleFilter;
     const q = searchTerm.toLowerCase();
-    const matchesSearch = !q || (
+    const matchesSearch =
+      !q ||
       log.action.toLowerCase().includes(q) ||
       log.details.toLowerCase().includes(q) ||
-      log.userName.toLowerCase().includes(q)
-    );
+      log.userName.toLowerCase().includes(q) ||
+      (log.referenceId && log.referenceId.toLowerCase().includes(q));
     return matchesModule && matchesSearch;
   });
 
   return (
     <div className="space-y-6">
-      
       {/* Top Banner */}
       <div className="bg-[#1B1B1B] rounded-2xl p-6 border border-[#282828] flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
             <BookOpen className="w-5 h-5 text-emerald-400" />
             <h2 className="text-xl font-bold text-[#F5F5F5] tracking-tight">
-              Motor Financeiro & Auditoria (LGPD)
+              Motor Financeiro, Auditoria & Integridade
             </h2>
           </div>
           <p className="text-xs text-[#A1A1AA] mt-1">
-            Todos os saldos são calculados a partir de lançamentos imutáveis no livro-razão. Nenhuma alteração ocorre sem rastreabilidade do autor.
+            Todos os saldos são calculados a partir de lançamentos imutáveis no livro-razão, com verificação contínua de integridade entre vendas, recibos e estoque.
           </p>
         </div>
 
-        <div className="flex bg-[#151515] p-1 rounded-xl border border-[#282828]">
+        <div className="flex bg-[#151515] p-1 rounded-xl border border-[#282828] flex-wrap gap-1">
           <button
+            type="button"
             onClick={() => setActiveTab('ledger')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
-              activeTab === 'ledger' ? 'bg-[#222222] text-[#F5F5F5] border-[#303030]' : 'text-[#A1A1AA] border-transparent hover:text-[#F5F5F5]'
+              activeTab === 'ledger'
+                ? 'bg-[#222222] text-[#F5F5F5] border-[#303030]'
+                : 'text-[#A1A1AA] border-transparent hover:text-[#F5F5F5]'
             }`}
           >
             Livro-Razão ({ledger.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('audit')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
-              activeTab === 'audit' ? 'bg-[#222222] text-[#F5F5F5] border-[#303030]' : 'text-[#A1A1AA] border-transparent hover:text-[#F5F5F5]'
+              activeTab === 'audit'
+                ? 'bg-[#222222] text-[#F5F5F5] border-[#303030]'
+                : 'text-[#A1A1AA] border-transparent hover:text-[#F5F5F5]'
             }`}
           >
             Trilha de Auditoria ({auditLogs.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('integrity')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border flex items-center gap-1.5 ${
+              activeTab === 'integrity'
+                ? 'bg-[#222222] text-[#F5F5F5] border-[#303030]'
+                : 'text-[#A1A1AA] border-transparent hover:text-[#F5F5F5]'
+            }`}
+          >
+            {activeIntegrityReport.healthy ? (
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+            )}
+            <span>
+              Integridade ({activeIntegrityReport.errorCount})
+            </span>
           </button>
         </div>
       </div>
@@ -95,7 +178,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={e => setSearchTerm(e.target.value)}
                 placeholder="Buscar por lançamento, aluno ou cupom..."
                 className="w-full pl-9 pr-3 py-2 text-xs bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:border-emerald-500 focus:outline-none"
               />
@@ -165,12 +248,10 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
                         </td>
 
                         <td className="py-3 px-4 font-mono text-[#A1A1AA]">
-                          {entry.documentRef || '-'}
+                          {entry.saleId || entry.documentRef || '-'}
                         </td>
 
-                        <td className="py-3 px-4 text-[#A1A1AA]">
-                          {entry.performedByUserName}
-                        </td>
+                        <td className="py-3 px-4 text-[#A1A1AA]">{entry.performedByUserName}</td>
                       </tr>
                     );
                   })
@@ -179,7 +260,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
             </table>
           </div>
         </div>
-      ) : (
+      ) : activeTab === 'audit' ? (
         /* Audit Trail Table */
         <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
@@ -188,19 +269,34 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar ação ou usuário..."
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Buscar ação, referência ou usuário..."
                 className="w-full pl-9 pr-3 py-2 text-xs bg-[#151515] border border-[#303030] rounded-xl text-[#F5F5F5] placeholder-[#71717A] focus:border-emerald-500 focus:outline-none"
               />
             </div>
 
             <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 scrollbar-none">
-              {['TODOS', 'VENDAS', 'PDV_PASSEIOS', 'ESTOQUE', 'PASSEIOS', 'FATURAS', 'PAGAMENTOS', 'FECHAMENTO', 'CONFIGURACOES', 'AUTH'].map(mod => (
+              {[
+                'TODOS',
+                'VENDAS',
+                'PDV_PASSEIOS',
+                'ESTOQUE',
+                'PASSEIOS',
+                'FATURAS',
+                'PAGAMENTOS',
+                'FECHAMENTO',
+                'CONFIGURACOES',
+                'SISTEMA',
+                'AUTH',
+              ].map(mod => (
                 <button
+                  type="button"
                   key={mod}
                   onClick={() => setModuleFilter(mod)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap border ${
-                    moduleFilter === mod ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-500' : 'bg-[#151515] text-[#A1A1AA] border-[#282828] hover:text-[#F5F5F5]'
+                    moduleFilter === mod
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-500'
+                      : 'bg-[#151515] text-[#A1A1AA] border-[#282828] hover:text-[#F5F5F5]'
                   }`}
                 >
                   {mod === 'TODOS' ? 'Todos os Módulos' : mod === 'PDV_PASSEIOS' ? 'PDV DE PASSEIOS' : mod}
@@ -231,9 +327,7 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
                 ) : (
                   filteredAudit.map(log => (
                     <tr key={log.id} className="hover:bg-[#1A1A1A] transition">
-                      <td className="py-3 px-4 font-mono text-[#A1A1AA]">
-                        {formatDateTime(log.timestamp)}
-                      </td>
+                      <td className="py-3 px-4 font-mono text-[#A1A1AA]">{formatDateTime(log.timestamp)}</td>
                       <td className="py-3 px-4">
                         <span className="font-semibold text-[#F5F5F5] block">{log.userName}</span>
                         <span className="text-[10px] text-[#A1A1AA] uppercase font-semibold">{log.userRole}</span>
@@ -244,13 +338,24 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
                         </span>
                       </td>
                       <td className="py-3 px-4 font-semibold text-[#F5F5F5]">
-                        {log.action}
+                        <span className="block">{log.action}</span>
+                        {log.referenceId && (
+                          <span className="text-[10px] font-mono text-emerald-400">Ref: {log.referenceId}</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-[#D4D4D8] max-w-sm">
-                        <p className="line-clamp-2" title={log.details}>{log.details}</p>
+                        <p className="line-clamp-2" title={log.details}>
+                          {log.details}
+                        </p>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                            log.status === 'SUCESSO'
+                              ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40'
+                              : 'bg-rose-950/60 text-rose-400 border-rose-800/40'
+                          }`}
+                        >
                           {log.status}
                         </span>
                       </td>
@@ -261,8 +366,111 @@ export function AuditAndLedger({ ledger, auditLogs, students }: AuditAndLedgerPr
             </table>
           </div>
         </div>
-      )}
+      ) : (
+        /* Data Integrity Diagnostics */
+        <div className="bg-[#1B1B1B] rounded-2xl border border-[#282828] p-5 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-[#F5F5F5] flex items-center gap-2">
+                {activeIntegrityReport.healthy ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-rose-400" />
+                )}
+                <span>Diagnóstico de Integridade Transacional</span>
+              </h3>
+              <p className="text-xs text-[#A1A1AA] mt-0.5">
+                Verifica vendas x recibos ativos, estoque negativo, movimentações, livro-razão, totais e chaves de idempotência.
+              </p>
+            </div>
 
+            <button
+              type="button"
+              disabled={isCheckingServer}
+              onClick={handleRunServerIntegrityCheck}
+              className="px-4 py-2 rounded-xl bg-[#222222] hover:bg-[#2A2A2A] border border-[#333333] text-xs font-semibold text-[#F5F5F5] flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isCheckingServer ? 'animate-spin' : ''}`} />
+              <span>{isCheckingServer ? 'Validando Servidor...' : 'Revalidar Base no Servidor'}</span>
+            </button>
+          </div>
+
+          {integrityCheckError && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300">
+              {integrityCheckError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828]">
+              <span className="text-[11px] text-[#A1A1AA] block">Vendas Concluídas</span>
+              <span className="text-lg font-bold text-[#F5F5F5] font-mono">
+                {activeIntegrityReport.summary.completedSales}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828]">
+              <span className="text-[11px] text-[#A1A1AA] block">Recibos Ativos</span>
+              <span className="text-lg font-bold text-[#F5F5F5] font-mono">
+                {activeIntegrityReport.summary.activeReceipts}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828]">
+              <span className="text-[11px] text-[#A1A1AA] block">Vendas Estornadas</span>
+              <span className="text-lg font-bold text-[#F5F5F5] font-mono">
+                {activeIntegrityReport.summary.reversedSales}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-xl bg-[#151515] border border-[#282828]">
+              <span className="text-[11px] text-[#A1A1AA] block">Inconsistências Críticas</span>
+              <span
+                className={`text-lg font-bold font-mono ${
+                  activeIntegrityReport.errorCount === 0 ? 'text-emerald-400' : 'text-rose-400'
+                }`}
+              >
+                {activeIntegrityReport.errorCount}
+              </span>
+            </div>
+          </div>
+
+          {activeIntegrityReport.issues.length === 0 ? (
+            <div className="p-5 rounded-xl bg-emerald-950/30 border border-emerald-800/40 text-emerald-300 text-xs flex items-center gap-3">
+              <ShieldCheck className="w-5 h-5 shrink-0 text-emerald-400" />
+              <div>
+                <p className="font-bold">Base 100% íntegra e consistente.</p>
+                <p className="text-emerald-300/80 mt-0.5">
+                  Todos os recibos ativos correspondem a vendas concluídas, nenhuma venda está duplicada, não há estoque negativo e os totais conferem.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {activeIntegrityReport.issues.map((issue, idx) => (
+                <div
+                  key={`${issue.code}-${issue.entityId}-${idx}`}
+                  className={`p-3.5 rounded-xl border text-xs flex items-start justify-between gap-3 ${
+                    issue.severity === 'ERROR'
+                      ? 'bg-rose-950/30 border-rose-800/40 text-rose-200'
+                      : 'bg-amber-950/30 border-amber-800/40 text-amber-200'
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-black/30">
+                        {issue.code}
+                      </span>
+                      <span className="font-mono text-[10px] opacity-80">
+                        {issue.entityType}: {issue.entityId}
+                      </span>
+                    </div>
+                    <p>{issue.message}</p>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase shrink-0">{issue.severity}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

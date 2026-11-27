@@ -38,6 +38,10 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
   const pathname = url.pathname;
   const method = req.method.toUpperCase();
 
+  if (pathname !== '/api/supabase/status' && pathname !== '/api/supabase/sync-all') {
+    await db.ensureHydratedFromSupabase();
+  }
+
   // Helper for current user fallback
   const currentUser = req.user || {
     id: 'user-admin',
@@ -258,6 +262,7 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         if (!canOperateCashier) {
           return { status: 403, data: { error: 'Seu perfil não tem permissão para operar o caixa.' } };
         }
+        const preSaleSnapshot = db.takeSnapshot();
         const result = db.registerSale({
           studentId: req.body.studentId,
           items: req.body.items,
@@ -271,6 +276,44 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
           operatorUser: currentUser,
           idempotencyKey: req.body.idempotencyKey
         });
+
+        // Em modo com Supabase ativo, confirma persistência das tabelas críticas antes de responder sucesso
+        if (!result.idempotentReplay && db.getSettings().supabaseActive !== false) {
+          const flush = await db.flushSupabaseSyncStrict(12000, ['sales', 'sales_receipts', 'products', 'students']);
+          if (!flush.ok) {
+            // Rollback local e compensação remota para impedir recibo órfão ou estoque divergente
+            db.restoreSnapshot(preSaleSnapshot);
+            if (result.receipt?.id) db.triggerSupabaseDelete('sales_receipts', result.receipt.id);
+            if (result.sale?.id) db.triggerSupabaseDelete('sales', result.sale.id);
+            for (const mov of result.stockMovements || []) {
+              db.triggerSupabaseDelete('stock_movements', mov.id);
+            }
+            const restoredStudent = db.getStudents().find(s => s.id === result.student.id);
+            if (restoredStudent) db.triggerSupabaseSync('students', restoredStudent, 'mapStudentToSupabase');
+            for (const prod of result.updatedProducts || []) {
+              const restoredProd = db.getProducts().find(p => p.id === prod.id);
+              if (restoredProd) db.triggerSupabaseSync('products', restoredProd, 'mapProductToSupabase');
+            }
+            await db.flushSupabaseSync(6000).catch(() => {});
+            db.logAudit(
+              currentUser.id,
+              currentUser.name,
+              currentUser.role,
+              'ROLLBACK_PERSISTENCIA_VENDA',
+              'VENDAS',
+              `Venda ${result.sale.id} revertida pois a persistência remota falhou (${flush.failedTables.join(', ') || 'timeout'}).`,
+              'FALHA',
+              result.sale.id
+            );
+            return {
+              status: 500,
+              data: {
+                error: `Não foi possível confirmar a persistência completa da venda no banco (${flush.failedTables.join(', ') || 'tempo excedido'}). Todas as alterações foram revertidas com segurança.`
+              }
+            };
+          }
+        }
+
         return { status: 201, data: result };
       }
     }
@@ -280,7 +323,38 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         return { status: 403, data: { error: 'Sem permissão para estornar vendas.' } };
       }
       const saleId = pathname.replace('/api/sales/', '').replace('/reverse', '');
-      const result = db.reverseSale(saleId, req.body.reason || 'Estorno solicitado no caixa', currentUser);
+      const preReverseSnapshot = db.takeSnapshot();
+      const result = db.reverseSale(
+        saleId,
+        req.body?.reason || '',
+        currentUser,
+        { idempotencyKey: req.body?.idempotencyKey }
+      );
+
+      if (!result.idempotentReplay && db.getSettings().supabaseActive !== false) {
+        const flush = await db.flushSupabaseSyncStrict(12000, ['sales', 'sales_receipts', 'products', 'students']);
+        if (!flush.ok) {
+          db.restoreSnapshot(preReverseSnapshot);
+          const restoredSale = db.getSales().find(s => s.id === saleId);
+          if (restoredSale) db.triggerSupabaseSync('sales', restoredSale, 'mapSaleToSupabase');
+          const restoredReceipt = db.getReceiptBySaleId(saleId);
+          if (restoredReceipt) db.triggerSupabaseSync('sales_receipts', restoredReceipt, 'mapReceiptToSupabase');
+          const restoredStudent = db.getStudents().find(s => s.id === result.student.id);
+          if (restoredStudent) db.triggerSupabaseSync('students', restoredStudent, 'mapStudentToSupabase');
+          for (const prod of result.updatedProducts || []) {
+            const restoredProd = db.getProducts().find(p => p.id === prod.id);
+            if (restoredProd) db.triggerSupabaseSync('products', restoredProd, 'mapProductToSupabase');
+          }
+          await db.flushSupabaseSync(6000).catch(() => {});
+          return {
+            status: 500,
+            data: {
+              error: `Não foi possível confirmar o estorno no banco de dados (${flush.failedTables.join(', ') || 'tempo excedido'}). As alterações foram revertidas.`
+            }
+          };
+        }
+      }
+
       return { status: 200, data: result };
     }
 
@@ -1269,6 +1343,13 @@ export async function handleApiRoute(req: ApiRequest): Promise<ApiResponse> {
         user: currentUser,
       });
       return { status: 200, data: result };
+    }
+
+    if (pathname === '/api/integrity' && method === 'GET') {
+      if (!isAdminOrManager) {
+        return { status: 403, data: { error: 'Apenas Administradores e Gerentes podem consultar o diagnóstico de integridade.' } };
+      }
+      return { status: 200, data: db.validateIntegrity() };
     }
 
     if (pathname === '/api/reset-data' && method === 'POST') {

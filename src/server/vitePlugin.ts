@@ -32,6 +32,11 @@ export function base44ApiPlugin(): Plugin {
             }
           }
 
+          const isSyncControlRoute = req.url.startsWith('/api/supabase/status') || req.url.startsWith('/api/supabase/sync-all');
+          if (!isSyncControlRoute) {
+            await db.ensureHydratedFromSupabase();
+          }
+
           // Resolve User from headers for true server-side RBAC
           const userIdHeader = (req.headers['x-user-id'] as string) || '';
           let currentUser: any = undefined;
@@ -49,7 +54,7 @@ export function base44ApiPlugin(): Plugin {
 
           const response = await handleApiRoute(apiReq);
           if (apiReq.method !== 'GET' && apiReq.method !== 'HEAD' && apiReq.method !== 'OPTIONS') {
-            await db.flushSupabaseSync(6000);
+            await db.flushSupabaseSync(12000);
           }
 
           res.statusCode = response.status;

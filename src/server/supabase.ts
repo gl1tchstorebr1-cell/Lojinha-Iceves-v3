@@ -182,6 +182,31 @@ export function mapSettingsToSupabase(s: any) {
   };
 }
 
+export function mapSettingsFromSupabase(row: any) {
+  return {
+    id: row.id || 'settings-default',
+    institutionName: row.institution_name || 'Escola de Cristo - ICEVES',
+    cnpj: row.cnpj || '',
+    storeName: row.store_name || 'Lojinha Iceves',
+    closingDay: row.closing_day || 'LAST_DAY',
+    closingHour: row.closing_hour || '23:59',
+    dueDayOffset: Number(row.due_day_offset) || 10,
+    allowDirectCashPayment: Boolean(row.allow_direct_cash_payment),
+    stockControlActive: row.stock_control_active ?? true,
+    blockSaleWithoutStock: row.block_sale_without_stock ?? true,
+    pixKey: row.pix_key || '',
+    pixKeyType: row.pix_key_type || 'EMAIL',
+    pixReceiverName: row.pix_receiver_name || 'ICEVES EDUCACIONAL',
+    pixCity: row.pix_city || 'SAO PAULO',
+    whatsappAutoEnabled: row.whatsapp_auto_enabled ?? true,
+    whatsappProviderName: row.whatsapp_provider_name || 'Evolution API',
+    whatsappProviderStatus: row.whatsapp_provider_status || 'CONNECTED',
+    receiptSettings: row.receipt_settings || undefined,
+    updatedAt: row.updated_at || new Date().toISOString(),
+    updatedByUserName: row.updated_by_user_name || 'Sistema',
+  };
+}
+
 function toPostgresDate(val?: string | null): string | null {
   if (!val) return null;
   const trimmed = String(val).trim();
@@ -373,6 +398,16 @@ export function mapSaleToSupabase(sa: any) {
 
 export function mapSaleFromSupabase(row: any) {
   const isTrip = row.origin === 'PDV_PASSEIOS' || String(row.id || '').startsWith('PAS-');
+  const total = Number(row.total) || 0;
+  const status = row.status || 'COMPLETED';
+  let billingStatus = row.billing_status || undefined;
+  let billedAmount = row.billed_amount !== null && row.billed_amount !== undefined ? Number(row.billed_amount) : undefined;
+  if (status === 'REVERSED') {
+    billingStatus = 'ESTORNADA';
+  } else if (row.invoice_id && (!billingStatus || billingStatus === 'AGUARDANDO_FATURAMENTO') && (!billedAmount || billedAmount <= 0)) {
+    billingStatus = 'FATURADA';
+    billedAmount = total;
+  }
   return {
     id: row.id,
     studentId: row.student_id,
@@ -381,18 +416,18 @@ export function mapSaleFromSupabase(row: any) {
     items: Array.isArray(row.items) ? row.items : [],
     subtotalBeforeDiscount: row.subtotal !== null && row.subtotal !== undefined ? Number(row.subtotal) : undefined,
     discountAmount: row.discount_amount !== null && row.discount_amount !== undefined ? Number(row.discount_amount) : undefined,
-    total: Number(row.total) || 0,
+    total,
     operatorUserId: row.operator_user_id,
     operatorUserName: row.operator_user_name,
-    status: row.status || 'COMPLETED',
+    status,
     reversedReason: row.reversed_reason || undefined,
     reversedByUserName: row.reversed_by_user_name || undefined,
     reversedAt: row.reversed_at || undefined,
     reversedAmount: row.reversed_amount !== null && row.reversed_amount !== undefined ? Number(row.reversed_amount) : undefined,
     billingPeriod: row.billing_period,
     invoiceId: row.invoice_id || undefined,
-    billingStatus: row.billing_status || undefined,
-    billedAmount: row.billed_amount !== null && row.billed_amount !== undefined ? Number(row.billed_amount) : undefined,
+    billingStatus,
+    billedAmount,
     invoiceAllocations: Array.isArray(row.invoice_allocations) ? row.invoice_allocations : undefined,
     paymentMethod: row.payment_method || undefined,
     payments: Array.isArray(row.payments) ? row.payments : undefined,
@@ -566,6 +601,21 @@ export function mapAuditLogToSupabase(a: any) {
     details: a.details,
     ip_address: a.ipAddress || null,
     status: a.status || 'SUCESSO',
+  };
+}
+
+export function mapAuditLogFromSupabase(row: any) {
+  return {
+    id: row.id,
+    timestamp: row.timestamp || new Date().toISOString(),
+    userId: row.user_id,
+    userName: row.user_name,
+    userRole: row.user_role,
+    action: row.action,
+    module: row.module,
+    details: row.details,
+    ipAddress: row.ip_address || undefined,
+    status: row.status || 'SUCESSO',
   };
 }
 
@@ -1094,10 +1144,82 @@ export async function syncRecordToSupabase(
   }
 }
 
+export async function syncBatchToSupabase(
+  table: string,
+  records: any[],
+  mapper?: (item: any) => any
+): Promise<boolean> {
+  if (!records || records.length === 0) return true;
+  if (records.length === 1) {
+    return syncRecordToSupabase(table, records[0], mapper);
+  }
+
+  const settings = db.getSettings();
+  if (settings.supabaseActive === false) {
+    return false;
+  }
+
+  const blockedUntil = permissionDeniedBackoff.get(table);
+  if (blockedUntil && Date.now() < blockedUntil) {
+    return false;
+  }
+
+  const client = getSupabaseClient();
+  if (!client) {
+    return false;
+  }
+
+  try {
+    const payloads = records.map(r => (mapper ? mapper(r) : r));
+    const { error } = await upsertWithSchemaFallback(client, table, payloads);
+    if (!error) {
+      permissionDeniedBackoff.delete(table);
+      return true;
+    }
+
+    const msg = String(error.message || '');
+    const msgLower = msg.toLowerCase();
+    if (msgLower.includes('permission denied')) {
+      permissionDeniedBackoff.set(table, Date.now() + 5 * 60 * 1000);
+      console.warn(`[Supabase Auto-Sync] Permissão pendente na tabela "${table}" (${msg}).`);
+      return false;
+    }
+    if (msgLower.includes('could not find the table') || msgLower.includes('does not exist')) {
+      permissionDeniedBackoff.set(table, Date.now() + 5 * 60 * 1000);
+      console.warn(`[Supabase Auto-Sync] Tabela "${table}" ainda não criada no Supabase (${msg}).`);
+      return false;
+    }
+
+    // Batch failed on a row-specific constraint (e.g. duplicate receipt_code / single bad row):
+    // isolate by upserting row-by-row so valid rows still persist cleanly.
+    let allOk = true;
+    for (const payload of payloads) {
+      const { error: rowErr } = await upsertWithSchemaFallback(client, table, payload);
+      if (rowErr) {
+        allOk = false;
+        console.warn(`[Supabase Auto-Sync] Erro ao sincronizar registro em ${table}:`, rowErr.message);
+      }
+    }
+    return allOk;
+  } catch (err: any) {
+    console.warn(`[Supabase Auto-Sync] Falha ao enviar lote para ${table}:`, err.message);
+    return false;
+  }
+}
+
 export async function deleteRecordFromSupabase(
   table: string,
   id: string
 ): Promise<boolean> {
+  return deleteBatchFromSupabase(table, [id]);
+}
+
+export async function deleteBatchFromSupabase(
+  table: string,
+  ids: string[]
+): Promise<boolean> {
+  if (!ids || ids.length === 0) return true;
+
   const settings = db.getSettings();
   if (settings.supabaseActive === false) {
     return false;
@@ -1109,7 +1231,10 @@ export async function deleteRecordFromSupabase(
   }
 
   try {
-    const { error } = await client.from(table).delete().eq('id', id);
+    const query = ids.length === 1
+      ? client.from(table).delete().eq('id', ids[0])
+      : client.from(table).delete().in('id', ids);
+    const { error } = await query;
     if (error) {
       console.warn(`[Supabase Auto-Sync] Erro ao excluir em ${table}:`, error.message);
       return false;
@@ -1393,7 +1518,15 @@ function mergePreservingLocal<T extends Record<string, any>>(existing: T | null,
   return merged as T;
 }
 
-export async function syncFromSupabase(): Promise<{
+function sortDescByIso(items: any[], field: string) {
+  items.sort((a, b) => {
+    const ta = a?.[field] ? Date.parse(a[field]) : 0;
+    const tb = b?.[field] ? Date.parse(b[field]) : 0;
+    return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+  });
+}
+
+export async function syncFromSupabase(targetDb: typeof db = db): Promise<{
   success: boolean;
   totalPulled: number;
   tables: Record<string, number>;
@@ -1407,11 +1540,79 @@ export async function syncFromSupabase(): Promise<{
   const counts: Record<string, number> = {};
   let total = 0;
 
+  // Buscar todas as tabelas em paralelo para reduzir hidratação de ~3s para ~300ms
+  const [
+    settingsRes,
+    usersRes,
+    prodRes,
+    guardRes,
+    stuRes,
+    invRes,
+    passRes,
+    salesRes,
+    movRes,
+    pixRes,
+    notifRes,
+    tripOpsRes,
+    receiptsRes,
+    batchesRes,
+    cashRegRes,
+    cashMovRes,
+    auditRes,
+  ] = await Promise.all([
+    client.from('settings').select('*').limit(1),
+    client.from('users').select('*'),
+    client.from('products').select('*'),
+    client.from('guardians').select('*'),
+    client.from('students').select('*'),
+    client.from('invoices').select('*').order('created_at', { ascending: false }),
+    client.from('passeios').select('*').order('created_at', { ascending: false }),
+    client.from('sales').select('*').order('created_at', { ascending: false }),
+    client.from('stock_movements').select('*').order('timestamp', { ascending: false }).limit(500),
+    client.from('pix_payments').select('*').order('registered_at', { ascending: false }),
+    client.from('whatsapp_notifications').select('*').order('scheduled_for', { ascending: false }).limit(300),
+    client.from('trip_operations').select('*').order('created_at', { ascending: false }),
+    client.from('sales_receipts').select('*').order('created_at', { ascending: false }),
+    client.from('billing_batches').select('*').order('created_at', { ascending: false }),
+    client.from('cash_registers').select('*').order('opened_at', { ascending: false }),
+    client.from('cash_movements').select('*').order('timestamp', { ascending: false }).limit(500),
+    client.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(300),
+  ]);
+
+  // 0. Settings
+  if (!settingsRes.error && settingsRes.data && settingsRes.data.length > 0) {
+    const mapped = mapSettingsFromSupabase(settingsRes.data[0]);
+    const currentSettings = targetDb.getSettings();
+    Object.assign(currentSettings, mergePreservingLocal(currentSettings as any, mapped));
+    counts['settings'] = 1;
+    total += 1;
+  }
+
+  // 0.5 Users (preserva senhas locais e matrículas)
+  if (!usersRes.error && usersRes.data && usersRes.data.length > 0) {
+    const localUsers = targetDb.getUsers();
+    for (const row of usersRes.data) {
+      const idx = localUsers.findIndex(u => u.id === row.id || u.email.toLowerCase() === String(row.email || '').toLowerCase());
+      const mapped = mapUserFromSupabase(row);
+      if (idx >= 0) {
+        const existingLocal = localUsers[idx];
+        localUsers[idx] = mergePreservingLocal(existingLocal as any, {
+          ...mapped,
+          password: existingLocal.password,
+          registrationNumber: existingLocal.registrationNumber,
+        }) as any;
+      } else {
+        localUsers.push(mapped as any);
+      }
+    }
+    counts['users'] = usersRes.data.length;
+    total += usersRes.data.length;
+  }
+
   // 1. Products
-  const { data: prodData } = await client.from('products').select('*');
-  if (prodData && prodData.length > 0) {
-    const localProds = db.getProducts();
-    for (const row of prodData) {
+  if (!prodRes.error && prodRes.data && prodRes.data.length > 0) {
+    const localProds = targetDb.getProducts();
+    for (const row of prodRes.data) {
       const idx = localProds.findIndex(p => p.id === row.id);
       const existingLocal = idx >= 0 ? localProds[idx] : null;
       const parsedPrice =
@@ -1443,29 +1644,27 @@ export async function syncFromSupabase(): Promise<{
       if (idx >= 0) localProds[idx] = mergePreservingLocal(existingLocal as any, mapped) as any;
       else localProds.push(mapped as any);
     }
-    counts['products'] = prodData.length;
-    total += prodData.length;
+    counts['products'] = prodRes.data.length;
+    total += prodRes.data.length;
   }
 
   // 2. Guardians
-  const { data: guardData } = await client.from('guardians').select('*');
-  if (guardData && guardData.length > 0) {
-    const localGuardians = db.getGuardians();
-    for (const row of guardData) {
+  if (!guardRes.error && guardRes.data && guardRes.data.length > 0) {
+    const localGuardians = targetDb.getGuardians();
+    for (const row of guardRes.data) {
       const idx = localGuardians.findIndex(g => g.id === row.id);
       const mapped = mapGuardianFromSupabase(row);
       if (idx >= 0) localGuardians[idx] = mergePreservingLocal(localGuardians[idx] as any, mapped) as any;
       else localGuardians.push(mapped as any);
     }
-    counts['guardians'] = guardData.length;
-    total += guardData.length;
+    counts['guardians'] = guardRes.data.length;
+    total += guardRes.data.length;
   }
 
   // 3. Students
-  const { data: stuData } = await client.from('students').select('*');
-  if (stuData && stuData.length > 0) {
-    const localStudents = db.getStudents();
-    for (const row of stuData) {
+  if (!stuRes.error && stuRes.data && stuRes.data.length > 0) {
+    const localStudents = targetDb.getStudents();
+    for (const row of stuRes.data) {
       const idx = localStudents.findIndex(s => s.id === row.id);
       const existingLocal = idx >= 0 ? localStudents[idx] : null;
       const mapped: Record<string, any> = {
@@ -1498,15 +1697,14 @@ export async function syncFromSupabase(): Promise<{
       if (idx >= 0) localStudents[idx] = mergePreservingLocal(existingLocal as any, mapped) as any;
       else localStudents.push(mapped as any);
     }
-    counts['students'] = stuData.length;
-    total += stuData.length;
+    counts['students'] = stuRes.data.length;
+    total += stuRes.data.length;
   }
 
   // 4. Invoices
-  const { data: invData } = await client.from('invoices').select('*');
-  if (invData && invData.length > 0) {
-    const localInvoices = db.getInvoices();
-    for (const row of invData) {
+  if (!invRes.error && invRes.data && invRes.data.length > 0) {
+    const localInvoices = targetDb.getInvoices();
+    for (const row of invRes.data) {
       const idx = localInvoices.findIndex(i => i.id === row.id);
       const existingLocal = idx >= 0 ? localInvoices[idx] : null;
       const mapped: Record<string, any> = {
@@ -1553,167 +1751,170 @@ export async function syncFromSupabase(): Promise<{
       if (idx >= 0) localInvoices[idx] = mergePreservingLocal(existingLocal as any, mapped) as any;
       else localInvoices.push(mapped as any);
     }
-    counts['invoices'] = invData.length;
-    total += invData.length;
+    sortDescByIso(localInvoices, 'createdAt');
+    counts['invoices'] = invRes.data.length;
+    total += invRes.data.length;
   }
 
   // 5. Passeios
-  const { data: passData } = await client.from('passeios').select('*').order('created_at', { ascending: false });
-  if (passData && passData.length > 0) {
-    const localPasseios = db.getPasseios();
-    for (const row of passData) {
+  if (!passRes.error && passRes.data && passRes.data.length > 0) {
+    const localPasseios = targetDb.getPasseios();
+    for (const row of passRes.data) {
       const idx = localPasseios.findIndex(p => p.id === row.id);
       const mapped = mapPasseioFromSupabase(row);
       if (idx >= 0) localPasseios[idx] = mapped;
       else localPasseios.push(mapped);
     }
-    counts['passeios'] = passData.length;
-    total += passData.length;
+    sortDescByIso(localPasseios, 'createdAt');
+    counts['passeios'] = passRes.data.length;
+    total += passRes.data.length;
   }
 
   // 6. Sales (including PDV de Passeios launches)
-  const { data: salesData } = await client.from('sales').select('*').order('created_at', { ascending: false });
-  if (salesData && salesData.length > 0) {
-    const localSales = db.getSales();
-    for (const row of salesData) {
+  if (!salesRes.error && salesRes.data && salesRes.data.length > 0) {
+    const localSales = targetDb.getSales();
+    for (const row of salesRes.data) {
       const idx = localSales.findIndex(s => s.id === row.id);
       const mapped = mapSaleFromSupabase(row);
       if (idx >= 0) localSales[idx] = mergePreservingLocal(localSales[idx] as any, mapped) as any;
       else localSales.push(mapped as any);
     }
-    counts['sales'] = salesData.length;
-    total += salesData.length;
+    sortDescByIso(localSales, 'createdAt');
+    counts['sales'] = salesRes.data.length;
+    total += salesRes.data.length;
   }
 
   // 7. Stock Movements
-  const { data: movData } = await client.from('stock_movements').select('*').order('timestamp', { ascending: false }).limit(500);
-  if (movData && movData.length > 0) {
-    const localMovs = db.getStockMovements();
-    for (const row of movData) {
+  if (!movRes.error && movRes.data && movRes.data.length > 0) {
+    const localMovs = targetDb.getStockMovements();
+    for (const row of movRes.data) {
       const idx = localMovs.findIndex(m => m.id === row.id);
       const mapped = mapStockMovementFromSupabase(row);
       if (idx >= 0) localMovs[idx] = mergePreservingLocal(localMovs[idx] as any, mapped) as any;
       else localMovs.push(mapped as any);
     }
-    counts['stock_movements'] = movData.length;
-    total += movData.length;
+    sortDescByIso(localMovs, 'timestamp');
+    counts['stock_movements'] = movRes.data.length;
+    total += movRes.data.length;
   }
 
   // 8. Pix Payments
-  const { data: pixData } = await client.from('pix_payments').select('*').order('registered_at', { ascending: false });
-  if (pixData && pixData.length > 0) {
-    const localPix = db.getPixPayments();
-    for (const row of pixData) {
+  if (!pixRes.error && pixRes.data && pixRes.data.length > 0) {
+    const localPix = targetDb.getPixPayments();
+    for (const row of pixRes.data) {
       const idx = localPix.findIndex(p => p.id === row.id);
       const mapped = mapPixPaymentFromSupabase(row);
       if (idx >= 0) localPix[idx] = mergePreservingLocal(localPix[idx] as any, mapped) as any;
       else localPix.push(mapped as any);
     }
-    counts['pix_payments'] = pixData.length;
-    total += pixData.length;
+    sortDescByIso(localPix, 'registeredAt');
+    counts['pix_payments'] = pixRes.data.length;
+    total += pixRes.data.length;
   }
 
   // 9. WhatsApp Notifications
-  const { data: notifData } = await client.from('whatsapp_notifications').select('*').order('scheduled_for', { ascending: false }).limit(300);
-  if (notifData && notifData.length > 0) {
-    const localNotifs = db.getWhatsAppNotifications();
-    for (const row of notifData) {
+  if (!notifRes.error && notifRes.data && notifRes.data.length > 0) {
+    const localNotifs = targetDb.getWhatsAppNotifications();
+    for (const row of notifRes.data) {
       const idx = localNotifs.findIndex(n => n.id === row.id);
       const mapped = mapNotificationFromSupabase(row);
       if (idx >= 0) localNotifs[idx] = mergePreservingLocal(localNotifs[idx] as any, mapped) as any;
       else localNotifs.push(mapped as any);
     }
-    counts['whatsapp_notifications'] = notifData.length;
-    total += notifData.length;
+    sortDescByIso(localNotifs, 'scheduledFor');
+    counts['whatsapp_notifications'] = notifRes.data.length;
+    total += notifRes.data.length;
   }
 
   // 10. Trip Operations (PDV de Passeios)
-  const { data: tripOpsData, error: tripOpsError } = await client
-    .from('trip_operations')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (!tripOpsError && tripOpsData && tripOpsData.length > 0) {
-    const localTripOps = db.getTripOperations();
-    for (const row of tripOpsData) {
+  if (!tripOpsRes.error && tripOpsRes.data && tripOpsRes.data.length > 0) {
+    const localTripOps = targetDb.getTripOperations();
+    for (const row of tripOpsRes.data) {
       const idx = localTripOps.findIndex(op => op.id === row.id);
       const mapped = mapTripOperationFromSupabase(row);
       if (idx >= 0) localTripOps[idx] = mapped as any;
       else localTripOps.push(mapped as any);
     }
-    counts['trip_operations'] = tripOpsData.length;
-    total += tripOpsData.length;
+    sortDescByIso(localTripOps, 'createdAt');
+    counts['trip_operations'] = tripOpsRes.data.length;
+    total += tripOpsRes.data.length;
   }
 
-  // 11. Sales Receipts (when table exists)
-  const { data: receiptsData, error: receiptsError } = await client
-    .from('sales_receipts')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (!receiptsError && receiptsData && receiptsData.length > 0) {
-    const localReceipts = db.getReceipts();
-    for (const row of receiptsData) {
+  // 11. Sales Receipts
+  if (!receiptsRes.error && receiptsRes.data && receiptsRes.data.length > 0) {
+    const localReceipts = targetDb.getReceipts();
+    for (const row of receiptsRes.data) {
       const idx = localReceipts.findIndex(r => r.id === row.id);
       const mapped = mapReceiptFromSupabase(row);
       if (idx >= 0) localReceipts[idx] = mergePreservingLocal(localReceipts[idx] as any, mapped) as any;
       else localReceipts.push(mapped as any);
     }
-    counts['sales_receipts'] = receiptsData.length;
-    total += receiptsData.length;
+    sortDescByIso(localReceipts, 'createdAt');
+    counts['sales_receipts'] = receiptsRes.data.length;
+    total += receiptsRes.data.length;
   }
 
-  // 12. Billing Batches (when table exists)
-  const { data: batchesData, error: batchesError } = await client
-    .from('billing_batches')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (!batchesError && batchesData && batchesData.length > 0) {
-    const localBatches = db.getBillingBatches();
-    for (const row of batchesData) {
+  // 12. Billing Batches
+  if (!batchesRes.error && batchesRes.data && batchesRes.data.length > 0) {
+    const localBatches = targetDb.getBillingBatches();
+    for (const row of batchesRes.data) {
       const idx = localBatches.findIndex(b => b.id === row.id);
       const mapped = mapBillingBatchFromSupabase(row);
       if (idx >= 0) localBatches[idx] = mergePreservingLocal(localBatches[idx] as any, mapped) as any;
       else localBatches.push(mapped as any);
     }
-    counts['billing_batches'] = batchesData.length;
-    total += batchesData.length;
+    sortDescByIso(localBatches, 'createdAt');
+    counts['billing_batches'] = batchesRes.data.length;
+    total += batchesRes.data.length;
   }
 
-  // 13. Cash Registers & Movements (when tables exist)
-  const { data: cashRegData, error: cashRegError } = await client
-    .from('cash_registers')
-    .select('*')
-    .order('opened_at', { ascending: false });
-  if (!cashRegError && cashRegData && cashRegData.length > 0) {
-    const localSessions = db.getCashSessions();
-    for (const row of cashRegData) {
+  // 13. Cash Registers & Movements
+  if (!cashRegRes.error && cashRegRes.data && cashRegRes.data.length > 0) {
+    const localSessions = targetDb.getCashSessions();
+    for (const row of cashRegRes.data) {
       const idx = localSessions.findIndex(s => s.id === row.id);
       const mapped = mapCashRegisterFromSupabase(row);
       if (idx >= 0) localSessions[idx] = mergePreservingLocal(localSessions[idx] as any, mapped) as any;
       else localSessions.push(mapped as any);
     }
-    counts['cash_registers'] = cashRegData.length;
-    total += cashRegData.length;
+    sortDescByIso(localSessions, 'openedAt');
+    counts['cash_registers'] = cashRegRes.data.length;
+    total += cashRegRes.data.length;
   }
 
-  const { data: cashMovData, error: cashMovError } = await client
-    .from('cash_movements')
-    .select('*')
-    .order('timestamp', { ascending: false })
-    .limit(500);
-  if (!cashMovError && cashMovData && cashMovData.length > 0) {
-    const localMovs = db.getCashMovements();
-    for (const row of cashMovData) {
+  if (!cashMovRes.error && cashMovRes.data && cashMovRes.data.length > 0) {
+    const localMovs = targetDb.getCashMovements();
+    for (const row of cashMovRes.data) {
       const idx = localMovs.findIndex(m => m.id === row.id);
       const mapped = mapCashMovementFromSupabase(row);
       if (idx >= 0) localMovs[idx] = mergePreservingLocal(localMovs[idx] as any, mapped) as any;
       else localMovs.push(mapped as any);
     }
-    counts['cash_movements'] = cashMovData.length;
-    total += cashMovData.length;
+    sortDescByIso(localMovs, 'timestamp');
+    counts['cash_movements'] = cashMovRes.data.length;
+    total += cashMovRes.data.length;
   }
 
-  // Persist locally
-  (db as any).saveDatabase?.();
+  // 14. Audit Logs
+  if (!auditRes.error && auditRes.data && auditRes.data.length > 0) {
+    const localLogs = targetDb.getAuditLogs();
+    for (const row of auditRes.data) {
+      const idx = localLogs.findIndex(a => a.id === row.id);
+      const mapped = mapAuditLogFromSupabase(row);
+      if (idx >= 0) localLogs[idx] = mergePreservingLocal(localLogs[idx] as any, mapped) as any;
+      else localLogs.push(mapped as any);
+    }
+    sortDescByIso(localLogs, 'timestamp');
+    if (localLogs.length > 500) {
+      localLogs.length = 500;
+    }
+    counts['audit_logs'] = auditRes.data.length;
+    total += auditRes.data.length;
+  }
+
+  // Persist locally & mark hydrated
+  (targetDb as any).markHydrated?.();
+  (targetDb as any).saveDatabase?.();
 
   return {
     success: true,

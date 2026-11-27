@@ -54,6 +54,12 @@ import type {
 } from '../types/index.ts';
 import { generateBacenPixPayload } from '../utils/pix.ts';
 import { getInitialsAvatar } from '../utils/avatar.ts';
+import {
+  buildIntegrityReport,
+  validateDataIntegrity,
+  type IntegrityReport,
+  type IntegritySnapshot,
+} from '../utils/dataIntegrity.ts';
 import { 
   initialUsers, 
   initialGuardians, 
@@ -71,6 +77,35 @@ import {
   CATALOG_VERSION,
   OFFICIAL_GUARDIAN_ASSIGNMENTS
 } from './seedData.ts';
+
+export type SaleFaultInjectionStage =
+  | 'CREATE_SALE'
+  | 'DEDUCT_STOCK'
+  | 'UPDATE_STUDENT'
+  | 'CREATE_RECEIPT'
+  | 'PERSIST_STORAGE';
+
+export interface DatabaseServiceOptions {
+  dbFilePath?: string;
+  disableDisk?: boolean;
+  disableSupabase?: boolean;
+}
+
+const VALID_PAYMENT_METHODS = new Set<PaymentMethod>([
+  'CONTA_ALUNO',
+  'DINHEIRO',
+  'PIX',
+  'CARTAO_CREDITO',
+  'CARTAO_DEBITO',
+  'MERCADO_PAGO',
+]);
+
+function deepCloneData<T>(value: T): T {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
+}
 
 export interface DatabaseSchema {
   settings: SystemSettings;
@@ -96,15 +131,78 @@ export interface DatabaseSchema {
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'base44_db.json');
 
-class DatabaseService {
+export class DatabaseService {
   private data: DatabaseSchema;
+  private readonly dbFilePath: string;
+  private readonly dataDir: string;
+  private readonly disableDisk: boolean;
+  private readonly disableSupabase: boolean;
   private saveQueued = false;
   private supabaseModPromise: Promise<typeof import('./supabase.ts')> | null = null;
-  private pendingSyncPromises = new Set<Promise<void>>();
+  private pendingUpserts = new Map<string, Map<string, { record: any; mapperName: string }>>();
+  private pendingDeletes = new Map<string, Set<string>>();
+  private lastFlushErrors: Array<{ table: string; error: string }> = [];
+  private activeFlushPromise: Promise<void> | null = null;
+  private scheduledFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private hasHydratedFromSupabase = false;
+  private lastHydratedAt = 0;
+  private hydrationPromise: Promise<void> | null = null;
 
-  constructor() {
+  constructor(options?: DatabaseServiceOptions) {
+    this.dbFilePath = options?.dbFilePath || DB_FILE;
+    this.dataDir = path.dirname(this.dbFilePath);
+    this.disableDisk = Boolean(options?.disableDisk);
+    this.disableSupabase = Boolean(options?.disableSupabase);
     this.data = this.loadDatabase();
+    if (this.disableSupabase) {
+      this.data.settings = { ...this.data.settings, supabaseActive: false };
+    }
     this.ensureReceiptsForExistingSales();
+  }
+
+  public takeSnapshot(): DatabaseSchema {
+    return deepCloneData(this.data);
+  }
+
+  public restoreSnapshot(snapshot: DatabaseSchema): void {
+    this.data = deepCloneData(snapshot);
+    this.writeDatabaseSync(this.data);
+  }
+
+  public getIntegritySnapshot(): IntegritySnapshot {
+    return {
+      sales: this.data.sales || [],
+      receipts: this.data.receipts || [],
+      products: this.data.products || [],
+      students: this.data.students || [],
+      stockMovements: this.data.stockMovements || [],
+      financialLedger: this.data.financialLedger || [],
+      invoices: this.data.invoices || [],
+    };
+  }
+
+  public validateIntegrity(): IntegrityReport {
+    return buildIntegrityReport(this.getIntegritySnapshot());
+  }
+
+  private clonePendingUpserts() {
+    const cloned = new Map<string, Map<string, { record: any; mapperName: string }>>();
+    for (const [table, map] of this.pendingUpserts.entries()) {
+      const inner = new Map<string, { record: any; mapperName: string }>();
+      for (const [key, val] of map.entries()) {
+        inner.set(key, { record: deepCloneData(val.record), mapperName: val.mapperName });
+      }
+      cloned.set(table, inner);
+    }
+    return cloned;
+  }
+
+  private clonePendingDeletes() {
+    const cloned = new Map<string, Set<string>>();
+    for (const [table, set] of this.pendingDeletes.entries()) {
+      cloned.set(table, new Set(set));
+    }
+    return cloned;
   }
 
   private normalizeCategory(cat?: string | null): ProductCategory {
@@ -163,13 +261,14 @@ class DatabaseService {
 
   private loadDatabase(): DatabaseSchema {
     try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
+      if (!this.disableDisk) {
+        if (!fs.existsSync(this.dataDir)) {
+          fs.mkdirSync(this.dataDir, { recursive: true });
+        }
 
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
+        if (fs.existsSync(this.dbFilePath)) {
+          const raw = fs.readFileSync(this.dbFilePath, 'utf-8');
+          const parsed = JSON.parse(raw);
 
         // Verificar se a base ainda contém os alunos fictícios antigos (ex: Lucas Andrade) e migrar para os 17 alunos da 10ª Turma
         const existingStudents: Student[] = Array.isArray(parsed.students) ? parsed.students : [];
@@ -581,27 +680,28 @@ class DatabaseService {
         }
 
         return loadedData;
+        }
       }
     } catch (err) {
       console.error('Erro ao ler base de dados JSON, iniciando com dados semente:', err);
     }
 
     const defaultData: DatabaseSchema = {
-      settings: initialSettings,
-      users: initialUsers,
-      guardians: initialGuardians,
-      students: initialStudents,
-      products: initialProducts,
-      stockMovements: initialStockMovements,
-      sales: initialSales,
-      financialLedger: initialFinancialLedger,
-      invoices: initialInvoices,
+      settings: deepCloneData(initialSettings),
+      users: deepCloneData(initialUsers),
+      guardians: deepCloneData(initialGuardians),
+      students: deepCloneData(initialStudents),
+      products: deepCloneData(initialProducts),
+      stockMovements: deepCloneData(initialStockMovements),
+      sales: deepCloneData(initialSales),
+      financialLedger: deepCloneData(initialFinancialLedger),
+      invoices: deepCloneData(initialInvoices),
       billingBatches: [],
       receipts: [],
-      pixPayments: initialPixPayments,
-      whatsappNotifications: initialWhatsAppNotifications,
-      auditLogs: initialAuditLogs,
-      passeios: initialPasseios,
+      pixPayments: deepCloneData(initialPixPayments),
+      whatsappNotifications: deepCloneData(initialWhatsAppNotifications),
+      auditLogs: deepCloneData(initialAuditLogs),
+      passeios: deepCloneData(initialPasseios),
       tripOperations: [],
       cashSessions: [],
       cashMovements: [],
@@ -611,21 +711,30 @@ class DatabaseService {
     return defaultData;
   }
 
-  private writeDatabaseSync(dataToSave: DatabaseSchema) {
+  private writeDatabaseSync(dataToSave: DatabaseSchema, strict = false) {
+    if (this.disableDisk) return;
     try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
+      if (!fs.existsSync(this.dataDir)) {
+        fs.mkdirSync(this.dataDir, { recursive: true });
       }
       // Atomic write via temp file
-      const tempPath = `${DB_FILE}.tmp.${process.pid}.${Date.now()}`;
+      const tempPath = `${this.dbFilePath}.tmp.${process.pid}.${Date.now()}`;
       fs.writeFileSync(tempPath, JSON.stringify(dataToSave, null, 2), 'utf-8');
-      fs.renameSync(tempPath, DB_FILE);
-    } catch (err) {
-      console.error('Falha ao persistir base de dados:', err);
+      fs.renameSync(tempPath, this.dbFilePath);
+    } catch (err: any) {
+      const code = err?.code;
+      const isReadOnlyServerless = process.env.VERCEL === '1' && (code === 'EROFS' || code === 'EACCES' || code === 'ENOENT');
+      if (strict && !isReadOnlyServerless) {
+        throw new Error(`Falha ao gravar base de dados local: ${err?.message || 'erro de disco'}`);
+      }
+      if (!isReadOnlyServerless) {
+        console.error('Falha ao persistir base de dados:', err);
+      }
     }
   }
 
   private saveDatabase(dataToSave?: DatabaseSchema, immediate = false) {
+    if (this.disableDisk) return;
     if (immediate || dataToSave) {
       this.writeDatabaseSync(dataToSave || this.data);
       return;
@@ -647,8 +756,9 @@ class DatabaseService {
     action: string, 
     module: any, 
     details: string, 
-    status: 'SUCESSO' | 'FALHA' = 'SUCESSO'
-  ) {
+    status: 'SUCESSO' | 'FALHA' = 'SUCESSO',
+    referenceId?: string
+  ): AuditLog {
     const log: AuditLog = {
       id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       timestamp: new Date().toISOString(),
@@ -657,6 +767,7 @@ class DatabaseService {
       userRole,
       action,
       module,
+      referenceId,
       details,
       status
     };
@@ -667,58 +778,291 @@ class DatabaseService {
     }
     this.saveDatabase();
     this.triggerSupabaseSync('audit_logs', log, 'mapAuditLogToSupabase');
+    return log;
+  }
+
+  private static readonly SUPABASE_UPSERT_TIERS: string[][] = [
+    ['settings', 'users', 'guardians', 'passeios'],
+    ['products', 'students', 'cash_registers', 'billing_batches', 'trip_operations'],
+    ['sales', 'invoices', 'stock_movements', 'cash_movements', 'customer_account_movements'],
+    ['sales_receipts', 'pix_payments', 'whatsapp_notifications', 'audit_logs'],
+  ];
+
+  private scheduleAutoFlush() {
+    if (this.scheduledFlushTimer) return;
+    this.scheduledFlushTimer = setTimeout(() => {
+      this.scheduledFlushTimer = null;
+      void this.flushSupabaseSync(12000);
+    }, 35);
+    if (typeof (this.scheduledFlushTimer as any)?.unref === 'function') {
+      (this.scheduledFlushTimer as any).unref();
+    }
+  }
+
+  public markHydrated() {
+    this.hasHydratedFromSupabase = true;
+    this.lastHydratedAt = Date.now();
+  }
+
+  public async ensureHydratedFromSupabase(opts?: { force?: boolean; maxAgeMs?: number }): Promise<void> {
+    if (this.disableSupabase) return;
+    const settings = this.data?.settings;
+    if (settings && settings.supabaseActive === false) {
+      return;
+    }
+
+    // Se houver escritas locais pendentes, envie-as primeiro antes de puxar do Supabase
+    if (this.pendingUpserts.size > 0 || this.pendingDeletes.size > 0) {
+      await this.flushSupabaseSync(10000);
+    }
+
+    const defaultTtl = process.env.VERCEL === '1' ? 8000 : 30000;
+    const ttlMs = opts?.maxAgeMs ?? defaultTtl;
+    const isFresh = this.hasHydratedFromSupabase && !opts?.force && Date.now() - this.lastHydratedAt < ttlMs;
+    if (isFresh) {
+      return;
+    }
+
+    if (this.hydrationPromise) {
+      return this.hydrationPromise;
+    }
+
+    this.hydrationPromise = (async () => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      try {
+        if (!this.supabaseModPromise) {
+          this.supabaseModPromise = import('./supabase.ts');
+        }
+        const supabaseMod = await this.supabaseModPromise;
+        await Promise.race([
+          supabaseMod.syncFromSupabase(this),
+          new Promise<void>(resolve => {
+            timer = setTimeout(resolve, 8000);
+          }),
+        ]);
+        this.hasHydratedFromSupabase = true;
+        this.lastHydratedAt = Date.now();
+      } catch (e: any) {
+        console.warn('[Supabase Hydration] Aviso ao hidratar dados iniciais:', e?.message || e);
+      } finally {
+        if (timer) clearTimeout(timer);
+        this.hydrationPromise = null;
+      }
+    })();
+
+    return this.hydrationPromise;
   }
 
   public triggerSupabaseSync(table: string, record: any, mapperName: string) {
-    const task = (async () => {
-      try {
-        if (!this.supabaseModPromise) {
-          this.supabaseModPromise = import('./supabase.ts');
-        }
-        const supabaseMod = await this.supabaseModPromise;
-        const mapper = (supabaseMod as any)[mapperName];
-        await supabaseMod.syncRecordToSupabase(table, record, mapper);
-      } catch (e: any) {
-        console.warn(`[Supabase Auto-Sync] Falha ao enfileirar sync em ${table}:`, e?.message || e);
-      }
-    })();
-    this.pendingSyncPromises.add(task);
-    task.finally(() => {
-      this.pendingSyncPromises.delete(task);
-    });
+    if (this.disableSupabase || !record) return;
+    if (this.data?.settings?.supabaseActive === false) return;
+    const key = String(record.id || '__singleton__');
+    let tableMap = this.pendingUpserts.get(table);
+    if (!tableMap) {
+      tableMap = new Map();
+      this.pendingUpserts.set(table, tableMap);
+    }
+    tableMap.set(key, { record: { ...record }, mapperName });
+    const delSet = this.pendingDeletes.get(table);
+    if (delSet) {
+      delSet.delete(key);
+      if (delSet.size === 0) this.pendingDeletes.delete(table);
+    }
+    this.scheduleAutoFlush();
   }
 
   public triggerSupabaseDelete(table: string, id: string) {
-    const task = (async () => {
-      try {
-        if (!this.supabaseModPromise) {
-          this.supabaseModPromise = import('./supabase.ts');
-        }
-        const supabaseMod = await this.supabaseModPromise;
-        await supabaseMod.deleteRecordFromSupabase(table, id);
-      } catch (e: any) {
-        console.warn(`[Supabase Auto-Sync] Falha ao excluir registro ${id} em ${table}:`, e?.message || e);
-      }
-    })();
-    this.pendingSyncPromises.add(task);
-    task.finally(() => {
-      this.pendingSyncPromises.delete(task);
-    });
+    if (this.disableSupabase || !id) return;
+    if (this.data?.settings?.supabaseActive === false) return;
+    const tableMap = this.pendingUpserts.get(table);
+    if (tableMap) {
+      tableMap.delete(id);
+      if (tableMap.size === 0) this.pendingUpserts.delete(table);
+    }
+    let delSet = this.pendingDeletes.get(table);
+    if (!delSet) {
+      delSet = new Set();
+      this.pendingDeletes.set(table, delSet);
+    }
+    delSet.add(id);
+    this.scheduleAutoFlush();
   }
 
-  public async flushSupabaseSync(timeoutMs = 8000): Promise<void> {
-    if (this.pendingSyncPromises.size === 0) return;
+  private async drainSupabaseQueue(): Promise<void> {
+    if (this.disableSupabase || this.data?.settings?.supabaseActive === false) {
+      this.pendingUpserts.clear();
+      this.pendingDeletes.clear();
+      return;
+    }
+
+    if (!this.supabaseModPromise) {
+      this.supabaseModPromise = import('./supabase.ts');
+    }
+    const supabaseMod = await this.supabaseModPromise;
+    const batchErrors: Array<{ table: string; error: string }> = [];
+
+    while (this.pendingUpserts.size > 0 || this.pendingDeletes.size > 0) {
+      // Snapshot & clear queues so new mutations arriving mid-flush are captured for the next pass
+      const upsertsSnapshot = new Map(this.pendingUpserts);
+      this.pendingUpserts.clear();
+      const deletesSnapshot = new Map(this.pendingDeletes);
+      this.pendingDeletes.clear();
+
+      // 1. Upserts em lotes por tabela respeitando rigorosamente a ordem de Foreign Keys (pais -> filhos)
+      const handledTables = new Set<string>();
+      for (const tier of DatabaseService.SUPABASE_UPSERT_TIERS) {
+        const tierTasks: Promise<any>[] = [];
+        for (const table of tier) {
+          handledTables.add(table);
+          const entries = upsertsSnapshot.get(table);
+          if (!entries || entries.size === 0) continue;
+          const items = Array.from(entries.values());
+          const mapperName = items[0].mapperName;
+          const mapper = (supabaseMod as any)[mapperName];
+          const records = items.map(i => i.record);
+          tierTasks.push(
+            supabaseMod.syncBatchToSupabase(table, records, mapper)
+              .then((ok: boolean) => {
+                if (!ok) {
+                  batchErrors.push({ table, error: `Falha ao sincronizar tabela "${table}" no Supabase.` });
+                }
+              })
+              .catch((e: any) => {
+                const msg = e?.message || String(e);
+                batchErrors.push({ table, error: msg });
+                console.warn(`[Supabase Auto-Sync] Falha ao sincronizar lote em ${table}:`, msg);
+              })
+          );
+        }
+        if (tierTasks.length > 0) {
+          await Promise.allSettled(tierTasks);
+        }
+      }
+
+      // Quaisquer tabelas extras fora da lista explícita
+      const extraTasks: Promise<any>[] = [];
+      for (const [table, entries] of upsertsSnapshot.entries()) {
+        if (handledTables.has(table) || entries.size === 0) continue;
+        const items = Array.from(entries.values());
+        const mapper = (supabaseMod as any)[items[0].mapperName];
+        extraTasks.push(
+          supabaseMod.syncBatchToSupabase(table, items.map(i => i.record), mapper)
+            .then((ok: boolean) => {
+              if (!ok) {
+                batchErrors.push({ table, error: `Falha ao sincronizar tabela "${table}" no Supabase.` });
+              }
+            })
+            .catch((e: any) => {
+              const msg = e?.message || String(e);
+              batchErrors.push({ table, error: msg });
+              console.warn(`[Supabase Auto-Sync] Falha ao sincronizar lote em ${table}:`, msg);
+            })
+        );
+      }
+      if (extraTasks.length > 0) {
+        await Promise.allSettled(extraTasks);
+      }
+
+      // 2. Exclusões em ordem inversa de Foreign Keys (filhos -> pais)
+      const reversedTiers = [...DatabaseService.SUPABASE_UPSERT_TIERS].reverse();
+      const handledDeletes = new Set<string>();
+      for (const tier of reversedTiers) {
+        const delTasks: Promise<any>[] = [];
+        for (const table of tier) {
+          handledDeletes.add(table);
+          const ids = deletesSnapshot.get(table);
+          if (!ids || ids.size === 0) continue;
+          delTasks.push(
+            supabaseMod.deleteBatchFromSupabase(table, Array.from(ids)).catch((e: any) => {
+              const msg = e?.message || String(e);
+              batchErrors.push({ table, error: msg });
+              console.warn(`[Supabase Auto-Sync] Falha ao excluir lote em ${table}:`, msg);
+            })
+          );
+        }
+        if (delTasks.length > 0) {
+          await Promise.allSettled(delTasks);
+        }
+      }
+      for (const [table, ids] of deletesSnapshot.entries()) {
+        if (handledDeletes.has(table) || ids.size === 0) continue;
+        await supabaseMod.deleteBatchFromSupabase(table, Array.from(ids)).catch(() => {});
+      }
+    }
+
+    this.lastFlushErrors = batchErrors;
+
+    if (this.hasHydratedFromSupabase) {
+      this.lastHydratedAt = Date.now();
+    }
+  }
+
+  public async flushSupabaseSync(timeoutMs = 12000): Promise<void> {
+    if (this.disableSupabase || this.data?.settings?.supabaseActive === false) {
+      this.pendingUpserts.clear();
+      this.pendingDeletes.clear();
+      this.lastFlushErrors = [];
+      return;
+    }
+
+    if (this.scheduledFlushTimer) {
+      clearTimeout(this.scheduledFlushTimer);
+      this.scheduledFlushTimer = null;
+    }
+    if (this.pendingUpserts.size === 0 && this.pendingDeletes.size === 0 && !this.activeFlushPromise) {
+      return;
+    }
+
+    const runDrain = () => {
+      if (!this.activeFlushPromise) {
+        this.activeFlushPromise = this.drainSupabaseQueue().finally(() => {
+          this.activeFlushPromise = null;
+        });
+      }
+      return this.activeFlushPromise;
+    };
+
     const deadline = Date.now() + timeoutMs;
-    while (this.pendingSyncPromises.size > 0) {
+    while (this.pendingUpserts.size > 0 || this.pendingDeletes.size > 0 || this.activeFlushPromise) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) break;
-      const batch = Array.from(this.pendingSyncPromises);
-      await Promise.race([
-        Promise.allSettled(batch),
-        new Promise<void>(resolve => setTimeout(resolve, remaining)),
-      ]);
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      try {
+        await Promise.race([
+          runDrain(),
+          new Promise<void>(resolve => {
+            timer = setTimeout(resolve, remaining);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
       if (Date.now() >= deadline) break;
     }
+  }
+
+  public async flushSupabaseSyncStrict(
+    timeoutMs = 12000,
+    criticalTables: string[] = ['sales', 'sales_receipts', 'products', 'students']
+  ): Promise<{ ok: boolean; failedTables: string[]; errors: string[]; timedOut: boolean }> {
+    if (this.disableSupabase || this.data?.settings?.supabaseActive === false) {
+      return { ok: true, failedTables: [], errors: [], timedOut: false };
+    }
+    this.lastFlushErrors = [];
+    await this.flushSupabaseSync(timeoutMs);
+    const timedOut = this.pendingUpserts.size > 0 || this.pendingDeletes.size > 0;
+    const failedCritical = this.lastFlushErrors.filter(e => criticalTables.includes(e.table));
+    const failedTables = Array.from(new Set(failedCritical.map(e => e.table)));
+    const errors = failedCritical.map(e => e.error);
+    if (timedOut) {
+      errors.push('Tempo limite excedido ao confirmar persistência no servidor remoto.');
+    }
+    return {
+      ok: failedTables.length === 0 && !timedOut,
+      failedTables,
+      errors,
+      timedOut,
+    };
   }
 
   // --- GETTERS ---
@@ -870,7 +1214,7 @@ class DatabaseService {
     return this.data.settings;
   }
 
-  // 2. Operação de Venda no PDV (Caixa Rápido)
+  // 2. Operação Atômica e Idempotente de Venda no PDV (Caixa Rápido)
   public registerSale(params: {
     studentId: string;
     items: { productId: string; quantity: number; discountAmount?: number }[];
@@ -883,7 +1227,17 @@ class DatabaseService {
     terminalId?: string;
     discountAmount?: number;
     notes?: string;
-  }): { sale: Sale; student: Student; receipt: SalesReceipt } {
+    __testFaultStage?: SaleFaultInjectionStage;
+  }): {
+    sale: Sale;
+    student: Student;
+    receipt: SalesReceipt;
+    updatedProducts: Product[];
+    stockMovements: StockMovement[];
+    ledgerEntries: FinancialTransaction[];
+    auditLog?: AuditLog;
+    idempotentReplay?: boolean;
+  } {
     const {
       studentId,
       items,
@@ -895,17 +1249,46 @@ class DatabaseService {
       creditUsed = 0,
       terminalId,
       discountAmount = 0,
-      notes
+      notes,
+      __testFaultStage,
     } = params;
 
-    // Idempotency check
-    if (idempotencyKey) {
-      const existingSale = this.data.sales.find(s => s.idempotencyKey === idempotencyKey);
+    // 1. Verificação de idempotência ANTES de qualquer mutação
+    const trimmedIdempotencyKey = (idempotencyKey || '').trim();
+    if (trimmedIdempotencyKey) {
+      const existingSale = this.data.sales.find(s => s.idempotencyKey === trimmedIdempotencyKey);
       if (existingSale) {
-        const student = this.data.students.find(s => s.id === studentId)!;
-        const receipt = this.createReceiptForSale(existingSale, student, operatorUser, { terminalId });
-        return { sale: existingSale, student, receipt };
+        const existingStudent = this.data.students.find(s => s.id === existingSale.studentId);
+        const existingReceipt = this.getReceiptBySaleId(existingSale.id);
+        if (!existingStudent || !existingReceipt) {
+          throw new Error(
+            `Registro inconsistente encontrado para a chave de idempotência "${trimmedIdempotencyKey}". Solicite auditoria antes de tentar novamente.`
+          );
+        }
+        const existingProducts = existingSale.items
+          .map(it => this.data.products.find(p => p.id === it.productId))
+          .filter(Boolean) as Product[];
+        const existingMovements = this.data.stockMovements.filter(
+          m => m.saleId === existingSale.id || m.referenceId === existingSale.id
+        );
+        const existingLedger = this.data.financialLedger.filter(
+          l => l.saleId === existingSale.id || l.documentRef === existingSale.id
+        );
+        return {
+          sale: existingSale,
+          student: existingStudent,
+          receipt: existingReceipt,
+          updatedProducts: existingProducts,
+          stockMovements: existingMovements,
+          ledgerEntries: existingLedger,
+          idempotentReplay: true,
+        };
       }
+    }
+
+    // 2. Regras rígidas de pré-validação (antes de abrir a transação)
+    if (!studentId || typeof studentId !== 'string') {
+      throw new Error('Selecione um aluno válido antes de confirmar a venda.');
     }
 
     const student = this.data.students.find(s => s.id === studentId);
@@ -917,14 +1300,27 @@ class DatabaseService {
       throw new Error(`O aluno ${student.name} está inativo e não pode realizar compras.`);
     }
 
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('O carrinho está vazio. Adicione pelo menos 1 item antes de confirmar a venda.');
+    }
+
+    if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
+      throw new Error(`Forma de pagamento inválida: "${String(paymentMethod)}".`);
+    }
+
     const hasExplicitPayments = Array.isArray(payments) && payments.length > 0;
     const effectiveMethods: SalePaymentEntry[] = hasExplicitPayments
-      ? payments.map(p => ({
-          method: p.method,
-          amount: Math.round((Number(p.amount) || 0) * 100) / 100,
-          transactionId: p.transactionId,
-          confirmedAt: p.confirmedAt,
-        }))
+      ? payments.map(p => {
+          if (!VALID_PAYMENT_METHODS.has(p.method)) {
+            throw new Error(`Forma de pagamento inválida: "${String(p.method)}".`);
+          }
+          return {
+            method: p.method,
+            amount: Math.round((Number(p.amount) || 0) * 100) / 100,
+            transactionId: p.transactionId,
+            confirmedAt: p.confirmedAt,
+          };
+        })
       : [];
 
     const usesAccountPayment = hasExplicitPayments
@@ -937,14 +1333,13 @@ class DatabaseService {
       );
     }
 
-    if (!items || items.length === 0) {
-      throw new Error('A venda deve conter pelo menos 1 item.');
-    }
-
-    // Conferência rigorosa de preço, status e bloqueio de estoque
+    // Conferência rigorosa de identificadores, preço, status e estoque
     const aggregatedQuantities = new Map<string, { quantity: number; discountAmount: number }>();
     for (const item of items) {
-      if (!item.productId || !Number.isFinite(item.quantity) || item.quantity <= 0) {
+      if (!item || !item.productId || typeof item.productId !== 'string') {
+        throw new Error('Identificador de produto inválido no carrinho.');
+      }
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
         throw new Error('Quantidade inválida no carrinho. Todos os itens devem ter quantidade maior que zero.');
       }
       const prev = aggregatedQuantities.get(item.productId) || { quantity: 0, discountAmount: 0 };
@@ -962,7 +1357,7 @@ class DatabaseService {
       const totalQty = agg.quantity;
       const product = this.data.products.find(p => p.id === productId);
       if (!product) {
-        throw new Error(`Produto ID ${productId} não encontrado.`);
+        throw new Error(`Produto com identificador "${productId}" não encontrado.`);
       }
 
       if (product.archived || product.status !== 'ACTIVE') {
@@ -970,14 +1365,20 @@ class DatabaseService {
       }
 
       if (this.isPricePending(product)) {
-        throw new Error(`O produto "${product.name}" está com preço não definido e está bloqueado para venda até definição pelo administrador.`);
+        throw new Error('Este produto não possui preço definido e não pode ser vendido.');
       }
 
       if (this.data.settings.blockSaleWithoutStock !== false && product.currentStock < totalQty) {
-        throw new Error(`Estoque insuficiente para o produto "${product.name}". Disponível: ${product.currentStock}, Solicitado: ${totalQty}`);
+        throw new Error(
+          `Estoque insuficiente para o produto "${product.name}". Disponível: ${product.currentStock}. Solicitado: ${totalQty}.`
+        );
       }
 
       const unitPrice = Number(product.price);
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new Error('Este produto não possui preço definido e não pode ser vendido.');
+      }
+
       const rawSubtotal = Math.round((unitPrice * totalQty) * 100) / 100;
       const itemDisc = Math.min(rawSubtotal, agg.discountAmount);
       if (itemDisc > 0 && operatorUser.role !== 'ADMIN' && operatorUser.role !== 'MANAGER') {
@@ -997,7 +1398,7 @@ class DatabaseService {
         unitPrice, // PRESERVA PREÇO HISTÓRICO
         quantity: totalQty,
         discountAmount: itemDisc > 0 ? itemDisc : undefined,
-        subtotal
+        subtotal,
       });
     }
 
@@ -1014,6 +1415,9 @@ class DatabaseService {
     }
 
     const totalAfterDiscount = Math.max(0, Math.round((subtotalBeforeDiscount - cleanDiscount) * 100) / 100);
+    if (totalAfterDiscount <= 0) {
+      throw new Error('O total da venda deve ser maior que zero.');
+    }
 
     // Créditos do aluno (se solicitados)
     const cleanCreditUsed = Math.max(0, Math.round((Number(creditUsed) || 0) * 100) / 100);
@@ -1028,6 +1432,9 @@ class DatabaseService {
     }
 
     const saleTotal = Math.max(0, Math.round((totalAfterDiscount - cleanCreditUsed) * 100) / 100);
+    if (saleTotal <= 0 && cleanCreditUsed <= 0) {
+      throw new Error('O total da venda deve ser maior que zero.');
+    }
 
     // Normalizar estrutura de pagamento (único ou múltiplas formas) + troco
     const nowIso = new Date().toISOString();
@@ -1109,317 +1516,660 @@ class DatabaseService {
       }
     }
 
-    const currentPeriod = this.toSaoPauloPeriod(nowIso); // e.g. '2026-10'
+    const currentPeriod = this.toSaoPauloPeriod(nowIso);
     let saleId = `VEN-${Date.now().toString().slice(-6)}`;
     const existingSaleIds = new Set(this.data.sales.map(s => s.id));
     while (existingSaleIds.has(saleId)) {
       saleId = `VEN-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
     }
-    const activeSession = this.getActiveCashSession();
+    const resolvedIdempotencyKey =
+      trimmedIdempotencyKey || `IDEMP-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
-    // Criar registro de venda
-    const newSale: Sale = {
-      id: saleId,
-      studentId: student.id,
-      studentName: student.name,
-      registrationNumber: student.registrationNumber,
-      items: saleItems,
-      total: saleTotal,
-      subtotalBeforeDiscount,
-      discountAmount: cleanDiscount > 0 ? cleanDiscount : undefined,
-      creditUsed: cleanCreditUsed > 0 ? cleanCreditUsed : undefined,
-      paymentMethod: resolvedPrimaryMethod,
-      payments: finalPayments,
-      amountPaid: effectiveAmountPaid,
-      changeAmount: changeAmount > 0 ? changeAmount : undefined,
-      terminalId: terminalId || (activeSession ? `PDV-BALCAO-${activeSession.id.slice(-4)}` : 'PDV-BALCAO-01'),
-      cashSessionId: activeSession?.id,
-      notes: notes?.trim() || undefined,
-      operatorUserId: operatorUser.id,
-      operatorUserName: operatorUser.name,
-      status: 'COMPLETED',
-      billingPeriod: currentPeriod,
-      idempotencyKey,
-      createdAt: nowIso
-    };
+    // =========================================================================
+    // TRANSAÇÃO ATÔMICA COM SNAPSHOT PRÉVIO E ROLLBACK INTEGRAL EM CASO DE FALHA
+    // =========================================================================
+    const rollbackSnapshot = this.takeSnapshot();
+    const prevPendingUpserts = this.clonePendingUpserts();
+    const prevPendingDeletes = this.clonePendingDeletes();
 
-    // Atualizar estoque e gerar movimentações
-    for (const item of saleItems) {
-      const product = this.data.products.find(p => p.id === item.productId)!;
-      const prevStock = product.currentStock;
-      product.currentStock = Math.max(0, product.currentStock - item.quantity);
-      product.updatedAt = nowIso;
+    try {
+      const txStudent = this.data.students.find(s => s.id === studentId)!;
+      const activeSession = this.getActiveCashSession();
 
-      const movement: StockMovement = {
-        id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        productId: product.id,
-        productName: product.name,
-        type: 'SAIDA_VENDA',
-        quantity: -item.quantity,
-        previousStock: prevStock,
-        newStock: product.currentStock,
-        reason: `Venda ${newSale.id} (${resolvedPrimaryMethod}) - Aluno: ${student.name}`,
-        performedByUserId: operatorUser.id,
-        performedByUserName: operatorUser.name,
-        referenceId: newSale.id,
-        timestamp: nowIso
-      };
-      this.data.stockMovements.unshift(movement);
-      this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
-      this.triggerSupabaseSync('stock_movements', movement, 'mapStockMovementToSupabase');
-
-      // Checar se disparar alerta de estoque baixo
-      if (product.currentStock <= product.minStock) {
-        const lowStockNotif: WhatsAppNotification = {
-          id: `NOTIF-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-          type: 'ALERTA_ESTOQUE',
-          recipientName: 'Coordenação Lojinha',
-          recipientPhone: '(11) 98765-4321',
-          recipientRole: 'ADMIN',
-          studentName: 'Estoque da Lojinha',
-          messageText: `⚠️ Atenção: O item "${product.name}" atingiu ${product.currentStock} ${product.unit} (estoque mínimo: ${product.minStock}).`,
-          status: 'ENTREGUE',
-          scheduledFor: nowIso,
-          sentAt: nowIso,
-          attemptsCount: 1
-        };
-        this.data.whatsappNotifications.unshift(lowStockNotif);
-        this.triggerSupabaseSync('whatsapp_notifications', lowStockNotif, 'mapNotificationToSupabase');
+      // Etapa 1: Criar registro de venda inicialmente como PENDING
+      if (__testFaultStage === 'CREATE_SALE') {
+        throw new Error('Falha simulada ao gravar registro da venda.');
       }
-    }
 
-    if (cleanCreditUsed > 0) {
-      student.creditBalance = Math.max(0, Math.round(((student.creditBalance || 0) - cleanCreditUsed) * 100) / 100);
-      this.data.financialLedger.unshift({
-        id: `LED-${Date.now()}-CRD-${Math.floor(Math.random() * 100)}`,
-        timestamp: nowIso,
-        studentId: student.id,
-        type: 'CREDITO',
-        category: 'AJUSTE_CREDITO',
-        amount: cleanCreditUsed,
-        description: `Uso de crédito em conta na venda ${newSale.id}`,
-        documentRef: newSale.id,
-        performedByUserName: operatorUser.name
-      });
-    }
-
-    if (totalAccountCharge > 0) {
-      // Atualizar saldo do aluno (consumo na conta mensal)
-      student.currentConsumptionBalance = Math.round((student.currentConsumptionBalance + totalAccountCharge) * 100) / 100;
-      student.totalOpenDebt = Math.round((student.totalOpenDebt + totalAccountCharge) * 100) / 100;
-
-      // Criar lançamento no livro financeiro
-      this.data.financialLedger.unshift({
-        id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-        timestamp: nowIso,
-        studentId: student.id,
-        type: 'DEBITO',
-        category: 'CONSUMO_LOJINHA',
-        amount: totalAccountCharge,
-        description: `Consumo Lojinha - Venda ${newSale.id} (${saleItems.length} itens)`,
-        documentRef: newSale.id,
-        performedByUserName: operatorUser.name
-      });
-    }
-
-    if (effectiveAmountPaid > 0) {
-      const paidMethodsLabel = finalPayments
-        .filter(p => p.method !== 'CONTA_ALUNO')
-        .map(p => p.method)
-        .join(' + ');
-      this.data.financialLedger.unshift({
-        id: `LED-${Date.now()}-PG-${Math.floor(Math.random() * 100)}`,
-        timestamp: nowIso,
-        studentId: student.id,
-        type: 'CREDITO',
-        category: 'PAGAMENTO_PIX',
-        amount: effectiveAmountPaid,
-        description: `Venda paga no ato (${paidMethodsLabel}) - ${newSale.id} (${saleItems.length} itens)`,
-        documentRef: newSale.id,
-        performedByUserName: operatorUser.name
-      });
-    }
-
-    // Registrar movimentação no Caixa se houver sessão aberta
-    if (activeSession) {
-      if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
-      const movTypeMap: Record<PaymentMethod, CashMovementType> = {
-        DINHEIRO: 'VENDA_DINHEIRO',
-        PIX: 'VENDA_PIX',
-        CARTAO_CREDITO: 'VENDA_CARTAO',
-        CARTAO_DEBITO: 'VENDA_CARTAO',
-        MERCADO_PAGO: 'VENDA_MERCADO_PAGO',
-        CONTA_ALUNO: 'VENDA_CONTA_ALUNO'
+      const newSale: Sale = {
+        id: saleId,
+        studentId: txStudent.id,
+        studentName: txStudent.name,
+        registrationNumber: txStudent.registrationNumber,
+        items: saleItems,
+        subtotal: subtotalBeforeDiscount,
+        discountTotal: cleanDiscount,
+        total: saleTotal,
+        subtotalBeforeDiscount,
+        discountAmount: cleanDiscount > 0 ? cleanDiscount : undefined,
+        creditUsed: cleanCreditUsed > 0 ? cleanCreditUsed : undefined,
+        paymentMethod: resolvedPrimaryMethod,
+        payments: finalPayments,
+        amountPaid: effectiveAmountPaid,
+        changeAmount: changeAmount > 0 ? changeAmount : undefined,
+        terminalId: terminalId || (activeSession ? `PDV-BALCAO-${activeSession.id.slice(-4)}` : 'PDV-BALCAO-01'),
+        cashSessionId: activeSession?.id,
+        notes: notes?.trim() || undefined,
+        operatorUserId: operatorUser.id,
+        operatorUserName: operatorUser.name,
+        status: 'PENDING',
+        billingPeriod: currentPeriod,
+        billingStatus: totalAccountCharge > 0 ? 'AGUARDANDO_FATURAMENTO' : undefined,
+        idempotencyKey: resolvedIdempotencyKey,
+        origin: 'LOJINHA',
+        createdAt: nowIso,
       };
-      for (const pLine of finalPayments) {
-        const netLineAmount = pLine.method === 'DINHEIRO' ? Math.max(0, Math.round((pLine.amount - changeAmount) * 100) / 100) : pLine.amount;
-        if (netLineAmount <= 0) continue;
-        const cashMov: CashMovement = {
-          id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          sessionId: activeSession.id,
-          type: movTypeMap[pLine.method] || 'VENDA_CONTA_ALUNO',
-          paymentMethod: pLine.method,
-          amount: netLineAmount,
-          description: `Venda ${newSale.id} (${student.name}) — ${pLine.method}`,
-          referenceId: newSale.id,
+
+      // Etapa 2: Baixa de estoque atômica (proíbe estoque negativo)
+      const updatedProducts: Product[] = [];
+      const createdMovements: StockMovement[] = [];
+      const createdNotifications: WhatsAppNotification[] = [];
+
+      for (let idx = 0; idx < saleItems.length; idx++) {
+        const item = saleItems[idx];
+        const product = this.data.products.find(p => p.id === item.productId);
+        if (!product) {
+          throw new Error(`Produto ${item.productId} não encontrado durante a baixa de estoque.`);
+        }
+        const prevStock = Number(product.currentStock);
+        const nextStock = prevStock - item.quantity;
+        if (nextStock < 0) {
+          throw new Error(
+            `Estoque insuficiente para o produto "${product.name}". Disponível: ${prevStock}. Solicitado: ${item.quantity}.`
+          );
+        }
+
+        if (__testFaultStage === 'DEDUCT_STOCK' && idx === saleItems.length - 1) {
+          throw new Error(`Falha simulada na baixa de estoque do produto "${product.name}".`);
+        }
+
+        product.currentStock = nextStock;
+        product.updatedAt = nowIso;
+        updatedProducts.push(product);
+
+        const movement: StockMovement = {
+          id: `MOV-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+          productId: product.id,
+          productName: product.name,
+          saleId: newSale.id,
+          type: 'SAIDA_VENDA',
+          quantity: -item.quantity,
+          previousStock: prevStock,
+          newStock: product.currentStock,
+          resultingStock: product.currentStock,
+          reason: `Venda ${newSale.id} (${resolvedPrimaryMethod}) - Aluno: ${txStudent.name}`,
           performedByUserId: operatorUser.id,
           performedByUserName: operatorUser.name,
-          timestamp: nowIso
+          referenceId: newSale.id,
+          timestamp: nowIso,
         };
-        this.data.cashMovements.unshift(cashMov);
-        this.triggerSupabaseSync('cash_movements', cashMov, 'mapCashMovementToSupabase');
+        this.data.stockMovements.unshift(movement);
+        createdMovements.push(movement);
+
+        if (product.currentStock <= product.minStock) {
+          const lowStockNotif: WhatsAppNotification = {
+            id: `NOTIF-${Date.now()}-${idx}-${Math.floor(Math.random() * 100)}`,
+            type: 'ALERTA_ESTOQUE',
+            recipientName: 'Coordenação Lojinha',
+            recipientPhone: '(11) 98765-4321',
+            recipientRole: 'ADMIN',
+            studentName: 'Estoque da Lojinha',
+            messageText: `⚠️ Atenção: O item "${product.name}" atingiu ${product.currentStock} ${product.unit} (estoque mínimo: ${product.minStock}).`,
+            status: 'ENTREGUE',
+            scheduledFor: nowIso,
+            sentAt: nowIso,
+            attemptsCount: 1,
+          };
+          this.data.whatsappNotifications.unshift(lowStockNotif);
+          createdNotifications.push(lowStockNotif);
+        }
       }
+
+      // Etapa 3: Atualizar consumo / saldo do aluno e livro financeiro (vinculado a saleId)
+      if (__testFaultStage === 'UPDATE_STUDENT') {
+        throw new Error('Falha simulada ao atualizar o saldo de consumo do aluno.');
+      }
+
+      const createdLedgerEntries: FinancialTransaction[] = [];
+
+      if (cleanCreditUsed > 0) {
+        txStudent.creditBalance = Math.max(0, Math.round(((txStudent.creditBalance || 0) - cleanCreditUsed) * 100) / 100);
+        const creditEntry: FinancialTransaction = {
+          id: `LED-${Date.now()}-CRD-${Math.floor(Math.random() * 1000)}`,
+          timestamp: nowIso,
+          studentId: txStudent.id,
+          saleId: newSale.id,
+          type: 'CREDITO',
+          category: 'AJUSTE_CREDITO',
+          amount: cleanCreditUsed,
+          description: `Uso de crédito em conta na venda ${newSale.id}`,
+          documentRef: newSale.id,
+          performedByUserName: operatorUser.name,
+        };
+        this.data.financialLedger.unshift(creditEntry);
+        createdLedgerEntries.push(creditEntry);
+      }
+
+      if (totalAccountCharge > 0) {
+        txStudent.currentConsumptionBalance = Math.round((txStudent.currentConsumptionBalance + totalAccountCharge) * 100) / 100;
+        txStudent.totalOpenDebt = Math.round((txStudent.totalOpenDebt + totalAccountCharge) * 100) / 100;
+
+        const debitEntry: FinancialTransaction = {
+          id: `LED-${Date.now()}-DEB-${Math.floor(Math.random() * 1000)}`,
+          timestamp: nowIso,
+          studentId: txStudent.id,
+          saleId: newSale.id,
+          type: 'DEBITO',
+          category: 'CONSUMO_LOJINHA',
+          amount: totalAccountCharge,
+          description: `Consumo Lojinha - Venda ${newSale.id} (${saleItems.length} itens)`,
+          documentRef: newSale.id,
+          performedByUserName: operatorUser.name,
+        };
+        this.data.financialLedger.unshift(debitEntry);
+        createdLedgerEntries.push(debitEntry);
+      }
+
+      if (effectiveAmountPaid > 0) {
+        const paidMethodsLabel = finalPayments
+          .filter(p => p.method !== 'CONTA_ALUNO')
+          .map(p => p.method)
+          .join(' + ');
+        const paidEntry: FinancialTransaction = {
+          id: `LED-${Date.now()}-PG-${Math.floor(Math.random() * 1000)}`,
+          timestamp: nowIso,
+          studentId: txStudent.id,
+          saleId: newSale.id,
+          type: 'CREDITO',
+          category: 'PAGAMENTO_PIX',
+          amount: effectiveAmountPaid,
+          description: `Venda paga no ato (${paidMethodsLabel}) - ${newSale.id} (${saleItems.length} itens)`,
+          documentRef: newSale.id,
+          performedByUserName: operatorUser.name,
+        };
+        this.data.financialLedger.unshift(paidEntry);
+        createdLedgerEntries.push(paidEntry);
+      }
+
+      // Etapa 4: Registrar movimentação no Caixa se houver sessão aberta
+      const createdCashMovements: CashMovement[] = [];
+      if (activeSession) {
+        if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+        const movTypeMap: Record<PaymentMethod, CashMovementType> = {
+          DINHEIRO: 'VENDA_DINHEIRO',
+          PIX: 'VENDA_PIX',
+          CARTAO_CREDITO: 'VENDA_CARTAO',
+          CARTAO_DEBITO: 'VENDA_CARTAO',
+          MERCADO_PAGO: 'VENDA_MERCADO_PAGO',
+          CONTA_ALUNO: 'VENDA_CONTA_ALUNO',
+        };
+        for (const pLine of finalPayments) {
+          const netLineAmount =
+            pLine.method === 'DINHEIRO' ? Math.max(0, Math.round((pLine.amount - changeAmount) * 100) / 100) : pLine.amount;
+          if (netLineAmount <= 0) continue;
+          const cashMov: CashMovement = {
+            id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            sessionId: activeSession.id,
+            type: movTypeMap[pLine.method] || 'VENDA_CONTA_ALUNO',
+            paymentMethod: pLine.method,
+            amount: netLineAmount,
+            description: `Venda ${newSale.id} (${txStudent.name}) — ${pLine.method}`,
+            referenceId: newSale.id,
+            performedByUserId: operatorUser.id,
+            performedByUserName: operatorUser.name,
+            timestamp: nowIso,
+          };
+          this.data.cashMovements.unshift(cashMov);
+          createdCashMovements.push(cashMov);
+        }
+      }
+
+      // Etapa 5: Inserir venda e criar recibo vinculado
+      this.data.sales.unshift(newSale);
+
+      if (__testFaultStage === 'CREATE_RECEIPT') {
+        throw new Error('Falha simulada ao gerar o recibo vinculado à venda.');
+      }
+
+      // Marcar venda como COMPLETED somente quando todos os artefatos puderem ser vinculados
+      newSale.status = 'COMPLETED';
+      newSale.completedAt = nowIso;
+
+      const receipt = this.createReceiptForSale(newSale, txStudent, operatorUser, {
+        terminalId: newSale.terminalId,
+        activeSession,
+        skipSave: true,
+      });
+
+      if (!receipt || receipt.saleId !== newSale.id || receipt.status !== 'ATIVO') {
+        throw new Error('Falha de integridade: o recibo não pôde ser vinculado corretamente à venda.');
+      }
+
+      // Etapa 6: Validar integridade dos registros gerados nesta transação
+      const txIssues = validateDataIntegrity(this.getIntegritySnapshot()).filter(
+        issue =>
+          issue.severity === 'ERROR' &&
+          (issue.entityId.includes(newSale.id) ||
+            issue.entityId.includes(receipt.id) ||
+            updatedProducts.some(p => p.id === issue.entityId))
+      );
+      if (txIssues.length > 0) {
+        throw new Error(`Violação de integridade detectada na transação: ${txIssues[0].message}`);
+      }
+
+      // Etapa 7: Registro de auditoria vinculado ao saleId
+      const auditLog: AuditLog = {
+        id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: nowIso,
+        userId: operatorUser.id,
+        userName: operatorUser.name,
+        userRole: operatorUser.role,
+        action: 'REGISTRO_VENDA_PDV',
+        module: 'VENDAS',
+        referenceId: newSale.id,
+        details: `Venda ${newSale.id} (Recibo ${receipt.receiptCode} • R$ ${saleTotal.toFixed(2)}) para ${txStudent.name} via ${finalPayments.map(p => p.method).join(' + ')}${cleanDiscount > 0 ? ` (desconto R$ ${cleanDiscount.toFixed(2)})` : ''}.`,
+        status: 'SUCESSO',
+      };
+      this.data.auditLogs.unshift(auditLog);
+      if (this.data.auditLogs.length > 500) {
+        this.data.auditLogs = this.data.auditLogs.slice(0, 500);
+      }
+
+      // Etapa 8: Persistência única e imediata do estado final
+      if (__testFaultStage === 'PERSIST_STORAGE') {
+        throw new Error('Falha simulada ao persistir a transação no armazenamento.');
+      }
+      this.writeDatabaseSync(this.data, true);
+
+      // Etapa 9: Enfileirar sincronização Supabase na ordem correta (pais -> filhos)
+      for (const prod of updatedProducts) {
+        this.triggerSupabaseSync('products', prod, 'mapProductToSupabase');
+      }
+      this.triggerSupabaseSync('students', txStudent, 'mapStudentToSupabase');
+      this.triggerSupabaseSync('sales', newSale, 'mapSaleToSupabase');
+      for (const mov of createdMovements) {
+        this.triggerSupabaseSync('stock_movements', mov, 'mapStockMovementToSupabase');
+      }
+      for (const cm of createdCashMovements) {
+        this.triggerSupabaseSync('cash_movements', cm, 'mapCashMovementToSupabase');
+      }
+      this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
+      for (const notif of createdNotifications) {
+        this.triggerSupabaseSync('whatsapp_notifications', notif, 'mapNotificationToSupabase');
+      }
+      this.triggerSupabaseSync('audit_logs', auditLog, 'mapAuditLogToSupabase');
+
+      return {
+        sale: newSale,
+        student: txStudent,
+        receipt,
+        updatedProducts,
+        stockMovements: createdMovements,
+        ledgerEntries: createdLedgerEntries,
+        auditLog,
+      };
+    } catch (err: any) {
+      // ROLLBACK INTEGRAL: restaura snapshot anterior e filas pendentes
+      this.data = rollbackSnapshot;
+      this.pendingUpserts = prevPendingUpserts;
+      this.pendingDeletes = prevPendingDeletes;
+
+      // Registrar falha em auditoria sem corromper vendas, recibos, estoque ou saldo
+      try {
+        this.logAudit(
+          operatorUser.id,
+          operatorUser.name,
+          operatorUser.role,
+          'FALHA_VENDA_PDV',
+          'VENDAS',
+          `Transação da venda ${saleId} revertida integralmente (rollback). Motivo: ${err?.message || 'Erro desconhecido'}`,
+          'FALHA',
+          saleId
+        );
+      } catch {
+        // Nunca mascarar erro principal da transação
+      }
+
+      throw err instanceof Error ? err : new Error(String(err || 'Não foi possível concluir a venda.'));
     }
-
-    this.data.sales.unshift(newSale);
-
-    // Gerar recibo imutável automaticamente após efetivação da venda
-    const receipt = this.createReceiptForSale(newSale, student, operatorUser, {
-      terminalId: newSale.terminalId,
-      activeSession,
-      skipSave: true
-    });
-
-    this.logAudit(
-      operatorUser.id,
-      operatorUser.name,
-      operatorUser.role,
-      'REGISTRO_VENDA_PDV',
-      'VENDAS',
-      `Venda ${newSale.id} (Recibo ${receipt.receiptCode} • R$ ${saleTotal.toFixed(2)}) para ${student.name} via ${finalPayments.map(p => p.method).join(' + ')}${cleanDiscount > 0 ? ` (desconto R$ ${cleanDiscount.toFixed(2)})` : ''}.`
-    );
-
-    this.saveDatabase();
-    this.triggerSupabaseSync('sales', newSale, 'mapSaleToSupabase');
-    this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
-    this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
-    return { sale: newSale, student, receipt };
   }
 
-  // 3. Estorno de Venda no PDV
-  public reverseSale(saleId: string, reason: string, user: { id: string; name: string; role: any }) {
-    const sale = this.data.sales.find(s => s.id === saleId);
-    if (!sale) {
+  // 3. Estorno Atômico e Idempotente de Venda no PDV
+  public reverseSale(
+    saleId: string,
+    reason: string,
+    user: { id: string; name: string; role: any },
+    options?: { idempotencyKey?: string }
+  ): {
+    sale: Sale;
+    student: Student;
+    receipt?: SalesReceipt;
+    updatedProducts: Product[];
+    stockMovements: StockMovement[];
+    updatedInvoices: Invoice[];
+    ledgerEntries: FinancialTransaction[];
+    auditLog?: AuditLog;
+    idempotentReplay?: boolean;
+  } {
+    const cleanReason = (reason || '').trim();
+    if (!cleanReason) {
+      throw new Error('O motivo do estorno é obrigatório.');
+    }
+
+    const existingSale = this.data.sales.find(s => s.id === saleId);
+    if (!existingSale) {
       throw new Error(`Venda ${saleId} não encontrada.`);
     }
 
-    if (sale.status === 'REVERSED') {
-      throw new Error(`A venda ${saleId} já foi estornada anteriormente.`);
+    const studentRef = this.data.students.find(s => s.id === existingSale.studentId);
+    if (!studentRef) {
+      throw new Error('Aluno associado à venda não encontrado.');
     }
 
-    const student = this.data.students.find(s => s.id === sale.studentId);
-    if (!student) {
-      throw new Error(`Aluno associado à venda não encontrado.`);
+    // Idempotência do estorno: se já estornada com a mesma chave, retorna estado atual sem duplicar
+    if (existingSale.status === 'REVERSED') {
+      const reqKey = (options?.idempotencyKey || '').trim();
+      if (reqKey && existingSale.reversalIdempotencyKey === reqKey) {
+        const receipt = this.getReceiptBySaleId(existingSale.id);
+        const updatedProducts = existingSale.items
+          .map(it => this.data.products.find(p => p.id === it.productId))
+          .filter(Boolean) as Product[];
+        return {
+          sale: existingSale,
+          student: studentRef,
+          receipt,
+          updatedProducts,
+          stockMovements: this.data.stockMovements.filter(
+            m => (m.saleId === existingSale.id || m.referenceId === existingSale.id) && m.type === 'ESTORNO_VENDA'
+          ),
+          updatedInvoices: [],
+          ledgerEntries: this.data.financialLedger.filter(
+            l => (l.saleId === existingSale.id || l.documentRef === existingSale.id) && l.category === 'ESTORNO_VENDA'
+          ),
+          idempotentReplay: true,
+        };
+      }
+      throw new Error(`A venda ${saleId} já foi estornada anteriormente e não pode ser estornada novamente.`);
     }
 
-    // Reverter estoque
-    for (const item of sale.items) {
-      const product = this.data.products.find(p => p.id === item.productId);
-      if (product) {
-        const prevStock = product.currentStock;
-        product.currentStock += item.quantity;
-        product.updatedAt = new Date().toISOString();
+    const rollbackSnapshot = this.takeSnapshot();
+    const prevPendingUpserts = this.clonePendingUpserts();
+    const prevPendingDeletes = this.clonePendingDeletes();
+
+    try {
+      const nowIso = new Date().toISOString();
+      const sale = this.data.sales.find(s => s.id === saleId)!;
+      const student = this.data.students.find(s => s.id === sale.studentId)!;
+      const updatedProducts: Product[] = [];
+      const createdMovements: StockMovement[] = [];
+      const updatedInvoices: Invoice[] = [];
+
+      // Calcular quantidades já estornadas parcialmente (se houver) para não devolver estoque em dobro
+      const alreadyReversedByProduct = new Map<string, number>();
+      for (const m of this.data.stockMovements) {
+        if ((m.saleId === sale.id || m.referenceId === sale.id) && m.type === 'ESTORNO_VENDA') {
+          alreadyReversedByProduct.set(
+            m.productId,
+            (alreadyReversedByProduct.get(m.productId) || 0) + Math.abs(Number(m.quantity) || 0)
+          );
+        }
+      }
+
+      // 1. Reverter estoque dos itens restantes
+      for (let idx = 0; idx < sale.items.length; idx++) {
+        const item = sale.items[idx];
+        const product = this.data.products.find(p => p.id === item.productId);
+        if (!product) continue;
+
+        const alreadyReturned = alreadyReversedByProduct.get(item.productId) || 0;
+        const qtyToRestore = Math.max(0, item.quantity - alreadyReturned);
+        if (qtyToRestore <= 0) continue;
+
+        const prevStock = Number(product.currentStock);
+        product.currentStock = prevStock + qtyToRestore;
+        product.updatedAt = nowIso;
+        updatedProducts.push(product);
 
         const revMovement: StockMovement = {
-          id: `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          id: `MOV-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
           productId: product.id,
           productName: product.name,
+          saleId: sale.id,
           type: 'ESTORNO_VENDA',
-          quantity: item.quantity,
+          quantity: qtyToRestore,
           previousStock: prevStock,
           newStock: product.currentStock,
-          reason: `Estorno de venda ${sale.id}: ${reason}`,
+          resultingStock: product.currentStock,
+          reason: `Estorno de venda ${sale.id}: ${cleanReason}`,
           performedByUserId: user.id,
           performedByUserName: user.name,
           referenceId: sale.id,
-          timestamp: new Date().toISOString()
+          timestamp: nowIso,
         };
         this.data.stockMovements.unshift(revMovement);
-        this.triggerSupabaseSync('products', product, 'mapProductToSupabase');
-        this.triggerSupabaseSync('stock_movements', revMovement, 'mapStockMovementToSupabase');
+        createdMovements.push(revMovement);
       }
-    }
 
-    const saleMethod = sale.paymentMethod || 'CONTA_ALUNO';
-    const accountChargeAmount = Array.isArray(sale.payments) && sale.payments.length > 0
-      ? this.roundCurrency(
-          sale.payments
-            .filter(p => p.method === 'CONTA_ALUNO')
-            .reduce((acc, p) => acc + Number(p.amount || 0), 0)
-        )
-      : (saleMethod === 'CONTA_ALUNO' ? sale.total : 0);
+      // 2. Ajustar ou desvincular faturas em aberto que contenham esta venda
+      const saleMethod = sale.paymentMethod || 'CONTA_ALUNO';
+      let creditedFromPaidInvoice = 0;
 
-    if (accountChargeAmount > 0) {
-      // Abater do consumo acumulado
-      student.currentConsumptionBalance = Math.max(0, Math.round((student.currentConsumptionBalance - accountChargeAmount) * 100) / 100);
-      student.totalOpenDebt = Math.max(0, Math.round((student.totalOpenDebt - accountChargeAmount) * 100) / 100);
-    }
+      for (const inv of this.data.invoices) {
+        const hasInSalesIds = Array.isArray(inv.salesIds) && inv.salesIds.includes(sale.id);
+        const hasInLinks = Array.isArray(inv.saleItemLinks) && inv.saleItemLinks.some(l => l.saleId === sale.id);
+        if (!hasInSalesIds && !hasInLinks) continue;
 
-    if ((sale.creditUsed || 0) > 0) {
-      student.creditBalance = Math.round(((student.creditBalance || 0) + Number(sale.creditUsed || 0)) * 100) / 100;
-    }
+        if (inv.status === 'PAGA') {
+          const allocated = (sale.invoiceAllocations || [])
+            .filter(a => a.invoiceId === inv.id)
+            .reduce((acc, a) => acc + a.amount, 0);
+          creditedFromPaidInvoice = this.roundCurrency(creditedFromPaidInvoice + (allocated > 0 ? allocated : sale.total));
+          continue;
+        }
 
-    // Registro no livro financeiro
-    this.data.financialLedger.unshift({
-      id: `LED-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-      timestamp: new Date().toISOString(),
-      studentId: student.id,
-      type: 'CREDITO',
-      category: 'ESTORNO_VENDA',
-      amount: sale.total,
-      description: `Estorno de venda ${sale.id} (${saleMethod}) - Motivo: ${reason}`,
-      documentRef: sale.id,
-      performedByUserName: user.name
-    });
+        if (inv.status === 'CANCELADA') continue;
 
-    const activeSession = this.getActiveCashSession();
-    if (activeSession) {
-      if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
-      const revCashMov: CashMovement = {
-        id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        sessionId: activeSession.id,
-        type: 'ESTORNO',
-        paymentMethod: saleMethod,
-        amount: sale.total,
-        description: `Estorno venda ${sale.id} (${student.name}): ${reason}`,
-        referenceId: sale.id,
-        performedByUserId: user.id,
+        inv.salesIds = (inv.salesIds || []).filter(id => id !== sale.id);
+        if (Array.isArray(inv.saleItemLinks)) {
+          inv.saleItemLinks = inv.saleItemLinks.filter(l => l.saleId !== sale.id);
+          inv.consumptionItems = this.buildConsumptionSummaryItems(inv.saleItemLinks);
+          inv.canteenConsumptionTotal = this.roundCurrency(
+            inv.saleItemLinks.reduce((acc, l) => acc + Number(l.subtotal || 0), 0)
+          );
+        } else {
+          inv.canteenConsumptionTotal = Math.max(0, this.roundCurrency(inv.canteenConsumptionTotal - sale.total));
+        }
+
+        inv.grossTotal = Math.max(
+          0,
+          this.roundCurrency(
+            inv.tuitionAmount + inv.canteenConsumptionTotal + inv.previousBalance + inv.adjustmentsTotal - (inv.creditApplied || 0)
+          )
+        );
+        inv.remainingBalance = Math.max(0, this.roundCurrency(inv.grossTotal - inv.paidTotal));
+        inv.updatedAt = nowIso;
+        if (!Array.isArray(inv.history)) inv.history = [];
+        inv.history.unshift({
+          id: `INV-HIST-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          timestamp: nowIso,
+          userId: user.id,
+          userName: user.name,
+          userRole: user.role,
+          action: 'AJUSTE_POR_ESTORNO_VENDA',
+          details: `Venda ${sale.id} removida da fatura devido a estorno. Motivo: ${cleanReason}`,
+        });
+
+        if (inv.grossTotal <= 0 && inv.paidTotal <= 0 && inv.salesIds.length === 0) {
+          inv.status = 'CANCELADA';
+          inv.canceledAt = nowIso;
+          inv.canceledByUserName = user.name;
+          inv.canceledReason = `Cancelada automaticamente após estorno da venda ${sale.id}.`;
+        }
+        updatedInvoices.push(inv);
+      }
+
+      // 3. Reverter crédito utilizado ou devolver crédito caso fatura já estivesse paga
+      if ((sale.creditUsed || 0) > 0) {
+        student.creditBalance = this.roundCurrency((student.creditBalance || 0) + Number(sale.creditUsed || 0));
+      }
+      if (creditedFromPaidInvoice > 0) {
+        student.creditBalance = this.roundCurrency((student.creditBalance || 0) + creditedFromPaidInvoice);
+      }
+
+      // 4. Atualizar status da venda
+      const remainingToReverse = Math.max(0, this.roundCurrency(sale.total - (sale.reversedAmount || 0)));
+      sale.status = 'REVERSED';
+      sale.reversedAmount = sale.total;
+      sale.billingStatus = 'ESTORNADA';
+      sale.reversedReason = cleanReason;
+      sale.reversedByUserName = user.name;
+      sale.reversedAt = nowIso;
+      sale.invoiceId = undefined;
+      sale.invoiceAllocations = [];
+      sale.billedAmount = 0;
+      sale.reversalIdempotencyKey =
+        (options?.idempotencyKey || '').trim() || `REV-${sale.id}-${Date.now()}`;
+
+      // 5. Recalcular saldo do aluno a partir das vendas e faturas persistidas
+      this.recalculateStudentBalances(student);
+
+      // 6. Registro no livro financeiro vinculado a saleId
+      const revLedger: FinancialTransaction = {
+        id: `LED-${Date.now()}-EST-${Math.floor(Math.random() * 1000)}`,
+        timestamp: nowIso,
+        studentId: student.id,
+        saleId: sale.id,
+        type: 'CREDITO',
+        category: 'ESTORNO_VENDA',
+        amount: remainingToReverse > 0 ? remainingToReverse : sale.total,
+        description: `Estorno de venda ${sale.id} (${saleMethod}) - Motivo: ${cleanReason}`,
+        documentRef: sale.id,
         performedByUserName: user.name,
-        timestamp: new Date().toISOString()
       };
-      this.data.cashMovements.unshift(revCashMov);
-      this.triggerSupabaseSync('cash_movements', revCashMov, 'mapCashMovementToSupabase');
+      this.data.financialLedger.unshift(revLedger);
+
+      // 7. Movimentação no Caixa se houver sessão aberta
+      const createdCashMovements: CashMovement[] = [];
+      const activeSession = this.getActiveCashSession();
+      if (activeSession) {
+        if (!Array.isArray(this.data.cashMovements)) this.data.cashMovements = [];
+        const revCashMov: CashMovement = {
+          id: `CMOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          sessionId: activeSession.id,
+          type: 'ESTORNO',
+          paymentMethod: saleMethod,
+          amount: remainingToReverse > 0 ? remainingToReverse : sale.total,
+          description: `Estorno venda ${sale.id} (${student.name}): ${cleanReason}`,
+          referenceId: sale.id,
+          performedByUserId: user.id,
+          performedByUserName: user.name,
+          timestamp: nowIso,
+        };
+        this.data.cashMovements.unshift(revCashMov);
+        createdCashMovements.push(revCashMov);
+      }
+
+      // 8. Atualizar recibo para ESTORNADO
+      const receipt = this.appendReceiptReversal(sale, {
+        type: 'ESTORNO_TOTAL',
+        reason: cleanReason,
+        user,
+        reversedAmount: remainingToReverse > 0 ? remainingToReverse : sale.total,
+        transactionId: sale.payments?.find(p => p.transactionId)?.transactionId,
+      });
+
+      // 9. Verificar integridade após estorno
+      const postIssues = validateDataIntegrity(this.getIntegritySnapshot()).filter(
+        issue =>
+          issue.severity === 'ERROR' &&
+          (issue.entityId.includes(sale.id) || (receipt && issue.entityId.includes(receipt.id)))
+      );
+      if (postIssues.length > 0) {
+        throw new Error(`Violação de integridade detectada no estorno: ${postIssues[0].message}`);
+      }
+
+      // 10. Auditoria vinculada a saleId
+      const auditLog: AuditLog = {
+        id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: nowIso,
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        action: 'ESTORNO_VENDA_PDV',
+        module: 'VENDAS',
+        referenceId: sale.id,
+        details: `Estorno integral da venda ${sale.id} (R$ ${sale.total.toFixed(2)}) de ${student.name}. Motivo: ${cleanReason}`,
+        status: 'SUCESSO',
+      };
+      this.data.auditLogs.unshift(auditLog);
+      if (this.data.auditLogs.length > 500) {
+        this.data.auditLogs = this.data.auditLogs.slice(0, 500);
+      }
+
+      // 11. Persistir atomicamente e enfileirar Supabase
+      this.writeDatabaseSync(this.data, true);
+
+      for (const prod of updatedProducts) {
+        this.triggerSupabaseSync('products', prod, 'mapProductToSupabase');
+      }
+      this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
+      this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
+      for (const inv of updatedInvoices) {
+        this.triggerSupabaseSync('invoices', inv, 'mapInvoiceToSupabase');
+      }
+      for (const mov of createdMovements) {
+        this.triggerSupabaseSync('stock_movements', mov, 'mapStockMovementToSupabase');
+      }
+      for (const cm of createdCashMovements) {
+        this.triggerSupabaseSync('cash_movements', cm, 'mapCashMovementToSupabase');
+      }
+      if (receipt) {
+        this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
+      }
+      this.triggerSupabaseSync('audit_logs', auditLog, 'mapAuditLogToSupabase');
+
+      return {
+        sale,
+        student,
+        receipt,
+        updatedProducts,
+        stockMovements: createdMovements,
+        updatedInvoices,
+        ledgerEntries: [revLedger],
+        auditLog,
+      };
+    } catch (err: any) {
+      this.data = rollbackSnapshot;
+      this.pendingUpserts = prevPendingUpserts;
+      this.pendingDeletes = prevPendingDeletes;
+
+      try {
+        this.logAudit(
+          user.id,
+          user.name,
+          user.role,
+          'FALHA_ESTORNO_VENDA_PDV',
+          'VENDAS',
+          `Falha ao estornar venda ${saleId} (alterações revertidas). Motivo: ${err?.message || 'Erro desconhecido'}`,
+          'FALHA',
+          saleId
+        );
+      } catch {
+        // ignore
+      }
+
+      throw err instanceof Error ? err : new Error(String(err || 'Erro ao estornar venda.'));
     }
-
-    sale.status = 'REVERSED';
-    sale.reversedAmount = sale.total;
-    sale.billingStatus = 'ESTORNADA';
-    sale.reversedReason = reason;
-    sale.reversedByUserName = user.name;
-    sale.reversedAt = new Date().toISOString();
-
-    const receipt = this.appendReceiptReversal(sale, {
-      type: 'ESTORNO_TOTAL',
-      reason,
-      user,
-      reversedAmount: sale.total,
-      transactionId: sale.payments?.find(p => p.transactionId)?.transactionId,
-    });
-
-    this.logAudit(
-      user.id,
-      user.name,
-      user.role,
-      'ESTORNO_VENDA_PDV',
-      'VENDAS',
-      `Estorno da venda ${sale.id} (R$ ${sale.total.toFixed(2)}) de ${student.name}. Motivo: ${reason}`
-    );
-
-    this.saveDatabase();
-    this.triggerSupabaseSync('sales', sale, 'mapSaleToSupabase');
-    if (receipt) this.triggerSupabaseSync('sales_receipts', receipt, 'mapReceiptToSupabase');
-    this.triggerSupabaseSync('students', student, 'mapStudentToSupabase');
-    return { sale, student, receipt };
   }
 
   public partialReverseSale(
@@ -1614,16 +2364,20 @@ class DatabaseService {
 
   private generateNextReceiptCode(): string {
     const receipts = this.getReceipts();
+    const sales = this.getSales();
     let maxNum = 0;
     const usedCodes = new Set<string>();
-    for (const r of receipts) {
-      usedCodes.add(r.receiptCode);
-      const match = /^ICE-(\d+)$/i.exec(r.receiptCode || '');
+    const registerCode = (code?: string) => {
+      if (!code) return;
+      usedCodes.add(code);
+      const match = /^ICE-(\d+)$/i.exec(code);
       if (match) {
         const n = parseInt(match[1], 10);
         if (n > maxNum) maxNum = n;
       }
-    }
+    };
+    for (const r of receipts) registerCode(r.receiptCode);
+    for (const s of sales) registerCode(s.receiptCode);
     let next = maxNum + 1;
     let code = `ICE-${String(next).padStart(6, '0')}`;
     while (usedCodes.has(code)) {
@@ -5437,31 +6191,85 @@ class DatabaseService {
     return op;
   }
 
-  public resetToSeed(user: { id: string; name: string; role: any }) {
-    this.data = {
-      settings: initialSettings,
-      users: initialUsers,
-      guardians: initialGuardians,
-      students: initialStudents,
-      products: initialProducts,
-      stockMovements: initialStockMovements,
-      sales: initialSales,
-      financialLedger: initialFinancialLedger,
-      invoices: initialInvoices,
-      billingBatches: [],
-      receipts: [],
-      pixPayments: initialPixPayments,
-      whatsappNotifications: initialWhatsAppNotifications,
-      auditLogs: initialAuditLogs,
-      passeios: initialPasseios,
-      tripOperations: [],
-      cashSessions: [],
-      cashMovements: [],
-    };
-    this.ensureReceiptsForExistingSales();
-    this.logAudit(user.id, user.name, user.role, 'RESET_BASE_DE_DADOS', 'SISTEMA', 'Base de dados resetada para estado semente.');
-    this.saveDatabase();
-    return { success: true };
+  public resetToSeed(
+    user: { id: string; name: string; role: any },
+    options?: { simulateFailure?: boolean }
+  ) {
+    const backupSnapshot = this.takeSnapshot();
+    const prevPendingUpserts = this.clonePendingUpserts();
+    const prevPendingDeletes = this.clonePendingDeletes();
+
+    try {
+      const nextSettings = deepCloneData(initialSettings);
+      if (this.disableSupabase) {
+        nextSettings.supabaseActive = false;
+      }
+
+      this.data = {
+        settings: nextSettings,
+        users: deepCloneData(initialUsers),
+        guardians: deepCloneData(initialGuardians),
+        students: deepCloneData(initialStudents),
+        products: deepCloneData(initialProducts),
+        stockMovements: deepCloneData(initialStockMovements),
+        sales: deepCloneData(initialSales),
+        financialLedger: deepCloneData(initialFinancialLedger),
+        invoices: deepCloneData(initialInvoices),
+        billingBatches: [],
+        receipts: [],
+        pixPayments: deepCloneData(initialPixPayments),
+        whatsappNotifications: deepCloneData(initialWhatsAppNotifications),
+        auditLogs: deepCloneData(initialAuditLogs),
+        passeios: deepCloneData(initialPasseios),
+        tripOperations: [],
+        cashSessions: [],
+        cashMovements: [],
+      };
+
+      this.ensureReceiptsForExistingSales();
+
+      if (options?.simulateFailure) {
+        throw new Error('Falha simulada durante a restauração dos dados iniciais.');
+      }
+
+      const integrity = this.validateIntegrity();
+      if (!integrity.healthy) {
+        throw new Error(`Estado restaurado falhou na verificação de integridade: ${integrity.issues[0]?.message || 'inconsistência detectada'}`);
+      }
+
+      this.logAudit(
+        user.id,
+        user.name,
+        user.role,
+        'RESET_BASE_DE_DADOS',
+        'SISTEMA',
+        'Base de dados restaurada com sucesso para o estado inicial de teste (backup prévio criado).'
+      );
+      this.writeDatabaseSync(this.data, true);
+
+      return {
+        success: true,
+        backupCreated: true,
+        restoredAt: new Date().toISOString(),
+        counts: {
+          students: this.data.students.length,
+          products: this.data.products.length,
+          sales: this.data.sales.length,
+          receipts: (this.data.receipts || []).length,
+          invoices: this.data.invoices.length,
+          passeios: this.data.passeios.length,
+        },
+      };
+    } catch (err: any) {
+      // Restaura integralmente o backup temporário em caso de erro
+      this.data = backupSnapshot;
+      this.pendingUpserts = prevPendingUpserts;
+      this.pendingDeletes = prevPendingDeletes;
+      this.writeDatabaseSync(this.data);
+      throw new Error(
+        `Falha ao restaurar os dados iniciais (o estado anterior foi preservado via backup): ${err?.message || 'erro interno'}`
+      );
+    }
   }
 }
 

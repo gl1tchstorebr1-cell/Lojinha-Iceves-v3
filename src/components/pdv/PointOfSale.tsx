@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useDeferredValue } from 'react';
+import React, { useState, useMemo, useDeferredValue, useRef, useEffect } from 'react';
 import { 
   Search, 
   ShoppingCart, 
@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { Product, Student, Sale, ProductCategory, PaymentMethod, SalesReceipt, SystemSettings } from '../../types';
 import { formatCurrency, formatDateTime, formatProductPrice, isProductPricePending } from '../../utils/formatters';
-import { api } from '../../services/api';
+import { api, type SaleReversalBundle, type SaleTransactionBundle } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { getProductImages, getCategoryBadgeColor, OFFICIAL_PRODUCT_CATEGORIES } from '../../utils/productImages';
@@ -41,8 +41,8 @@ interface PointOfSaleProps {
   sales: Sale[];
   receipts?: SalesReceipt[];
   settings?: SystemSettings | null;
-  onSaleCompleted: (sale: Sale, student: Student, receipt?: SalesReceipt) => void;
-  onSaleReversed: (sale: Sale, student: Student, receipt?: SalesReceipt) => void;
+  onSaleCompleted: (bundle: SaleTransactionBundle) => void;
+  onSaleReversed: (bundle: SaleReversalBundle) => void;
   onReceiptUpdated?: (receipt: SalesReceipt) => void;
 }
 
@@ -80,6 +80,7 @@ export function PointOfSale({
   const [selectedCategory, setSelectedCategory] = useState<string>('TODAS');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitStage, setSubmitStage] = useState<'VALIDANDO' | 'PROCESSANDO' | 'CONFIRMANDO' | null>(null);
   const [saleError, setSaleError] = useState<string | null>(null);
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
   const [completedReceipt, setCompletedReceipt] = useState<SalesReceipt | null>(null);
@@ -99,8 +100,16 @@ export function PointOfSale({
   const [reversalMode, setReversalMode] = useState<'FULL' | 'PARTIAL'>('FULL');
   const [partialQuantities, setPartialQuantities] = useState<Record<string, number>>({});
   const [reversalReason, setReversalReason] = useState('');
+  const [reversalConfirmed, setReversalConfirmed] = useState(false);
   const [isReversing, setIsReversing] = useState(false);
   const [reversalError, setReversalError] = useState<string | null>(null);
+  const [reversalSuccessMessage, setReversalSuccessMessage] = useState<string | null>(null);
+
+  // Locks síncronos contra duplo clique e chave de idempotência vinculada ao checkout atual
+  const submittingLockRef = useRef(false);
+  const reversingLockRef = useRef(false);
+  const pendingIdempotencyRef = useRef<{ signature: string; key: string } | null>(null);
+  const pendingReversalKeyRef = useRef<{ saleId: string; key: string } | null>(null);
 
   // Active view tab in PDV: 'terminal' or 'history'
   const [pdvTab, setPdvTab] = useState<'terminal' | 'history'>('terminal');
@@ -144,13 +153,16 @@ export function PointOfSale({
 
   // Cart operations
   const addToCart = (product: Product) => {
-    if (product.archived || product.status !== 'ACTIVE') return;
+    if (product.archived || product.status !== 'ACTIVE') {
+      setSaleError(`O produto "${product.name}" está inativo/arquivado e não pode ser vendido.`);
+      return;
+    }
     if (isProductPricePending(product)) {
-      setSaleError(`"${product.name}" está com preço não definido e não pode ser vendido ainda.`);
+      setSaleError('Este produto não possui preço definido e não pode ser vendido.');
       return;
     }
     if (product.currentStock <= 0) {
-      setSaleError(`"${product.name}" está sem estoque disponível.`);
+      setSaleError(`Estoque insuficiente para o produto "${product.name}". Disponível: ${product.currentStock}. Solicitado: 1.`);
       return;
     }
     setSaleError(null);
@@ -159,7 +171,10 @@ export function PointOfSale({
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
         if (existing.quantity >= product.currentStock) {
-          return prev; // cannot exceed stock
+          setSaleError(
+            `Estoque insuficiente para o produto "${product.name}". Disponível: ${product.currentStock}. Solicitado: ${existing.quantity + 1}.`
+          );
+          return prev;
         }
         return prev.map(item => 
           item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
@@ -224,8 +239,27 @@ export function PointOfSale({
     }
   };
 
-  // Finalize Sale
+  // Assinatura determinística do carrinho atual para reutilizar a mesma chave de idempotência em retentativas/duplo clique
+  const checkoutSignature = useMemo(() => {
+    const itemsSig = cart
+      .map(i => `${i.product.id}:${i.quantity}`)
+      .sort()
+      .join('|');
+    return `${selectedStudent?.id || ''}|${paymentMethod}|${parsedDiscount}|${itemsSig}`;
+  }, [cart, selectedStudent?.id, paymentMethod, parsedDiscount]);
+
+  useEffect(() => {
+    if (pendingIdempotencyRef.current && pendingIdempotencyRef.current.signature !== checkoutSignature) {
+      pendingIdempotencyRef.current = null;
+    }
+  }, [checkoutSignature]);
+
+  // Finalize Sale (Atômico + Idempotente + Trava Síncrona contra duplo clique)
   const handleFinalizeSale = async () => {
+    if (submittingLockRef.current || isSubmitting) {
+      return;
+    }
+
     if (!isOnline) {
       setSaleError('Modo offline ativo: conecte-se ao servidor para registrar vendas e baixar estoque.');
       return;
@@ -236,16 +270,64 @@ export function PointOfSale({
       return;
     }
 
+    if (selectedStudent.status !== 'ACTIVE') {
+      setSaleError(`O aluno ${selectedStudent.name} está inativo e não pode realizar compras.`);
+      return;
+    }
+
     if (cart.length === 0) {
       setSaleError('O carrinho está vazio.');
       return;
     }
 
+    // Pré-validação rigorosa antes de iniciar a transação
+    setSubmitStage('VALIDANDO');
+    for (const item of cart) {
+      const freshProduct = products.find(p => p.id === item.product.id) || item.product;
+      if (!freshProduct || freshProduct.archived || freshProduct.status !== 'ACTIVE') {
+        setSubmitStage(null);
+        setSaleError(`O produto "${item.product.name}" está inativo/arquivado e não pode ser vendido.`);
+        return;
+      }
+      if (isProductPricePending(freshProduct) || !freshProduct.price || Number(freshProduct.price) <= 0) {
+        setSubmitStage(null);
+        setSaleError('Este produto não possui preço definido e não pode ser vendido.');
+        return;
+      }
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        setSubmitStage(null);
+        setSaleError('Quantidade inválida no carrinho. Todos os itens devem ter quantidade maior que zero.');
+        return;
+      }
+      if (settings?.blockSaleWithoutStock !== false && freshProduct.currentStock < item.quantity) {
+        setSubmitStage(null);
+        setSaleError(
+          `Estoque insuficiente para o produto "${freshProduct.name}". Disponível: ${freshProduct.currentStock}. Solicitado: ${item.quantity}.`
+        );
+        return;
+      }
+    }
+
+    if (cartTotal <= 0) {
+      setSubmitStage(null);
+      setSaleError('O total da venda deve ser maior que zero.');
+      return;
+    }
+
+    submittingLockRef.current = true;
     setIsSubmitting(true);
+    setSubmitStage('PROCESSANDO');
     setSaleError(null);
 
-    // Double-click idempotency key
-    const idempotencyKey = `IDEMP-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    // Chave de idempotência estável por tentativa de venda (reutilizada em duplo clique ou retry)
+    if (!pendingIdempotencyRef.current || pendingIdempotencyRef.current.signature !== checkoutSignature) {
+      const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
+      pendingIdempotencyRef.current = {
+        signature: checkoutSignature,
+        key: `IDEMP-${Date.now()}-${randomPart}`,
+      };
+    }
+    const idempotencyKey = pendingIdempotencyRef.current.key;
 
     try {
       const parsedPaid = paymentMethod === 'DINHEIRO' && amountPaidInput.trim()
@@ -266,9 +348,20 @@ export function PointOfSale({
       };
 
       const res = await api.createSale(payload);
-      onSaleCompleted(res.sale, res.student, res.receipt);
+
+      // Verificação explícita da confirmação completa antes de exibir sucesso
+      setSubmitStage('CONFIRMANDO');
+      if (!res?.sale || res.sale.status !== 'COMPLETED' || !res.receipt || res.receipt.saleId !== res.sale.id) {
+        throw new Error('A persistência completa da venda e do recibo não foi confirmada. Nenhuma conclusão foi exibida.');
+      }
+
+      // Commit atômico no estado da aplicação + snapshot local (lança erro se falhar)
+      onSaleCompleted(res);
+
+      // Somente após persistência confirmada: limpar carrinho e exibir sucesso/recibo
+      pendingIdempotencyRef.current = null;
       setCompletedSale(res.sale);
-      setCompletedReceipt(res.receipt || null);
+      setCompletedReceipt(res.receipt);
       setCart([]);
       setSelectedStudent(null);
       setStudentSearch('');
@@ -283,9 +376,11 @@ export function PointOfSale({
         }, 180);
       }
     } catch (err: any) {
-      setSaleError(err.message || 'Erro ao registrar venda.');
+      setSaleError(err?.message || 'Erro ao registrar venda. Nenhuma alteração parcial foi confirmada.');
     } finally {
+      submittingLockRef.current = false;
       setIsSubmitting(false);
+      setSubmitStage(null);
     }
   };
 
@@ -304,15 +399,23 @@ export function PointOfSale({
     }
   };
 
-  // Handle Reversal of a Sale (Full or Partial)
+  // Handle Reversal of a Sale (Full or Partial, Atômico + Idempotente)
   const handleConfirmReversal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reversalSale) return;
-    if (!reversalReason.trim()) {
-      setReversalError('O motivo do estorno é obrigatório.');
+    if (!reversalSale || reversingLockRef.current || isReversing) return;
+
+    const trimmedReason = reversalReason.trim();
+    if (!trimmedReason) {
+      setReversalError('Preencha este campo. O motivo do estorno é obrigatório.');
       return;
     }
 
+    if (!reversalConfirmed) {
+      setReversalError('Confirme que deseja estornar esta venda e reverter estoque, consumo e registros financeiros.');
+      return;
+    }
+
+    reversingLockRef.current = true;
     setIsReversing(true);
     setReversalError(null);
 
@@ -324,34 +427,49 @@ export function PointOfSale({
 
         if (itemsToReverse.length === 0) {
           setReversalError('Selecione ao menos 1 item e quantidade para estorno parcial.');
-          setIsReversing(false);
           return;
         }
 
         const res = await api.partialReverseSale(reversalSale.id, {
           items: itemsToReverse,
-          reason: reversalReason,
+          reason: trimmedReason,
         });
-        onSaleReversed(res.sale, res.student, res.receipt);
+        onSaleReversed({
+          sale: res.sale,
+          student: res.student,
+          receipt: res.receipt,
+        });
         setReversalSale(null);
         setReversalReason('');
+        setReversalConfirmed(false);
         setPartialQuantities({});
+        setReversalSuccessMessage('Venda estornada com sucesso. Estoque, consumo e registros financeiros foram revertidos.');
         if (res.receipt) {
           setPreviewModalState({ receipt: res.receipt, isSecondCopy: false, mode: 'REVERSAL' });
         }
       } else {
-        const res = await api.reverseSale(reversalSale.id, reversalReason);
-        onSaleReversed(res.sale, res.student, res.receipt);
+        if (!pendingReversalKeyRef.current || pendingReversalKeyRef.current.saleId !== reversalSale.id) {
+          pendingReversalKeyRef.current = {
+            saleId: reversalSale.id,
+            key: `REV-IDEMP-${reversalSale.id}-${Date.now()}`,
+          };
+        }
+        const res = await api.reverseSale(reversalSale.id, trimmedReason, pendingReversalKeyRef.current.key);
+        onSaleReversed(res);
+        pendingReversalKeyRef.current = null;
         setReversalSale(null);
         setReversalReason('');
+        setReversalConfirmed(false);
         setPartialQuantities({});
+        setReversalSuccessMessage('Venda estornada com sucesso. Estoque, consumo e registros financeiros foram revertidos.');
         if (res.receipt) {
           setPreviewModalState({ receipt: res.receipt, isSecondCopy: false, mode: 'REVERSAL' });
         }
       }
     } catch (err: any) {
-      setReversalError(err.message || 'Erro ao estornar venda.');
+      setReversalError(err?.message || 'Erro ao estornar venda.');
     } finally {
+      reversingLockRef.current = false;
       setIsReversing(false);
     }
   };
@@ -870,7 +988,13 @@ export function PointOfSale({
                 {isSubmitting ? (
                   <>
                     <span className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin"></span>
-                    <span>Gravando e Baixando Estoque...</span>
+                    <span>
+                      {submitStage === 'VALIDANDO'
+                        ? 'Validando itens...'
+                        : submitStage === 'CONFIRMANDO'
+                          ? 'Confirmando persistência...'
+                          : 'Processando venda...'}
+                    </span>
                   </>
                 ) : (
                   <>
@@ -881,7 +1005,7 @@ export function PointOfSale({
               </button>
 
               <p className="text-[10px] text-center text-[#71717A]">
-                🔒 Proteção contra duplicidade ativa. Estoque atualizado no backend.
+                Operação atômica com idempotência e reversão automática em caso de falha.
               </p>
 
               </div>
@@ -906,6 +1030,20 @@ export function PointOfSale({
               Voltar ao Terminal <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {reversalSuccessMessage && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex items-center justify-between gap-3">
+              <span>{reversalSuccessMessage}</span>
+              <button
+                type="button"
+                onClick={() => setReversalSuccessMessage(null)}
+                className="text-emerald-400 hover:text-white font-bold cursor-pointer"
+                aria-label="Fechar aviso"
+              >
+                &times;
+              </button>
+            </div>
+          )}
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -1019,7 +1157,9 @@ export function PointOfSale({
                               setReversalMode('FULL');
                               setPartialQuantities({});
                               setReversalReason('');
+                              setReversalConfirmed(false);
                               setReversalError(null);
+                              setReversalSuccessMessage(null);
                             }}
                             className="px-2.5 py-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg transition cursor-pointer flex items-center gap-1"
                           >
@@ -1232,7 +1372,7 @@ export function PointOfSale({
               </div>
             )}
 
-            <form onSubmit={handleConfirmReversal} className="space-y-4">
+            <form onSubmit={handleConfirmReversal} noValidate className="space-y-4">
               {reversalMode === 'PARTIAL' && (
                 <div className="space-y-2 max-h-44 overflow-y-auto p-2.5 bg-[#141414] rounded-xl border border-[#282828]">
                   <span className="text-[10px] font-bold uppercase text-zinc-400 block">
@@ -1275,18 +1415,39 @@ export function PointOfSale({
                 </label>
                 <textarea
                   value={reversalReason}
-                  onChange={(e) => setReversalReason(e.target.value)}
+                  onChange={(e) => {
+                    setReversalReason(e.target.value);
+                    if (reversalError) setReversalError(null);
+                  }}
                   placeholder="Ex: Aluno desistiu do produto no balcão / Item registrado incorretamente..."
                   rows={3}
                   className="w-full p-2.5 bg-[#141414] border border-[#282828] rounded-xl text-xs text-[#F5F5F5] focus:ring-1 focus:ring-rose-500 focus:outline-none"
-                  required
                 />
               </div>
+
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-[#141414] border border-[#282828] text-xs text-[#D4D4D8] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={reversalConfirmed}
+                  onChange={(e) => {
+                    setReversalConfirmed(e.target.checked);
+                    if (reversalError) setReversalError(null);
+                  }}
+                  className="mt-0.5 accent-rose-500"
+                />
+                <span>
+                  Confirmo o estorno desta venda e a reversão automática do estoque, consumo do aluno, recibo e registros financeiros.
+                </span>
+              </label>
 
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setReversalSale(null)}
+                  onClick={() => {
+                    setReversalSale(null);
+                    setReversalConfirmed(false);
+                    setReversalError(null);
+                  }}
                   className="flex-1 py-2 px-3 border border-[#303030] text-[#A1A1AA] hover:text-white rounded-xl text-xs font-semibold hover:bg-[#222222] cursor-pointer"
                 >
                   Cancelar
